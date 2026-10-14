@@ -177,8 +177,8 @@ function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)r
 }
   /* (the body and the foothills merged as one mass: a 4-norm of their heights - exactly the one where the other is nothing, a soft union where both
      stand - so no step at the edge of either) */
-  let un=Math.pow(Math.max(0,hb),4);for(const F of C.hills){const fh=wgCragHill(F,x,z);if(fh>0)un+=fh*fh*fh*fh;}
-  let h=hm+wgCragSwell(C,x,z)+Math.pow(un,.25);
+  const hb0=Math.max(0,hb);let un=0,nf=0;for(const F of C.hills){const fh=wgCragHill(F,x,z);if(fh>0){un+=fh*fh*fh*fh;nf++;}}
+  let h=hm+wgCragSwell(C,x,z)+(nf?Math.pow(hb0*hb0*hb0*hb0+un,.25):hb0);
   const cv=wgCragCover(C,x,z);if(cv>h-24){let c=cv;if((!det||det<35)&&cv>h)c+=Math.min(cv-h,30)*.12*_wgCv.rk*(wnRidged(N[10],x/19+C.id,z/19,2,2.1,.5,1,2)-.45);h=wnSmax(h,c,24);}/* (ribs on its rock only: its grassy skirts stay smooth) *//* (a wide seam: the flanks run into the ground in a curve, no crease) */
   for(const p of C.pins){const px=x-p.x,pz=z-p.z;if(px*px+pz*pz>p.r2)continue;const a=px*p.ca+pz*p.sa,b=pz*p.ca-px*p.sa,q=Math.sqrt(a*a*p.ik+b*b*p.k)*p.sl/p.H;if(q>=1)continue;
     let ph=p.b+p.H*Math.pow(1-q,p.pw);if(!det||det<30)ph+=p.H*.05*wnN(N[9],a/7+p.x*.01,b/7);h=wnSmax(h,ph,6);}
@@ -187,9 +187,10 @@ function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)r
 function wgCragIn(C,x,z){return wgCragBase(C,x,z)>0||wgCragCover(C,x,z)>C.hc-5||C.hills.some(F=>wgCragHill(F,x,z)>0);}
 /* the mountain's radius in a direction (the lobes of its footprint), and its height over the water level at a point (0 off it) */
 function wgMtnR(G,ct,st){const N=WG.N[13],id=G.id;return G.Rb*(1+.14*wnN(N,ct*1.3+id,st*1.3)+.06*wnN(N,ct*3.1-id,st*3.1+id));}
-function wgMtn(G,x,z,det){const dx=x-G.x,dz=z-G.z;if(dx*dx+dz*dz>G.bd*G.bd)return 0;const N=WG.N,id=G.id;
+const _wgPed={v:0};/* (how far inside the last great mountain worked out the point is: its rock is the ring's stone - wterrain.js, vB.x) */
+function wgMtn(G,x,z,det){const dx=x-G.x,dz=z-G.z;_wgPed.v=0;if(dx*dx+dz*dz>G.bd*G.bd)return 0;const N=WG.N,id=G.id;
   const wx=dx+90*wnN(N[19],x/1300+id,z/1300),wz=dz+90*wnN(N[19],x/1300-id,z/1300+3.3),u=wx*G.cp+wz*G.sp,v=-wx*G.sp+wz*G.cp,r=Math.sqrt(u*u/(G.e*G.e)+v*v)+1e-6,ct=u/G.e/r,st=v/r;
-  const q=r/wgMtnR(G,ct,st);if(q>=1)return 0;
+  const q=r/wgMtnR(G,ct,st);if(q>=1)return 0;_wgPed.v=1-wnS(q,.8,1);
   /* the profile: a broad summit that falls 6 % to its edge, then the slopes: gentle at the top, steepest a little below the middle, long and soft at the foot */
   let h,sl=0;if(q<G.s0){const t=q/G.s0;h=G.Hs*(1-.06*t*t);}else{const t=(q-G.s0)/(1-G.s0);h=G.Hs*.94*Math.pow(1-t,1.6)*(1+1.6*t);sl=4*t*(1-t);}
   const fade=1-wnS(q,.82,1);
@@ -329,7 +330,7 @@ function wgLakes(x,z,B,o,c){const N=WG.N,WL=WG_CFG.WL,wx=x+150*wnN(N[16],x/700,z
   let pk=-30;for(const g of c.crags){if(g.r<0)continue;const dx=x-g.x,dz=z-g.z;if(dx*dx+dz*dz>g.r*g.r)continue;pk=wgKnoll(g.L,wx*.3+x*.7,wz*.3+z*.7,pk,14);}
   if(pk>0){if(!c.det||c.det<90)pk+=Math.min(pk,120)*.07*wnN(N[18],x/90,z/90);h=wnSmax(h,WL+pk-1,10);}/* (the knoll's own foot is soft: no toe) */
   /* the great mountain rises out of the lakes and the low land */
-  for(const G of c.greats){const m=wgMtn(G,x,z,c.det);if(m>.01)h=wnSmax(h,WL-1+m,6);}
+  for(const G of c.greats){const m=wgMtn(G,x,z,c.det);if(o&&_wgPed.v>(o.ped||0))o.ped=_wgPed.v;if(m>.01)h=wnSmax(h,WL-1+m,6);}
   if(o)o.isl=h-WL;return h;}
 /* a rounded knoll (the elderglade's rocky hills): its outline lobed (no two alike, no straight edge), its profile a dome - flat on top, steepest part
    way down, soft at the foot (a smoothstep: steepest half way) - so the rock shows on curved sides, never in a straight cut or a band round the foot */
@@ -444,16 +445,16 @@ function wgHydroApply(x,z,h,H,out){let wl=-1e9,fx=0,fz=0,hc=h;const N17=WG.N[17]
 /* ---------- sampling a grid of the world ----------
    wgGrid samples (n+1)^2 points from (x0,z0) at a spacing, with an apron of one sample all round (so normals and the cavity of points on an edge are the
    same as those of the neighbouring grid: chunks meet without seams). Out: height, water level, flow, normal, and the attributes the ground shader
-   needs: A = (spires, tablelands, lakes, forest) weights, B = (snow, cavity, wetness, cliff band). lite: no streams and lakes (far chunks). */
+   needs: A = (spires, tablelands, lakes, forest) weights, B = (snow - or, off the spires, a Great Elder Circle's pedestal -, cavity, wetness, cliff band). lite: no streams and lakes (far chunks). */
 const _wgO={},_wgHo={h:0,wl:0,fx:0,fz:0};
 function wgGrid(x0,z0,step,n,lite,st){const m=n+3,M=m*m,hh=new Float32Array(M),wl=new Float32Array(M),fw=new Float32Array(M*2),A=new Float32Array(M*4),Bt=new Float32Array(M*2);
   const pad=60,H=lite>=2?{segs:[],lakes:[]}:lite===1?{segs:[],lakes:wgHydroIn(x0-pad,z0-pad,x0+n*step+pad,z0+n*step+pad).lakes}:wgHydroIn(x0-pad,z0-pad,x0+n*step+pad,z0+n*step+pad);
   const c=wgCtx(x0-step*2,z0-step*2,x0+(n+2)*step,z0+(n+2)*step,step>=8?step*2:0),ST=lite>=1?null:st!==undefined?st:WG.stampsIn?WG.stampsIn(x0-step,z0-step,x0+(n+1)*step,z0+(n+1)*step):null;
-  for(let k=0;k<m;k++)for(let i=0;i<m;i++){const x=x0+(i-1)*step,z=z0+(k-1)*step,q=k*m+i,o=_wgO;o.mtn=0;o.tier=0;o.isl=0;o.sink=null;
+  for(let k=0;k<m;k++)for(let i=0;i<m;i++){const x=x0+(i-1)*step,z=z0+(k-1)*step,q=k*m+i,o=_wgO;o.mtn=0;o.tier=0;o.isl=0;o.sink=null;o.ped=0;
     const h0=wgH0(x,z,o,c);wgHydroApply(x,z,h0,H,_wgHo);let h=_wgHo.h;if(ST)h=wgStampApply(ST,x,z,h,_wgHo);
     if(o.sink&&o.w2>.95&&o.sink>_wgHo.wl){_wgHo.wl=o.sink;_wgHo.fx=0;_wgHo.fz=0;}/* (a sinkhole's pool) */
     hh[q]=h;wl[q]=_wgHo.wl;fw[q*2]=_wgHo.fx;fw[q*2+1]=_wgHo.fz;A[q*4]=o.w1;A[q*4+1]=o.w2;A[q*4+2]=o.w3;A[q*4+3]=o.F;
-    Bt[q*2]=o.w1>0?o.w1*wnS(o.mtn,70,190):0;Bt[q*2+1]=o.w2>0?o.w2*(o.tier-Math.floor(o.tier)):0;}
+    Bt[q*2]=o.w1>0?o.w1*wnS(o.mtn,70,190):o.ped*o.w3;/* (snow on the spires; elsewhere a Great Elder Circle's pedestal, whose rock is the ring's stone) */Bt[q*2+1]=o.w2>0?o.w2*(o.tier-Math.floor(o.tier)):0;}
   const n1=n+1,N1=n1*n1,out={x0,z0,step,n,h:new Float32Array(N1),wl:new Float32Array(N1),fw:new Float32Array(N1*2),nrm:new Float32Array(N1*3),A:new Float32Array(N1*4),B:new Float32Array(N1*4)};
   for(let k=0;k<n1;k++)for(let i=0;i<n1;i++){const q=(k+1)*m+i+1,o=k*n1+i,h=hh[q];out.h[o]=h;out.wl[o]=wl[q];out.fw[o*2]=fw[q*2];out.fw[o*2+1]=fw[q*2+1];
     let nx=hh[q-1]-hh[q+1],nz=hh[q-m]-hh[q+m],ny=2*step;const l=wgHyp(nx,ny,nz);out.nrm[o*3]=nx/l;out.nrm[o*3+1]=ny/l;out.nrm[o*3+2]=nz/l;

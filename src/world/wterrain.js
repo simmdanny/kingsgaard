@@ -91,7 +91,8 @@ const WT_GLSL_COLOR=`
   vec3 P=vWp;vec3 Nw=normalize(vWn);
   float fp=length(fwidth(P));float d1=1.0-smoothstep(0.09,0.35,fp),d2=1.0-smoothstep(0.35,1.6,fp),d3=1.0-smoothstep(1.6,7.0,fp);
   float wSp=vA.x,wTb=vA.y,wLk=vA.z,wFo=vA.w,wPl=max(0.0,1.0-wSp-wTb-wLk);
-  float cav=vB.y*2.0-1.0,snowP=vB.x,wet=vB.z;
+  /* (vB.x: the snow of the spires where there are spires, elsewhere the Great Elder Circle's pedestal - its mountain - whose rock is the ring's stone) */
+  float cav=vB.y*2.0-1.0,hiP=step(0.002,wSp),snowP=vB.x*hiP,ped=vB.x*(1.0-hiP),wet=vB.z;
   vec4 T1=texture2D(tWN,P.xz/393.0),T2=texture2D(tWN,P.xz/23.0);
   float nL=T1.r,hue=T1.g,nm=T1.a,ns=mix(0.5,T2.g,d3),nt=mix(0.5,T2.r,d2),nu=mix(0.5,T2.a,d1);
   /* ---- grass ---- */
@@ -106,7 +107,7 @@ const WT_GLSL_COLOR=`
   float sl=1.0-Nw.y;float rt=mix(0.31,0.17,wTb)-0.04*wSp+(nm-0.5)*0.12+(ns-0.5)*0.07;
   /* (the elderglade's own rock - its knolls, the great mountain's outcrops - is sculpted: smoothly shaded, no per-facet speckle or strata, its edge
      against the grass soft (the lattice's rock floor counts little there); a ring's stone keeps its chiselled facets) */
-  float gRk=wLk*(1.0-step(0.97,vB.w));
+  float gRk=wLk*(1.0-step(0.97,vB.w))*(1.0-ped);/* (the pedestal's rock is chiselled, as the ring's stone) */
   float rocky=max(smoothstep(rt,rt+0.1,sl),vB.w*(1.0-gRk));
   vec3 col=grass;float wtBump=(nt-0.5)*0.12*d1;float sn=0.0;float wtFacet=0.0;vec3 wtNf=Nw;
   if(rocky>0.002||snowP>0.002){
@@ -131,10 +132,11 @@ const WT_GLSL_COLOR=`
     float ledge=smoothstep(0.56,0.8,mix(Nf.y,Nw.y,gRk));
     /* a block of the cliffs (wrock.js, aB.w = 1): less light where it is shut in (aB.y, its cavity: low down, at the ground, in the crevices, underneath),
        and a tint and brightness of its own (aB.z, cooler or warmer), so a wall is many stones */
-    float blk=step(0.97,vB.w),bo=blk*clamp(cav,0.0,1.0);
-    rock*=1.0-0.42*bo;rock*=mix(1.0,0.86+0.28*vB.z,blk);rock=mix(rock,rock*mix(vec3(0.92,0.97,1.05),vec3(1.07,0.98,0.87),vB.z),blk*0.7);
-    /* a ring of the elderglade (wring.js: a block whose aA.w is its moss): the moss takes what faces up first and creeps down the sides in patches */
-    float mos=blk*wFo;
+    float blk=step(0.97,vB.w),bo=max(blk,ped*0.8)*clamp(cav,0.0,1.0);
+    rock*=(1.0-0.42*bo)*(1.0-0.16*ped);rock*=mix(1.0,0.86+0.28*vB.z,blk);rock=mix(rock,rock*mix(vec3(0.92,0.97,1.05),vec3(1.07,0.98,0.87),vB.z),blk*0.7);
+    /* a ring of the elderglade (wring.js: a block whose aA.w is its moss), and the rock of a Great Elder Circle's pedestal: the moss takes what faces
+       up first and creeps down the sides in patches */
+    float mos=max(blk*wFo,ped*0.4);/* (and the pedestal's rock is mossy like the ring: one stone, the ring growing out of it) */
     if(mos>0.003){float mt=mos*(0.7+0.55*Nf.y)+(ns-0.5)*0.5+(nt-0.5)*0.35+(nm-0.5)*0.25;float mA=smoothstep(0.36,0.5,mt);
       vec3 mc=mix(vec3(0.11,0.215,0.07),vec3(0.24,0.38,0.10),clamp(0.3+0.55*Nf.y+(nu-0.5)*0.6+(nL-0.5)*0.4+(fh-0.5)*0.2,0.0,1.0));rock=mix(rock,mc*(1.0-0.3*bo),mA);}
     rock=mix(rock,grass*1.04,clamp(ledge*0.93+wLk*0.25*smoothstep(0.3,0.56,Nf.y),0.0,1.0)*(1.0-wSp*0.5));
