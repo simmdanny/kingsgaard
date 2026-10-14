@@ -33,7 +33,7 @@ function wdPatch(){if(WD.on)return;WD.on=true;const C=THREE.ShaderChunk;
 			{ float wdS = smoothstep( uSee.x + 0.15 * uSee.y, uSee.x + 1.3 * uSee.y, cameraPosition.y + vFogV.y ) * ( 1.0 - smoothstep( fogNear * 1.6, fogNear * 2.6, wdD ) ); fogFactor = min( fogFactor, 1.0 - 0.36 * wdS ); }
 			#endif
 			#ifdef WD_PED
-			{ float wdP = smoothstep( 0.35, 0.8, ped ) * ( 1.0 - smoothstep( fogNear * 1.6, fogNear * 2.6, wdD ) ); fogFactor = min( fogFactor, 1.0 - 0.36 * wdP ); }
+			{ float wdP = smoothstep( 0.5, 0.88, ped ) * ( 1.0 - smoothstep( fogNear * 1.6, fogNear * 2.6, wdD ) ); fogFactor = min( fogFactor, 1.0 - 0.36 * wdP ); }
 			#endif
 		} else {
 			fogFactor = smoothstep( fogNear, fogFar, fogDepth );
