@@ -24,7 +24,7 @@ for(const seed of seeds){wgInit(seed);wsReset();wfReset();
     const summit=wgHeightRaw(G.x,G.z);ok(Math.abs(summit-G.Hs)<22,tag+': summit '+summit.toFixed(0)+' m, meant '+G.Hs.toFixed(0));
     ok(G.Rb/G.Hs>=4,tag+': not wide enough ('+(G.Rb/G.Hs).toFixed(1)+')');R.stat.wide.push(+(G.Rb/G.Hs).toFixed(1));
     let n=0,steep=0,mid=0;const c=wgCtx(G.x-G.bd,G.z-G.bd,G.x+G.bd,G.z+G.bd,0),oo={};
-    for(let j=-30;j<=30;j++)for(let i=-30;i<=30;i++){const x=G.x+i*G.bd/30,z=G.z+j*G.bd/30;if(wgGreatQ(G,x,z)>.8)continue;if(G.crags&&G.crags.some(C=>wgCragIn(C,x,z)))continue;/* (the peak under the right side is meant to be stony in places: checked below) */oo.mtn=0;const h=wgH0(x,z,oo,c),hx=wgH0(x+3,z,oo,c),hz=wgH0(x,z+3,oo,c),sl=Math.hypot(hx-h,hz-h)/3;n++;if(sl>.75)steep++;if(sl<.35)mid++;}
+    for(let j=-30;j<=30;j++)for(let i=-30;i<=30;i++){const x=G.x+i*G.bd/30,z=G.z+j*G.bd/30;if(wgGreatQ(G,x,z)>.8)continue;if(G.crags&&G.crags.some(C=>wgCragIn(C,x,z)))continue;if(wgGreatRock(G,x,z))continue;/* (the peaks, the ridges' scarps and the sub-mountains' tops are meant to be stony: the peaks are checked below) */oo.mtn=0;const h=wgH0(x,z,oo,c),hx=wgH0(x+3,z,oo,c),hz=wgH0(x,z+3,oo,c),sl=Math.hypot(hx-h,hz-h)/3;n++;if(sl>.75)steep++;if(sl<.35)mid++;}
     const green=1-steep/n;ok(green>.9,tag+': '+(100*steep/n).toFixed(1)+' % of the mountain is rock-steep');R.stat.green.push(+(green*100).toFixed(1));
     /* the peaks under the two sides (the right taller): each side's lower part buried up to where the ring comes out at the top (its inner and outer
        edges, its front and back), the right one's inner side stony up high and the left one's crown rocky, its grassy ramp outwards adding nothing steeper

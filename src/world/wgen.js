@@ -64,7 +64,8 @@ function wgRegions(x,z,out){const N=WG.N,C=WG_CFG,wx=x+C.regionWarp*wnN(N[0],x/3
    sectors, spurs and gullies, outcrops and slabs of rock breaking through the grass - crowned by an enormous upright stone ring, two to three times the
    size of the region's other rings (wfeat.js / wring.js draw it). It stands a few hundred metres off the middle of the region (never on it), in a
    direction of its own, its body in the region's core; the ring faces the middle of the region, more or less. The lakes, the craggy peaks and the
-   other rings keep off it. Everything from the region cell's own hashes (salts 600-660). */
+   other rings keep off it. Its footprint is a star of cuesta ridges (wgStar), four to seven sub-mountains stand on its flanks, two peaks under
+   the ring hold it. Everything from the region cell's own hashes (salts 600-681, sub-mountains 760-767, ridges 800-804). */
 function wgGreat(r){if(r.great!==undefined)return r.great;r.great=null;if(r.type!==WG_T.GLADE)return null;const s=WG.seed,H=k=>wnHash(r.a,r.b,s+600+k),W=new Float64Array(4);
   /* the middle of the region: the mean of its core (weight over .85) within 3.6 km of its site */
   let cx=0,cz=0,n=0;for(let j=-18;j<=18;j++)for(let i=-18;i<=18;i++){if(i*i+j*j>324)continue;const x=r.sx+i*200,z=r.sz+j*200;wgRegions(x,z,W);if(W[3]>.85){cx+=x;cz+=z;n++;}}
@@ -79,11 +80,20 @@ function wgGreat(r){if(r.great!==undefined)return r.great;r.great=null;if(r.type
   G.x=best.x;G.z=best.z;G.fitM=best.m;G.Rb*=best.sc;G.Hs=G.Rb*G.hk;G.cp=Math.cos(G.phi);G.sp=Math.sin(G.phi);G.bd=G.Rb*G.e*1.3+130;
   /* the ring faces the middle of the region, give or take a third of a right angle (its face W = (-sin yaw, cos yaw)) */
   {const dx=cx-G.x,dz=cz-G.z,l=Math.hypot(dx,dz)||1;G.yaw=Math.atan2(-dx/l,dz/l)+(H(14)-.5)*1.1;}
+  /* the ridges (wgStar): five to eight, in uneven directions, each its own reach and its scarp on a side of its own */
+  {const n=5+Math.floor(4*H(16)),t0=H(17)*6.2832;G.spurs=[];for(let k=0;k<n;k++){const h=k2=>wnHash(r.a*9+k,r.b*7-k,s+800+k2);
+    G.spurs.push({th:t0+(k+(h(0)-.5)*.7)*6.2832/n,amp:.1+.14*h(1),sg:h(2)<.5?-1:1,wA:.06+.04*h(3),wB:.22+.12*h(4)});}}
   /* rock breaking through the slopes: crags (steep, angular, a flat grassy top) and slabs (low and broad), none on the summit */
   G.outs=[];const no=16+Math.floor(14*H(15));
   for(let k=0;k<no;k++){const h=k2=>wnHash(r.a*31+k,r.b*17-k,s+640+k2),an=h(0)*6.2832,u=.1+.74*h(1),slab=h(2)<.35,ct=Math.cos(an),st=Math.sin(an),q=G.s0+(1-G.s0)*u,rr=q*wgMtnR(G,ct,st);
     const lu=ct*G.e*rr,lv=st*rr,x=G.x+lu*G.cp-lv*G.sp,z=G.z+lu*G.sp+lv*G.cp,mid=4*u*(1-u),Rx=slab?26+26*h(3):10+16*h(3),Ry=Rx*(.5+.45*h(4)),Hc=slab?3.5+4.5*h(5):(8+18*h(5))*(.55+.45*mid),ro=h(6)*Math.PI;
     G.outs.push({x,z,Rx,Ry,H:Hc,k:slab?3.2:1.7,ca:Math.cos(ro),sa:Math.sin(ro),r2:Math.pow(Math.max(Rx,Ry)*1.27,2)});}
+  /* sub-mountains on the great mountain's flanks: four to seven smaller summits (about half of them on a ridge's crest), lobed with spurs, grassy
+     and walkable with a small rocky top; sized so none reaches the ring's middle (wgCragHill, in wgMtn) */
+  {const n=4+Math.floor(4*H(18));G.subs=[];for(let k=0;k<n;k++){const h=k2=>wnHash(r.a*5+k,r.b*3-k,s+760+k2);let th=h(0)*6.2832;
+    if(h(1)<.5){const p=G.spurs[Math.floor(h(2)*G.spurs.length)%G.spurs.length];th=p.th;}const ct=Math.cos(th),st=Math.sin(th),q=.4+.38*h(3),rr=q*wgMtnR(G,ct,st),lu=ct*G.e*rr,lv=st*rr;
+    const x=G.x+lu*G.cp-lv*G.sp,z=G.z+lu*G.sp+lv*G.cp,e=1.1+.4*h(4),D=Math.hypot(x-G.x,z-G.z);let H0=G.Hs*(.12+.2*h(5)),L=Math.min(H0*(3.2+.6*h(6)),(D-G.R*1.0)/(e*1.25));
+    if(L<50)continue;const an=wnHash(r.a*5+k,r.b*3-k,s+767)*Math.PI;G.subs.push({x,z,H:Math.min(H0,L/3.2),L,e,ca:Math.cos(an),sa:Math.sin(an),id:11+30*h(6),rr2:Math.pow(L*e*1.3,2)});}}
   /* the two peaks holding the ring: the right one taller, the left one lower (two mountains merged, each side of the ring rising out of the top of one) */
   {const HeR=G.R*(.55+.2*H(20)),HeL=HeR*(.4+.15*H(30));G.crags=[wgCragPrep(G,1,HeR,k=>H(20+k),r.a,r.b,s,670,628),wgCragPrep(G,-1,HeL,k=>H(30+k),r.a,r.b,s,690,648)];}
   return r.great=G;}
@@ -110,23 +120,28 @@ function wgCragPrep(G,sd,He,Hk,a,b,s,ps,pw){const R=G.R,c0=R-G.sink,ca=sd*Math.c
   /* where the ring comes out (He over the summit, on the ring's own curve, xe from its middle); the apex at the ring, higher */
   const xe=Math.sqrt(Math.max(0,R*R-(He-c0)*(He-c0))),Hp=He+R*(.14+.08*H(21))*(sd>0?1:.65),ua=xe+R*.05*H(22),ro=G.yaw+(sd>0?0:Math.PI)-sd*(.25+.35*H(23));/* (turned so its stony side looks a little towards the ring's front, W) */
   const hc=wgMtn(G,G.x,G.z,0);/* (the summit at the ring's middle: G.crags is not set yet) */
+  /* the collar (the right peak): on the ring's outer half the rock climbs on up the stone (to Hc), so the peak grows round the ring rather than
+     letting it out of a flat top */
+  const Hc=sd>0?Math.min(He+R*(.14+.1*wnHash(a,b,s+ps+20)),c0-5,Hp-5):He,/* (the right only - the left is small, its fingers do it; under the peak's own crown, so it runs into it) */sOut2=Math.sqrt(Math.max(0,(R+thE)*(R+thE)-(c0-Hc)*(c0-Hc)));
   const C={sd,x:G.x+ca*ua,z:G.z+sa*ua,ca:Math.cos(ro),sa:Math.sin(ro),H:Hp,Li:Hp*(.4+.12*H(24)),Lo:Hp*(3.05+.55*H(25)),Lv:Hp*(.7+.25*H(26)),id:3+H(27)*50,pins:[],
-    gx:G.x,gz:G.z,ga:ca,gs:sa,c0,He,hc,thE,rin:R-thE,sOut:Math.sqrt(Math.max(0,(R+thE)*(R+thE)-(c0-He)*(c0-He))),tw:thE+4};
-  C.ex=(He+40)/.55+20;C.r2=Math.pow(Math.max(C.Lo*1.3,C.Lv*1.3,1.1*Math.hypot(Math.max(ua+40,C.sOut+200-ua),C.tw*1.25+C.ex)),2);/* (both the body and the cover's reach) */
+    gx:G.x,gz:G.z,ga:ca,gs:sa,c0,He,Hc,sOut2,hc,thE,rin:R-thE,sOut:Math.sqrt(Math.max(0,(R+thE)*(R+thE)-(c0-He)*(c0-He))),tw:thE+4};
+  C.ex=(Hc+40)/.55+20;C.r2=Math.pow(Math.max(C.Lo*1.3,C.Lv*1.3,1.1*Math.hypot(Math.max(ua+40,C.sOut2+200-ua),C.tw*1.25+C.ex)),2);/* (both the body and the cover's reach) */
   /* the swell: each side's own mountain - broad, about half the peak's height, reaching down towards the lakes outwards and far to the front and
      the back - so the pedestal is two mountains grown together, the ring standing in the saddle between them; gentle everywhere (walkable), and it
      falls away to nothing at the ring's middle (its height stays) */
   C.Hw=Hp*(.5+.15*wnHash(a,b,s+pw));C.Lwo=Math.max(C.Lo*1.3,G.Rb*.75);C.Lwv=Math.max(C.Lv*2.7,G.Rb*.55);C.Lwi=ua*1.15;C.R=R;
   {const r=Math.max(C.Lwo,C.Lwv)*1.05;if(r*r>C.r2)C.r2=r*r;}
-  /* spires and crags, placed in the ring's own frame (s along it from its middle, t across it): the tallest beside where the ring comes out, outside
-     it; the others round it, in front of and behind the stone and down its inner side; their feet sunk into the peak */
+  /* spires and crags, placed in the ring's own frame (s along it from its middle, t across it): fingers of rock gripping the stone - one against its
+     outer face at the top of the collar, a few flat against its front and back faces where it comes out - and lower crags down its inner side;
+     their feet sunk into the peak */
   const pin=(pa,pt,Hh,sl,an,el,sink)=>{const px=G.x+pa*ca-pt*sa,pz=G.z+pa*sa+pt*ca,m=wgMtn(G,px,pz,0),bs=wnSmax(m+wgCragBase(C,px,pz)+wgCragSwell(C,px,pz),wgCragCover(C,px,pz),24);
     C.pins.push({x:px,z:pz,b:bs-Hh*sink,H:Hh*(1+sink),sl,ca:Math.cos(an),sa:Math.sin(an),ik:1,k:1/(el*el),pw:1.15,r2:Math.pow(Hh*(1+sink)/sl/el*1.2,2)});};
   const np=6+Math.floor(4*H(28));for(let k=0;k<np;k++){const h=k2=>wnHash(a*13+k,b*29-k,s+ps+k2);let ps2,pt,Hh;
-    if(k===0){ps2=xe+thE+10+25*h(0);pt=(h(1)-.5)*thE;Hh=Hp*(.24+.12*h(2));}
-    else if(k<4){ps2=xe+(h(0)-.4)*thE*1.6;pt=(h(1)<.5?-1:1)*(thE+8+30*h(5));Hh=Hp*(.1+.14*h(2));}/* (in front of and behind the stone) */
-    else{ps2=xe-thE-10-60*h(0);pt=(h(1)-.5)*thE*1.4;Hh=Hp*(.06+.08*h(2));}/* (lower, down its inner side) */
-    pin(ps2,pt,Hh,k===0?3+h(3):2.4+1.6*h(3),h(4)*Math.PI,.5+.4*h(5),.55);}
+    let an,el,sl;
+    if(k===0){ps2=sOut2+3+5*h(0);pt=(h(1)-.5)*G.th*.8;Hh=R*(.12+.1*h(2))*(sd>0?1:.7);an=G.yaw+Math.PI/2;el=.45+.15*h(5);sl=3.5+1.5*h(3);}/* (against the outer face: thin out from it, long along it) */
+    else if(k<4){ps2=xe+(h(0)-.5)*G.th*1.6;pt=(h(1)<.5?-1:1)*(G.th*1.05+2+5*h(5));Hh=R*(.08+.1*h(2))*(sd>0?1:.7);an=G.yaw;el=.45+.15*h(5);sl=3.5+1.5*h(3);}/* (flat against its front and back faces) */
+    else{ps2=xe-thE-10-60*h(0);pt=(h(1)-.5)*thE*1.4;Hh=Hp*(.06+.08*h(2));an=h(4)*Math.PI;el=.5+.4*h(5);sl=2.4+1.6*h(3);}/* (lower, down its inner side) */
+    pin(ps2,pt,Hh,sl,an,el,.55);}
   const at=(pu,pv)=>[C.x+pu*C.ca-pv*C.sa,C.z+pu*C.sa+pv*C.ca];
   const nk=2+Math.floor(3*H(29));for(let k=0;k<nk;k++){const h=k2=>wnHash(a*17+k,b*23-k,s+ps+6+k2),[px,pz]=at(C.Lo*(.12+.3*h(0)),(h(1)<.5?-1:1)*(.38+.25*h(2))*C.Lv);/* (off the ridge: its line stays a grassy way up) */
     const dx=px-G.x,dz=pz-G.z;pin(dx*ca+dz*sa,-dx*sa+dz*ca,Hp*(.03+.035*wnHash(a*17+k,b*23-k,s+ps+11)),1.5+.5*h(3),h(4)*Math.PI,.55+.35*h(5),.5);}
@@ -162,10 +177,11 @@ function wgCragSwell(C,x,z){const dx=x-C.x,dz=z-C.z,u=dx*C.ca+dz*C.sa,v=-dx*C.sa
    edge's height while it is under He, He + a margin over the stone where the ring goes up through the top, ending just past its outer edge (the body goes on from there);
    across it (t): a top as wide as the stone, then steep rocky sides; its edges wander so it is no straight cut */
 const _wgCv={rk:1};/* (the last cover worked out: how rocky it is there - its grassy skirts 0) */
-function wgCragCover(C,x,z){const dx=x-C.gx,dz=z-C.gz,s=dx*C.ga+dz*C.gs,t=-dx*C.gs+dz*C.ga;if(s<-40||s>C.sOut+200||Math.abs(t)>C.tw*1.25+C.ex)return -1e9;/* (C.ex: as far as its skirts can reach over the summit) */
+function wgCragCover(C,x,z){const dx=x-C.gx,dz=z-C.gz,s=dx*C.ga+dz*C.gs,t=-dx*C.gs+dz*C.ga;if(s<-40||s>C.sOut2+200||Math.abs(t)>C.tw*1.25+C.ex)return -1e9;/* (C.ex: as far as its skirts can reach over the summit) */
   const N=WG.N,ri=C.rin,ss=Math.max(0,s);let y=ss<ri?Math.min(C.He,C.c0-Math.sqrt(ri*ri-ss*ss)):C.He;
+  const wc=wnS(s,C.R-C.thE*.4,C.R+C.thE*.1);if(wc>0)y=Math.max(y,C.He+(C.Hc-C.He)*wc);/* (the collar up the outer half) */
   if(s<C.R*.25)y-=C.R*.25-s;/* (nothing to bury near the ring's middle - its bottom is sunk in the summit - and the seam with the ground must not lift it there) */
-  y+=3+.015*C.He*wnN(N[16],s/120+C.id,t/120);_wgCv.rk=1;if(s>C.sOut)y-=(s-C.sOut)*1.3;/* (past the stone there is nothing to bury: the body's crown and grassy ramp go on from there) */
+  const sE=C.sOut+(C.sOut2-C.sOut)*wc;y+=3+.015*C.He*wnN(N[16],s/120+C.id,t/120);_wgCv.rk=1;if(s>sE)y-=(s-sE)*1.3;/* (past the stone there is nothing to bury: the body's crown and grassy ramp go on from there) */
   /* (its front and back: a steep rocky upper flank, then a gentler grassy skirt, so seen from the front it is rock above and grass below) */
   const tw=C.tw*(1+.22*wnN(N[15],s/70-C.id,C.id)),ex=Math.abs(t)-tw;if(ex>0){const k1=1.05+.35*wnN(N[14],s/90+C.id,t>0?3:-3),e0=Math.max(4,y*(.42+.1*wnN(N[16],s/60-C.id,t>0?5:-5)))/k1,e1=Math.min(ex,e0);y-=e1*k1+Math.max(0,ex-e1)*.55;_wgCv.rk=1-wnS(ex-e0,0,12);}/* (rock down the top ~45 % of its height) */
   return C.hc+y;}
@@ -184,15 +200,24 @@ function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)r
   let h=hm+wgCragSwell(C,x,z)+(nf?Math.pow(hb0*hb0*hb0*hb0+un,.25):hb0);
   /* (the cover only where it can reach this high: an upper bound from the same rules - its top, its edges at no less than .55 a metre - skips most of
      the ground under the broad swells; the result is the same) */
-  const gs=(x-C.gx)*C.ga+(z-C.gz)*C.gs,gt=Math.abs(-(x-C.gx)*C.gs+(z-C.gz)*C.ga),cvMax=C.hc+C.He*1.04+3-Math.max(0,gt-C.tw*1.25)*.55-Math.max(0,gs-C.sOut)*1.3-Math.max(0,C.R*.25-gs);
+  const gs=(x-C.gx)*C.ga+(z-C.gz)*C.gs,gt=Math.abs(-(x-C.gx)*C.gs+(z-C.gz)*C.ga),cvMax=C.hc+C.Hc*1.04+3-Math.max(0,gt-C.tw*1.25)*.55-Math.max(0,gs-C.sOut2)*1.3-Math.max(0,C.R*.25-gs);
   const cv=cvMax>h-24?wgCragCover(C,x,z):-1e9;if(cv>h-24){let c=cv;if((!det||det<35)&&cv>h)c+=Math.min(cv-h,30)*.12*_wgCv.rk*(wnRidged(N[10],x/19+C.id,z/19,2,2.1,.5,1,2)-.45);h=wnSmax(h,c,24);}/* (ribs on its rock only: its grassy skirts stay smooth) *//* (a wide seam: the flanks run into the ground in a curve, no crease) */
   for(const p of C.pins){const px=x-p.x,pz=z-p.z;if(px*px+pz*pz>p.r2)continue;const a=px*p.ca+pz*p.sa,b=pz*p.ca-px*p.sa,q=Math.sqrt(a*a*p.ik+b*b*p.k)*p.sl/p.H;if(q>=1)continue;
     let ph=p.b+p.H*Math.pow(1-q,p.pw);if(!det||det<30)ph+=p.H*.05*wnN(N[9],a/7+p.x*.01,b/7);h=wnSmax(h,ph,6);}
   return h;}
+/* whether a point is on a ridge's scarp or a sub-mountain (designed rock: the checks measure the mountain's greenness without it) */
+function wgGreatRock(G,x,z){if(G.subs&&G.subs.some(F=>wgCragHill(F,x,z)>0))return true;if(!G.spurs)return false;
+  const dx=x-G.x,dz=z-G.z,u=(dx*G.cp+dz*G.sp)/G.e,v=-dx*G.sp+dz*G.cp,th=Math.atan2(v,u);
+  for(const p of G.spurs){let d=th-p.th;d-=6.2832*Math.round(d/6.2832);d*=p.sg;if(d>0&&d<2.5*p.wA)return true;}return false;}
 /* whether the peak shapes a point (the checks measure the mountain without it) */
 function wgCragIn(C,x,z){return wgCragBase(C,x,z)>0||wgCragCover(C,x,z)>C.hc-5||C.hills.some(F=>wgCragHill(F,x,z)>0);}
 /* the mountain's radius in a direction (the lobes of its footprint), and its height over the water level at a point (0 off it) */
-function wgMtnR(G,ct,st){const N=WG.N[13],id=G.id;return G.Rb*(1+.14*wnN(N,ct*1.3+id,st*1.3)+.06*wnN(N,ct*3.1-id,st*3.1+id));}
+/* the star: the mountain's ridges, each a cuesta - its footprint pushed out along it (so its contours, and its slopes with them, run out in a ridge
+   that ends in a headland in the lakes), sharply on its scarp side (a short steep rocky face) and softly on its dip side (a long gentle grassy
+   slope). G.spurs: the ridges' directions (in the mountain's own frame), how far they reach, which side is the scarp, how sharp each side is */
+function wgStar(G,ct,st){const S=G.spurs;if(!S)return 1;const th=Math.atan2(st,ct);let m=1;
+  for(const p of S){let d=th-p.th;d-=6.2832*Math.round(d/6.2832);d*=p.sg;const w=d>0?p.wA:p.wB;if(Math.abs(d)>3*w)continue;m+=p.amp*Math.exp(-(d*d)/(w*w));}return m;}
+function wgMtnR(G,ct,st){const N=WG.N[13],id=G.id;return G.Rb*(1+.14*wnN(N,ct*1.3+id,st*1.3)+.06*wnN(N,ct*3.1-id,st*3.1+id))*wgStar(G,ct,st);}
 const _wgPed={v:0};/* (how far inside the last great mountain worked out the point is: its rock is the ring's stone - wterrain.js, vB.x) */
 function wgMtn(G,x,z,det){const dx=x-G.x,dz=z-G.z;_wgPed.v=0;if(dx*dx+dz*dz>G.bd*G.bd)return 0;const N=WG.N,id=G.id;
   const wx=dx+90*wnN(N[19],x/1300+id,z/1300),wz=dz+90*wnN(N[19],x/1300-id,z/1300+3.3),u=wx*G.cp+wz*G.sp,v=-wx*G.sp+wz*G.cp,r=Math.sqrt(u*u/(G.e*G.e)+v*v)+1e-6,ct=u/G.e/r,st=v/r;
@@ -210,6 +235,8 @@ function wgMtn(G,x,z,det){const dx=x-G.x,dz=z-G.z;_wgPed.v=0;if(dx*dx+dz*dz>G.bd
   /* (outcrops: rounded and lobed - a sculpted dome with steep curved sides for a crag, a low broad hump with soft edges for a slab) */
   for(const O of G.outs){const ox=x-O.x,oz=z-O.z;if(ox*ox+oz*oz>O.r2)continue;const a=(ox*O.ca+oz*O.sa)/O.Rx,b=(-ox*O.sa+oz*O.ca)/O.Ry,rr=Math.sqrt(a*a+b*b)+1e-6;
     const dd=rr*(1+.18*wnN(N[14],a/rr*1.4+O.x*.01,b/rr*1.4)+.07*wnN(N[14],a/rr*3.3-O.z*.01,b/rr*3.3));if(dd>=1)continue;h+=O.k>2?O.H*Math.pow(1-dd*dd*dd,1.5):O.H*Math.pow(1-dd*dd,1.35);}
+  /* the sub-mountains on its flanks (merged as one mass, a 4-norm; faded with the mountain's foot) */
+  if(G.subs&&G.subs.length){let un=0,nf=0;for(const F of G.subs){const fh=wgCragHill(F,x,z);if(fh>0){un+=fh*fh*fh*fh;nf++;}}if(nf)h+=fade*Math.pow(un,.25);}
   /* the peaks under the ring's two sides */
   if(G.crags)for(const C of G.crags)h=wgCragApply(C,h,x,z,det);
   return h;}
@@ -217,7 +244,7 @@ function wgMtn(G,x,z,det){const dx=x-G.x,dz=z-G.z;_wgPed.v=0;if(dx*dx+dz*dz>G.bd
 function wgGreatNear(x,z){const RC=WG_CFG.regionCell,a0=Math.round(x/RC),b0=Math.round(z/RC);let best=null,bd=1e18;
   for(let b=b0-2;b<=b0+2;b++)for(let a=a0-2;a<=a0+2;a++){const G=wgGreat(wgRegCell(a,b));if(!G)continue;const d=Math.hypot(x-G.x,z-G.z);if(d<bd){bd=d;best=G;}}return best;}
 /* how far a point is inside the great mountain's footprint: < 1 on it (a rough measure: the footprint's mean radius, stretched along its long axis) */
-function wgGreatQ(G,x,z){const dx=x-G.x,dz=z-G.z,u=dx*G.cp+dz*G.sp,v=-dx*G.sp+dz*G.cp;return Math.sqrt(u*u/(G.e*G.e)+v*v)/G.Rb;}
+function wgGreatQ(G,x,z){const dx=x-G.x,dz=z-G.z,u=dx*G.cp+dz*G.sp,v=-dx*G.sp+dz*G.cp,ue=u/G.e,r=Math.sqrt(ue*ue+v*v);return r/(G.Rb*wgStar(G,ue/(r+1e-6),v/(r+1e-6)));}/* (its ridges count: what keeps off the mountain keeps off them) */
 
 /* the grasslands stand high: the slow rise and fall of the whole land (the floors of its valleys; every kind but the elderglade stands on it), and the
    forest overlay (it shades the ground now, and will hold the trees) */
