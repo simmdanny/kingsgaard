@@ -75,5 +75,5 @@ function wfUpdate(cam,force){if(!WF.on)return;if(typeof wrkView==='function')wrk
   for(const f of WF.great.values())if(f.mesh&&Math.hypot(f.x-cx,f.z-cz)>see*1.5+f.R){WF.group.remove(f.mesh);f.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});f.mesh=null;}}
 function wfInit(group){WF.group=group;WF.on=true;if(typeof wrkInit==='function')wrkInit(group);/* (the stone on the cliffs near the player, wrock.js) */}
 function wfReset(){if(typeof wrkReset==='function')wrkReset();for(const f of[...WF.list.values(),...WF.great.values()])if(f&&f.mesh){if(f.mesh.parent)f.mesh.parent.remove(f.mesh);f.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
-  for(const f of WF.great.values())if(f.mat)f.mat.dispose();WF.list.clear();WF.great.clear();WF.on=false;}
+  for(const f of WF.great.values()){if(f.mat)f.mat.dispose();if(f.vmat)f.vmat.dispose();}WF.list.clear();WF.great.clear();WF.on=false;}
 

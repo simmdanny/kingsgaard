@@ -23,6 +23,10 @@
    ===================================================================================================== */
 const WR={vmat:null,ico:[],job:null,budget:3,stats:{n:0,ms:0,max:0}};
 function wrVMat(){return WR.vmat||(WR.vmat=typeof VCMAT!=='undefined'?VCMAT:new THREE.MeshPhongMaterial({vertexColors:true,flatShading:true,shininess:4}));}
+/* the overgrowth of a Great Elder Circle (its trees, bushes, vines, creepers, grass and flowers) shows through the haze as its stone does: the same look
+   as wrVMat with WD_SEE (wdepth.js), sharing the stone's own uSee (f.mat.userData.see: the height of its foot, its size), so both fade alike. One a circle. */
+function wrVMatSee(f){if(f.vmat)return f.vmat;const m=new THREE.MeshPhongMaterial({vertexColors:true,flatShading:true,shininess:4}),u=f.mat.userData.see;m.defines={WD_SEE:1};
+  m.onBeforeCompile=sh=>{sh.uniforms.uSee={value:u};sh.fragmentShader='uniform vec2 uSee;\n'+sh.fragmentShader;};m.customProgramCacheKey=()=>'wrvcsee';return f.vmat=m;}
 const _wrC=new THREE.Color();
 
 /* ---------- a ring's character (its cell's own hashes) ---------- */
@@ -257,7 +261,7 @@ function* wrBuildG(f,v,L,lod,res){const S={pos:[],aA:[],aB:[],aW:[],idx:[]},Vg={
   yield;
   if(Vg.pos.length){const P=new Float32Array(Vg.pos.length);for(let i=0;i<P.length;i+=3){P[i]=Vg.pos[i]-ox;P[i+1]=Vg.pos[i+1];P[i+2]=Vg.pos[i+2]-oz;}
     const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.BufferAttribute(P,3));G.setAttribute('color',new THREE.Float32BufferAttribute(Vg.col,3));G.computeVertexNormals();G.computeBoundingSphere();
-    const m=new THREE.Mesh(G,wrVMat());m.castShadow=!lod;m.receiveShadow=true;m.frustumCulled=false;g.add(m);}
+    const m=new THREE.Mesh(G,f.mat&&f.mat.userData.see?wrVMatSee(f):wrVMat());m.castShadow=!lod;m.receiveShadow=true;m.frustumCulled=false;g.add(m);}
   res.g=g;}
 function wrBuild(f,v,L,lod){const res={},it=wrBuildG(f,v,L,lod,res);while(!it.next().done);return res.g;}
 /* a ring's mesh (wfMesh): laid out once and its far level built; the near level (7 R and closer) is built by wrView when the camera comes near */
