@@ -109,6 +109,13 @@ const WT_GLSL_COLOR=`
      against the grass soft (the lattice's rock floor counts little there); a ring's stone keeps its chiselled facets) */
   float gRk=wLk*(1.0-step(0.97,vB.w))*(1.0-ped);/* (the pedestal's rock is chiselled, as the ring's stone) */
   float rocky=max(smoothstep(rt,rt+0.1,sl),vB.w*(1.0-gRk));
+  if(ped>0.002){
+    /* the pedestal (ped: strongest at the ring, fading out to the mountain's foot): grass, moss and stone in one palette, so the ring belongs to its
+       ground - the grass deeper near the ring and turning to the ring's moss as the ground steepens towards rock, and the rock coming in over a
+       wider band */
+    vec3 mossC=mix(vec3(0.12,0.225,0.075),vec3(0.22,0.35,0.10),smoothstep(0.2,0.8,val));
+    grass=mix(grass,mossC,min(1.0,ped*1.3)*(0.24+0.5*smoothstep(rt-0.2,rt+0.06,sl)));
+    rocky=max(mix(smoothstep(rt,rt+0.1,sl),smoothstep(rt-0.04,rt+0.24,sl),ped),vB.w*(1.0-gRk));}
   vec3 col=grass;float wtBump=(nt-0.5)*0.12*d1;float sn=0.0;float wtFacet=0.0;vec3 wtNf=Nw;
   if(rocky>0.002||snowP>0.002){
     /* ---- rock: chiselled stone (src/world/wrock.js). Every facet - a triangle of the ground, of a block, a boulder, a ring - is one flat plane of stone:
