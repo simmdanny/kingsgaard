@@ -1,0 +1,59 @@
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Cormorant+Garamond:wght@500;600&display=swap">
+<div id="gMenu" hidden>
+  <div class="gm-art" aria-hidden="true">
+    <img id="gmImg" src="assets/menu/kingsgaard-menu.jpg" alt="" draggable="false" decoding="async">
+    <canvas id="gmFx"></canvas>
+    <div class="gm-haze"></div>
+    <div class="gm-vig"></div>
+  </div>
+  <main class="gm-body" id="gmBody">
+    <header class="gm-title">
+      <h1>KINGSGAARD</h1>
+      <div class="gm-rule" aria-hidden="true"><i></i><b></b><i></i></div>
+    </header>
+    <nav class="gm-nav" id="gmNav" aria-label="Main menu">
+      <button class="gm-btn" id="gmPlay" type="button">Play</button>
+      <button class="gm-btn" id="gmLoadBtn" type="button">Load</button>
+      <button class="gm-btn" id="gmSetBtn" type="button">Settings</button>
+    </nav>
+    <section class="gm-panel" id="gmLoad" aria-label="Saved adventures" hidden>
+      <div class="gm-ph"><button class="gm-back" id="gmBack" type="button">&#8249; Back</button><h2>Load</h2></div>
+      <div class="gm-list" id="gmList" role="list"></div>
+      <details class="gm-imp" id="gmImp">
+        <summary>Import a save code</summary>
+        <textarea id="gmCode" spellcheck="false" placeholder="Paste a save code (starts with KK1:), for example one copied from Kingsroad Keep"></textarea>
+        <button class="gm-small" id="gmImpBtn" type="button">Import</button>
+        <p id="gmImpMsg" role="status"></p>
+      </details>
+    </section>
+  </main>
+  <section class="gm-create" id="gmCreate" aria-label="Create your character" hidden>
+    <div class="gm-cr-side">
+      <div class="gm-cr-top"><h2 class="gm-cr-h">Your character</h2><button class="gm-back gm-cr-exit" id="gmCrBack" type="button">&lsaquo; Main menu</button></div>
+      <ol class="gm-steps" id="gmSteps" aria-label="Steps"></ol>
+      <div class="gm-cr-scroll" id="gmCrScroll">
+        <div class="gm-step" data-step="gender"><h3 class="gm-sh">Gender</h3><p class="gm-hint">Sets the build of the body and the starting look. Every hairstyle, garment and accessory can be worn by either.</p>
+          <div class="gm-gender" id="gmOptGender" role="radiogroup" aria-label="Gender"></div></div>
+        <div class="gm-step" data-step="name"><h3 class="gm-sh">Name</h3>
+          <div class="gm-namebox"><input id="gmName" type="text" maxlength="18" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="What are you called?" aria-label="Name" aria-describedby="gmNameErr"><button class="gm-dice" id="gmNameDice" type="button" aria-label="Suggest a name" title="Suggest a name">&#9860;</button></div>
+          <p class="gm-err" id="gmNameErr" role="alert"></p><p class="gm-hint">Two to eighteen characters: letters, spaces, hyphens and apostrophes.</p></div>
+        <div class="gm-step" data-step="head"><div class="gm-cat" data-cat="head"></div><div class="gm-cat" data-cat="skin"></div></div>
+        <div class="gm-step" data-step="hair"><div class="gm-cat" data-cat="hair"></div><div class="gm-cat" data-cat="hairC"></div></div>
+        <div class="gm-step" data-step="clothes"><div class="gm-cat" data-cat="top1"></div><div class="gm-cat" data-cat="top2"></div><div class="gm-cat" data-cat="bottoms"></div><div class="gm-cat" data-cat="shoes"></div></div>
+        <div class="gm-step" data-step="acc"><div class="gm-cat" data-cat="acc"></div></div>
+        <div class="gm-step" data-step="confirm"><h3 class="gm-sh">Ready?</h3><p class="gm-hint">This is how you will walk into the realm. Change anything you like before you begin.</p><dl class="gm-sum" id="gmSum"></dl></div>
+      </div>
+      <div class="gm-cr-acts">
+        <div class="gm-cr-row"><button class="gm-small" id="gmRand" type="button" title="A random look of the chosen gender">Randomize</button><button class="gm-small" id="gmReset" type="button" title="The default look of the chosen gender">Reset</button></div>
+        <div class="gm-cr-row gm-cr-nav"><button class="gm-small" id="gmCrPrev" type="button">Back</button><button class="gm-small gm-go" id="gmCrNext" type="button">Next</button><button class="gm-small gm-go" id="gmCreateGo" type="button" hidden>Create Character</button></div>
+      </div>
+    </div>
+    <div class="gm-cr-stage"><div class="gm-prev" id="gmPrevBox" aria-label="Preview of your character"></div>
+      <div class="gm-prevcap"><b id="gmPrevName"></b><div class="gm-views" id="gmViews" role="radiogroup" aria-label="Preview"><button type="button" role="radio" data-view="full">Full body</button><button type="button" role="radio" data-view="close">Close-up</button></div><small>Drag to turn</small></div></div>
+  </section>
+  <div class="gm-foot">A realm beneath a dragon's shadow</div>
+  <div class="gm-dlg" id="gmDlg" role="dialog" aria-modal="true" aria-labelledby="gmDlgT" hidden>
+    <div class="gm-card"><h3 id="gmDlgT"></h3><p id="gmDlgP"></p><div class="gm-acts" id="gmDlgA"></div></div>
+  </div>
+  <div class="gm-veil" id="gmVeil" role="status" hidden><div class="gm-ring"></div><p id="gmVeilT">Forging the realm</p></div>
+</div>

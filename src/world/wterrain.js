@@ -1,0 +1,268 @@
+/* =====================================================================================================
+   THE STREAMED TERRAIN (src/world/wterrain.js): level-0 height tiles for the game, and a quadtree of terrain chunks for the eye.
+   - A level-0 tile is 128 m of the 2 m lattice (65x65 heights): owH reads the very triangles the near terrain is drawn with
+     (the diagonal of a cell follows the parity of its global indices, as before).
+   - A chunk of level L is 128*2^L m wide and has 64x64 cells (2*2^L m), with skirts that hide the cracks where levels meet;
+     chunks near the camera are level 0 (they are drawn from the level-0 tiles), farther ones coarser, out to about 6 km.
+   - Vertices are stored relative to the chunk's corner (the mesh is placed there), so precision is the same everywhere.
+   - Every chunk with water in it has a water mesh: the lattice cells where the water level stands over the ground, at the water level of each
+     corner, so rivers slope with their water and fall over cliffs as steep sheets (waterfalls), lakes are level; a cell whose corners' levels differ
+     is drawn only when it is one stream falling along its flow (two waters at different levels never meet in a sheet).
+   ===================================================================================================== */
+const WT={syncR:420,on:false,LMAX:5,N:64,K:1.4,chunks:new Map(),tiles:new Map(),tileCap:520,pool:[],reqs:new Map(),reqId:0,asked:new Set(),ready:new Map(),seed:0,onTile:null,group:null,mat:null,wmat:null,idx:null,widx:null,q:[],shown:new Set(),
+  budget:6,cam:{x:0,y:0,z:0},frame:0,stats:{built:0,ms:0,tiles:0,tms:0,wk:0,wms:0},tex:null,time:{value:0}};
+const wtKey=(L,i,k)=>L+':'+i+':'+k;
+/* ---------- the level-0 tiles (the ground the game stands on) ---------- */
+function wtTile(ti,tk){const key=ti+','+tk;let t=WT.tiles.get(key);if(t){t.use=WT.frame;return t;}const T0=performance.now(),S=WG_CFG.tile,n=S/WG_CFG.res;
+  const g=wgGrid(ti*S,tk*S,WG_CFG.res,n,0);t=wtTileSet(ti,tk,g);WT.stats.tiles++;WT.stats.tms+=performance.now()-T0;return t;}
+function wtTileSet(ti,tk,g){const key=ti+','+tk,S=WG_CFG.tile;let t=WT.tiles.get(key);if(t)return t;t={ti,tk,g,use:WT.frame,x0:ti*S,z0:tk*S};WT.tiles.set(key,t);if(WT.tiles.size>WT.tileCap)wtTileEvict();if(WT.onTile)WT.onTile(t);return t;}
+/* a tile asked of a worker (nothing if it exists or is on its way; the roads that reach it must be known first) */
+function wtTileAsk(ti,tk){const key=ti+','+tk;if(WT.tiles.has(key)||WT.asked.has('t'+key))return;const S=WG_CFG.tile;if(typeof wsReady==='function'&&!wsReady(ti*S,tk*S,(ti+1)*S,(tk+1)*S))return;
+  if(wtAsk('t'+key,ti*S,tk*S,WG_CFG.res,S/WG_CFG.res,0,g=>{WT.asked.delete('t'+key);if(WT.on&&WT.seed===WG.seed)wtTileSet(ti,tk,g);}))WT.asked.add('t'+key);}
+/* ---------- the workers ---------- */
+function wtPoolInit(src,seed){wtPoolStop();WT.seed=seed;if(!src||typeof Worker==='undefined')return 0;const n=Math.max(1,Math.min(3,(navigator.hardwareConcurrency||4)-1));let url;
+  try{url=URL.createObjectURL(new Blob([src],{type:'text/javascript'}));}catch(e){return 0;}
+  for(let i=0;i<n;i++){try{const w=new Worker(url);w.busy=0;w.onmessage=wtOnMsg;w.onerror=e=>{console.warn('world worker:',e.message);w.dead=true;};w.postMessage({init:1,seed});WT.pool.push(w);}catch(e){console.warn('no world worker',e);break;}}
+  return WT.pool.length;}
+function wtPoolStop(){for(const w of WT.pool)w.terminate();WT.pool=[];WT.reqs.clear();WT.asked.clear();WT.ready.clear();}
+function wtOnMsg(e){const m=e.data,r=WT.reqs.get(m.id);this.busy=Math.max(0,this.busy-1);if(!r)return;WT.reqs.delete(m.id);WT.stats.wk++;WT.stats.wms+=m.g.ms||0;r.cb(m.g);}
+/* a grid of the world from the least busy worker (cb gets it); false if none is free */
+function wtAsk(key,x0,z0,step,n,lite,cb){let w=null;for(const p of WT.pool)if(!p.dead&&(!w||p.busy<w.busy))w=p;if(!w||w.busy>=2)return false;
+  const st=lite>=1?null:(WG.stampsIn?WG.stampsIn(x0-step,z0-step,x0+(n+1)*step,z0+(n+1)*step):null);
+  const id=++WT.reqId;WT.reqs.set(id,{key,cb});w.busy++;w.postMessage({grid:1,id,x0,z0,step,n,lite,st});return true;}
+function wtTileEvict(){const arr=[...WT.tiles.values()].sort((a,b)=>a.use-b.use),drop=arr.length-Math.floor(WT.tileCap*.85);for(let i=0;i<drop;i++){if(arr[i].pin)continue;WT.tiles.delete(arr[i].ti+','+arr[i].tk);}}
+const wtHasTile=(x,z)=>WT.tiles.has(Math.floor(x/WG_CFG.tile)+','+Math.floor(z/WG_CFG.tile));
+/* the height of the ground at a point, from the triangles of its level-0 tile (the tile is made if it does not exist yet) */
+function wtH(x,z){const S=WG_CFG.tile;return wtHt(wtTile(Math.floor(x/S),Math.floor(z/S)),x,z);}
+function wtHt(t,x,z){const res=WG_CFG.res,g=t.g,n=g.n;
+  let fx=(x-t.x0)/res,fz=(z-t.z0)/res;if(fx>n-1e-6)fx=n-1e-6;if(fz>n-1e-6)fz=n-1e-6;if(fx<0)fx=0;if(fz<0)fz=0;
+  const i=fx|0,k=fz|0,u=fx-i,v=fz-k,s=n+1,h=g.h,q=k*s+i,a=h[q],b=h[q+1],d=h[q+s],e=h[q+s+1];
+  if(((i+k)&1)===0)return u+v<=1?a+(b-a)*u+(d-a)*v:e+(b-e)*(1-v)+(d-e)*(1-u);
+  return u>=v?a+(b-a)*u+(e-b)*v:a+(d-a)*v+(e-d)*u;}
+/* the water level at a point (-1e9: none), bilinear over its tile's lattice */
+function wtWater(x,z){const S=WG_CFG.tile,res=WG_CFG.res,t=wtTile(Math.floor(x/S),Math.floor(z/S)),g=t.g,n=g.n,s=n+1;let fx=Math.min(n-1e-6,Math.max(0,(x-t.x0)/res)),fz=Math.min(n-1e-6,Math.max(0,(z-t.z0)/res));
+  const i=fx|0,k=fz|0,q=k*s+i,w=[g.wl[q],g.wl[q+1],g.wl[q+s],g.wl[q+s+1]];if(w.some(v=>v<-1e8))return Math.max(...w)<-1e8?-1e9:Math.max(...w);const u=fx-i,v=fz-k;return(w[0]*(1-u)+w[1]*u)*(1-v)+(w[2]*(1-u)+w[3]*u)*v;}
+
+/* ---------- procedural textures: tileable noise the ground shader samples at several scales ---------- */
+function wtNoiseTex(){if(WT.tex)return WT.tex;const S=256,data=new Uint8Array(S*S*4),R=wnRng(1234567);
+  /* periodic gradient noise on a lattice of P cells */
+  const grad=(P,seed)=>{const g=new Float32Array(P*P*2);const r=wnRng(seed);for(let i=0;i<P*P;i++){const a=r()*6.2832;g[i*2]=Math.cos(a);g[i*2+1]=Math.sin(a);}return g;};
+  const pn=(g,P,x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,u=xf*xf*xf*(xf*(xf*6-15)+10),v=yf*yf*yf*(yf*(yf*6-15)+10);
+    const ix0=((xi%P)+P)%P,iy0=((yi%P)+P)%P,ix1=(ix0+1)%P,iy1=(iy0+1)%P,d=(ix,iy,dx,dy)=>{const q=(iy*P+ix)*2;return g[q]*dx+g[q+1]*dy;};
+    const a=d(ix0,iy0,xf,yf),b=d(ix1,iy0,xf-1,yf),c=d(ix0,iy1,xf,yf-1),e=d(ix1,iy1,xf-1,yf-1);return (a+(b-a)*u)+((c+(e-c)*u)-(a+(b-a)*u))*v;};
+  const fbm=(base,oct,seed,x,y)=>{let s=0,a=.5,n=0;for(let o=0;o<oct;o++){const P=base<<o,g=G[seed+o]||(G[seed+o]=grad(P,seed*31+o));s+=a*pn(g,P,x*P,y*P);n+=a;a*=.5;}return s/n;};const G={};
+  /* periodic Worley cells: F2-F1 (cracks) */
+  const WC=12,pts=[];const rr=wnRng(777);for(let i=0;i<WC*WC;i++)pts.push([rr(),rr()]);
+  const wor=(x,y)=>{const X=x*WC,Y=y*WC,xi=Math.floor(X),yi=Math.floor(Y);let f1=9,f2=9;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const cx=xi+dx,cy=yi+dy,p=pts[(((cy%WC)+WC)%WC)*WC+(((cx%WC)+WC)%WC)],px=cx+p[0],py=cy+p[1],d=Math.hypot(px-X,py-Y);if(d<f1){f2=f1;f1=d;}else if(d<f2)f2=d;}return[f1,f2];};
+  for(let j=0;j<S;j++)for(let i=0;i<S;i++){const x=i/S,y=j/S,q=(j*S+i)*4;
+    const a=fbm(4,5,1,x,y),b=fbm(2,5,9,x,y),w=wor(x,y),c=Math.min(1,(w[1]-w[0])*2.2),d=fbm(16,3,20,x,y);
+    data[q]=Math.max(0,Math.min(255,128+a*300));data[q+1]=Math.max(0,Math.min(255,128+b*300));data[q+2]=Math.round(c*255);data[q+3]=Math.max(0,Math.min(255,128+d*300));}
+  const t=new THREE.DataTexture(data,S,S,THREE.RGBAFormat);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.magFilter=THREE.LinearFilter;t.minFilter=THREE.LinearMipmapLinearFilter;t.generateMipmaps=true;t.anisotropy=4;t.needsUpdate=true;
+  WT.tex=t;return t;}
+
+/* ---------- the ground material: the game's Phong lighting (sun, shadows, lamps, fog) with the colour and the relief worked out per pixel ----------
+   grass: a green that changes over broad patches and small ones, yellower and brighter on crests and slopes facing the sun, deeper and bluer in hollows
+   and in the shade; the forest floor darker and mossier; rock where it is steep (and on the cliffs and the spires) as chiselled stone: every facet one
+   flat plane with one value, quiet bands of strata, the region's stone, the meadow's grass on facets that face the sky (see src/world/wrock.js, which
+   dresses the cliffs near the player with blocks drawn by this same material); snow on the high spires, off the steepest faces, with its streaks and
+   relief; damp ground by the water; under water the ground fades into the colour of the water by depth. */
+const WT_GLSL_FUNCS=`
+uniform sampler2D tWN;uniform float uWTime;
+varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;
+float wn(vec2 p,int c){vec4 t=texture2D(tWN,p);return c==0?t.r:c==1?t.g:c==2?t.b:t.a;}
+vec3 wtPerturb(vec3 sp,vec3 sn,float hgt){vec3 dx=dFdx(sp),dy=dFdy(sp);vec3 R1=cross(dy,sn),R2=cross(sn,dx);float det=dot(dx,R1);float dHx=dFdx(hgt),dHy=dFdy(hgt);
+  vec3 g=sign(det)*(dHx*R1+dHy*R2);return normalize(abs(det)*sn-g);}
+`;
+function wtMaterial(){return WT.mat||(WT.mat=wtMakeMat(null));}
+/* the same material for a landmark seen from afar (the Great Elder Circle, wfeat.js): its upper part shows faintly through the haze past the end of the
+   air (wdepth.js WD_SEE; y0: the height of its foot, R: its size). One material each (its own uniform), one program for all. */
+function wtMaterialSee(y0,R){return wtMakeMat({y0,R});}
+function wtMakeMat(see){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
+  if(see){m.defines={WD_SEE:1};m.userData.see=new THREE.Vector2(see.y0,see.R);}
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec2 uSee;\n'+sh.fragmentShader;}
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS)
+      .replace('#include <map_fragment>',WT_GLSL_COLOR)
+      .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
+  m.customProgramCacheKey=()=>see?'wtground6see':'wtground6';return m;}
+const WT_GLSL_COLOR=`
+  /* (four texture reads: two for the green, two for rock where there is rock - every channel of the noise texture is a different scale) */
+  vec3 P=vWp;vec3 Nw=normalize(vWn);
+  float fp=length(fwidth(P));float d1=1.0-smoothstep(0.09,0.35,fp),d2=1.0-smoothstep(0.35,1.6,fp),d3=1.0-smoothstep(1.6,7.0,fp);
+  float wSp=vA.x,wTb=vA.y,wLk=vA.z,wFo=vA.w,wPl=max(0.0,1.0-wSp-wTb-wLk);
+  float cav=vB.y*2.0-1.0,snowP=vB.x,wet=vB.z;
+  vec4 T1=texture2D(tWN,P.xz/393.0),T2=texture2D(tWN,P.xz/23.0);
+  float nL=T1.r,hue=T1.g,nm=T1.a,ns=mix(0.5,T2.g,d3),nt=mix(0.5,T2.r,d2),nu=mix(0.5,T2.a,d1);
+  /* ---- grass ---- */
+  vec3 gShade=vec3(0.115,0.245,0.085),gBase=vec3(0.215,0.395,0.105),gSun=vec3(0.39,0.545,0.14),gDry=vec3(0.47,0.50,0.21);
+  float val=0.5+(nL-0.5)*0.32+(nm-0.5)*0.45+(ns-0.5)*0.55+(nt-0.5)*0.32+(nu-0.5)*0.16;
+  vec3 grass=mix(gShade,gBase,smoothstep(0.12,0.55,val));grass=mix(grass,gSun,smoothstep(0.58,0.95,val)*0.62);
+  grass=mix(grass,gDry,smoothstep(0.6,0.88,hue)*0.32*(1.0-wFo));grass=mix(grass,grass*vec3(0.86,0.98,1.12),smoothstep(0.42,0.12,hue)*0.35);
+  grass=mix(grass,grass*1.18+vec3(0.03,0.03,0.0),clamp(-cav*1.4,0.0,1.0)*0.5);grass=mix(grass,grass*vec3(0.62,0.72,0.78),clamp(cav*1.6,0.0,1.0)*0.55);
+  vec3 forest=mix(vec3(0.085,0.18,0.07),vec3(0.17,0.29,0.09),smoothstep(0.2,0.8,val));grass=mix(grass,forest,wFo*0.85);
+  grass=mix(grass,grass*vec3(1.05,1.07,0.88),wTb*0.55);grass=mix(grass,grass*vec3(0.95,1.04,0.98),wLk*0.4);
+  /* ---- how rocky ---- */
+  float sl=1.0-Nw.y;float rt=mix(0.31,0.17,wTb)-0.04*wSp+(nm-0.5)*0.12+(ns-0.5)*0.07;
+  /* (the elderglade's own rock - its knolls, the great mountain's outcrops - is sculpted: smoothly shaded, no per-facet speckle or strata, its edge
+     against the grass soft (the lattice's rock floor counts little there); a ring's stone keeps its chiselled facets) */
+  float gRk=wLk*(1.0-step(0.97,vB.w));
+  float rocky=max(smoothstep(rt,rt+0.1,sl),vB.w*(1.0-gRk));
+  vec3 col=grass;float wtBump=(nt-0.5)*0.12*d1;float sn=0.0;float wtFacet=0.0;vec3 wtNf=Nw;
+  if(rocky>0.002||snowP>0.002){
+    /* ---- rock: chiselled stone (src/world/wrock.js). Every facet - a triangle of the ground, of a block, a boulder, a ring - is one flat plane of stone:
+       it is lit as a plane (its normal from the screen derivatives of the world position) and has one value, from its own normal: lighter where it faces
+       up, with a step from facet to facet. Quiet bands of strata a few metres high, each its own tint (higher bands in the tablelands and the spires);
+       the region's stone (cool grey spires, warm tablelands, dark mossy lake rock, a warm grey elsewhere); the meadow's own grass on the facets that face
+       the sky. Far off the facets soften a little (the lattice there is coarse). No striations, streaks or cracks: clean planes. ---- */
+    float stri=0.5,streak=0.5,striF=0.5;
+    if(snowP>0.002){/* (the streaks of the snow down the faces: two reads, only where there can be snow) */float bx=abs(Nw.x),bz=abs(Nw.z),bs=bx*bx*bx*bx+bz*bz*bz*bz+1e-4;float wx=bx*bx*bx*bx/bs,wz=1.0-wx;
+      vec4 RX=texture2D(tWN,vec2(P.z/34.8,P.y/250.0)),RZ=texture2D(tWN,vec2(P.x/34.8+0.37,P.y/250.0));vec4 R=RX*wx+RZ*wz;stri=R.r;streak=R.g;striF=mix(0.5,R.a,d2);}
+    vec3 Nf=normalize(cross(dFdx(P),dFdy(P)));if(dot(Nf,Nw)<0.0)Nf=-Nf;
+    wtFacet=rocky*(1.0-0.45*smoothstep(400.0,2200.0,length(P-cameraPosition)))*(1.0-0.9*gRk);wtNf=Nf;
+    float bandH=3.2+1.6*wTb+2.2*wSp,bi=floor((P.y+(nm-0.5)*7.0)/bandH),bh=fract(sin(bi*12.9898+7.13)*43758.5453);
+    vec3 fq=floor(Nf*5.0+0.5);float fh=fract(sin(dot(fq,vec3(12.9898,78.233,37.719))+bi*3.71)*43758.5453);
+    float rv=clamp(0.44+0.34*smoothstep(-0.25,0.75,mix(Nf.y,Nw.y,gRk*0.7))+0.17*(fh-0.5)*(1.0-0.8*gRk)+0.12*(bh-0.5)*(1.0-0.85*gRk)+0.14*(nm-0.5)+0.08*(nL-0.5),0.0,1.0);
+    vec3 rSp=mix(vec3(0.40,0.42,0.47),vec3(0.85,0.86,0.89),rv);
+    vec3 rTb=mix(vec3(0.50,0.42,0.33),vec3(0.90,0.82,0.68),rv);rTb=mix(rTb,rTb*vec3(1.06,0.94,0.82),step(0.55,bh)*0.4);
+    vec3 rLk=mix(vec3(0.30,0.33,0.30),vec3(0.64,0.67,0.60),rv);
+    vec3 rPl=mix(vec3(0.46,0.42,0.37),vec3(0.86,0.81,0.71),rv);rPl=mix(rPl,rPl*vec3(1.04,0.96,0.88),step(0.6,bh)*0.3);
+    vec3 rock=rPl*wPl+rSp*wSp+rTb*wTb+rLk*wLk;
+    float ledge=smoothstep(0.56,0.8,mix(Nf.y,Nw.y,gRk));
+    /* a block of the cliffs (wrock.js, aB.w = 1): less light where it is shut in (aB.y, its cavity: low down, at the ground, in the crevices, underneath),
+       and a tint and brightness of its own (aB.z, cooler or warmer), so a wall is many stones */
+    float blk=step(0.97,vB.w),bo=blk*clamp(cav,0.0,1.0);
+    rock*=1.0-0.42*bo;rock*=mix(1.0,0.86+0.28*vB.z,blk);rock=mix(rock,rock*mix(vec3(0.92,0.97,1.05),vec3(1.07,0.98,0.87),vB.z),blk*0.7);
+    /* a ring of the elderglade (wring.js: a block whose aA.w is its moss): the moss takes what faces up first and creeps down the sides in patches */
+    float mos=blk*wFo;
+    if(mos>0.003){float mt=mos*(0.7+0.55*Nf.y)+(ns-0.5)*0.5+(nt-0.5)*0.35+(nm-0.5)*0.25;float mA=smoothstep(0.36,0.5,mt);
+      vec3 mc=mix(vec3(0.11,0.215,0.07),vec3(0.24,0.38,0.10),clamp(0.3+0.55*Nf.y+(nu-0.5)*0.6+(nL-0.5)*0.4+(fh-0.5)*0.2,0.0,1.0));rock=mix(rock,mc*(1.0-0.3*bo),mA);}
+    rock=mix(rock,grass*1.04,clamp(ledge*0.93+wLk*0.25*smoothstep(0.3,0.56,Nf.y),0.0,1.0)*(1.0-wSp*0.5));
+    col=mix(grass,rock,rocky);
+    /* ---- snow on the upper spires, off the steepest faces, in streaks down them ---- */
+    float snowE=snowP+(nL-0.5)*0.4+(nm-0.5)*0.45+(ns-0.5)*0.2+(cav<0.0?-cav*0.25:-cav*0.15);
+    sn=smoothstep(0.25,0.5,snowE)*smoothstep(0.86,0.5,sl+(streak-0.5)*0.5+(striF-0.5)*0.2);
+    col=mix(col,vec3(0.88,0.91,0.97)*(0.92+0.08*nt),clamp(sn*1.5,0.0,1.0));
+    wtBump=(stri*0.9*d3+striF*0.4*d2)*sn*0.5+wtBump*(1.0-rocky);}
+  /* ---- by the water ---- */
+  float dep=vWl-P.y;
+  if(dep>-2.0){col=mix(col,col*vec3(0.6,0.65,0.6),wet*0.5*(1.0-rocky));
+    col=mix(col,mix(vec3(0.53,0.50,0.40),vec3(0.70,0.66,0.52),ns),smoothstep(-0.9,0.05,dep)*smoothstep(1.2,0.0,dep)*0.6*(1.0-rocky*0.7));
+    if(dep>0.0){vec3 sand=mix(vec3(0.60,0.60,0.47),vec3(0.74,0.72,0.58),ns);vec3 bot=mix(sand,col,0.3);vec3 wc=mix(vec3(0.22,0.66,0.63),vec3(0.04,0.22,0.36),1.0-exp(-dep*0.2));col=mix(bot,wc,1.0-exp(-dep*0.6));}}
+  else if(wet>0.0)col=mix(col,col*vec3(0.6,0.65,0.6),wet*0.5*(1.0-rocky));
+  col*=1.0-clamp(cav,0.0,1.0)*0.3;
+  diffuseColor.rgb*=col;float wtBumpK=0.5+0.5*rocky;
+`;
+/* the water (stylized, v48): clean surfaces coloured by depth - turquoise in the shallows, blue-green further out, deep blue in the deep - nearly
+   opaque from a couple of metres, fading to nothing over the last few decimetres so the shore meets the ground softly, with a thin clean line of foam
+   that breathes gently; broad slow ripples that fade with distance (lakes almost still, rivers streaked and moving along their flow), a soft sky tint at
+   low angles and a sun glint; falls white, streaming down. No fine noise: nothing to shimmer. */
+function wtWaterMat(){if(WT.wmat)return WT.wmat;const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x4c6066,shininess:110,transparent:true,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-2});
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec3 aD;varying vec3 vD;varying vec3 vWp2;varying vec3 vWn2;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvD=aD;vWp2=(modelMatrix*vec4(transformed,1.0)).xyz;vWn2=normalize(mat3(modelMatrix)*objectNormal);');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D tWN;uniform float uWTime;varying vec3 vD;varying vec3 vWp2;varying vec3 vWn2;')
+      .replace('#include <map_fragment>',`
+  float d=max(vD.x,0.0);vec2 fl=vD.yz;float fs=min(1.0,length(fl));vec3 P=vWp2;float steep=1.0-clamp(vWn2.y,0.0,1.0);
+  float far=length(P-cameraPosition),fd=1.0-smoothstep(80.0,900.0,far),fall=smoothstep(0.12,0.45,steep);/* (white from rapids on: a stream down a steep slope foams) */
+  /* broad ripples (two slow layers, carried along by the flow) and, on a river, streaks drawn out along it */
+  vec2 uvA=P.xz/16.0+vec2(uWTime*0.011,uWTime*0.007)-fl*uWTime*0.32,uvB=P.xz/7.0-vec2(uWTime*0.009,-uWTime*0.013)-fl*uWTime*0.8;
+  float rA=texture2D(tWN,uvA/6.0).a,rB=texture2D(tWN,uvB/5.0).r;float rip=((rA-0.5)*0.6+(rB-0.5)*0.4)*fd;
+  float streak=0.0;if(fs>0.02){vec2 fdir=normalize(fl);vec2 sp=vec2(dot(P.xz,vec2(-fdir.y,fdir.x))/1.8,dot(P.xz,fdir)/11.0-uWTime*1.1*fs);streak=smoothstep(0.64,0.84,texture2D(tWN,sp/4.0).g)*fs*fd*(0.4+0.6*rA);}
+  /* the colour by depth */
+  vec3 cS=vec3(0.32,0.81,0.75),cM=vec3(0.10,0.56,0.63),cD=vec3(0.04,0.25,0.41);
+  vec3 wc=mix(mix(cS,cM,1.0-exp(-d*0.5)),cD,1.0-exp(-d*0.11));wc*=1.0+rip*0.12;wc=mix(wc,wc*1.15+vec3(0.03),streak*0.35);
+  float a=smoothstep(0.0,0.22,d)*mix(0.55,0.95,1.0-exp(-d*0.55));
+  /* the shore: a thin clean line of foam just inside the edge, breathing slowly */
+  float br=0.5+0.5*sin(uWTime*1.2+P.x*0.13+P.z*0.17);float foam=smoothstep(0.30,0.10,d)*smoothstep(0.0,0.05,d)*(0.5+0.3*br)*(1.0-fall)*(1.0-0.6*fs);
+  /* falls: white water streaming down */
+  float fs2=texture2D(tWN,vec2((P.x+P.z)/3.1,P.y/9.0+uWTime*0.9)/4.0).b;wc=mix(wc,vec3(0.90,0.95,0.96)*(0.88+0.12*fs2),fall*0.85);a=max(a,fall*0.9);
+  /* a soft sky tint at low angles */
+  vec3 V=normalize(cameraPosition-P);float fr=pow(1.0-clamp(V.y,0.0,1.0),3.0)*(1.0-fall);
+  #ifdef USE_FOG
+  vec3 skyC=mix(vec3(0.62,0.80,0.90),fogColor,0.5);
+  #else
+  vec3 skyC=vec3(0.66,0.82,0.92);
+  #endif
+  wc=mix(wc,skyC,fr*0.45);a=max(a,fr*0.8*smoothstep(0.0,0.22,d));
+  diffuseColor.rgb*=mix(wc,vec3(0.93,0.97,0.98),clamp(foam,0.0,1.0));diffuseColor.a*=clamp(a+foam*0.5,0.0,1.0);`)
+      .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  {float calm=0.45+0.55*fs;normal=normalize(normal+(viewMatrix*vec4((rA-0.5)*0.16,0.0,(rB-0.5)*0.16,0.0)).xyz*(1.0-steep)*fd*calm);}');};
+  m.customProgramCacheKey=()=>'wtwater3';WT.wmat=m;return m;}
+
+/* ---------- chunks ---------- */
+/* the index of a chunk (shared by all: 64x64 cells, the diagonal by the parity of the cell, then the four skirts) */
+function wtIndex(){if(WT.idx)return WT.idx;const n=WT.N,m=n+1,ix=[];
+  for(let k=0;k<n;k++)for(let i=0;i<n;i++){const a=k*m+i,b=a+1,d=a+m,e=d+1;if(((i+k)&1)===0)ix.push(a,d,b,b,d,e);else ix.push(a,d,e,a,e,b);}
+  const base=m*m,edges=[[...Array(m).keys()].map(t=>t),[...Array(m).keys()].map(t=>n*m+t),[...Array(m).keys()].map(t=>t*m),[...Array(m).keys()].map(t=>t*m+n)];
+  edges.forEach((E,ei)=>{const b0=base+ei*m;for(let j=0;j<m-1;j++){const a=E[j],b=E[j+1],c=b0+j,d=b0+j+1;ix.push(a,c,b,b,c,d,a,b,c,b,d,c);}});
+  WT.idx=new THREE.BufferAttribute(new Uint32Array(ix),1);return WT.idx;}
+/* the ground and the water of one chunk */
+function wtBuild(L,i,k,gIn){const T0=performance.now(),N=WT.N,S=WG_CFG.tile<<L,step=S/N,x0=i*S,z0=k*S;let g=gIn,tile=null;
+  if(!g){if(L===0){tile=wtTile(i,k);g=tile.g.nrm?tile.g:wgGrid(x0,z0,step,N,0);}else g=wgGrid(x0,z0,step,N,wtLite(L));}
+  const m=N+1,nv=m*m,tot=nv+4*m,pos=new Float32Array(tot*3),nr=new Int8Array(tot*3),aA=new Uint8Array(tot*4),aB=new Uint8Array(tot*4),aW=new Float32Array(tot),drop=1.5+step*1.4;
+  let ymin=1e9,ymax=-1e9;
+  for(let q=0;q<nv;q++){const ii=q%m,kk=(q/m)|0,h=g.h[q];pos[q*3]=ii*step;pos[q*3+1]=h;pos[q*3+2]=kk*step;if(h<ymin)ymin=h;if(h>ymax)ymax=h;
+    nr[q*3]=Math.round(g.nrm[q*3]*127);nr[q*3+1]=Math.round(g.nrm[q*3+1]*127);nr[q*3+2]=Math.round(g.nrm[q*3+2]*127);
+    for(let c=0;c<4;c++)aA[q*4+c]=Math.round(Math.max(0,Math.min(1,g.A[q*4+c]))*255);
+    aB[q*4]=Math.round(Math.max(0,Math.min(1,g.B[q*4]))*255);aB[q*4+1]=Math.round((g.B[q*4+1]*.5+.5)*255);aB[q*4+2]=Math.round(g.B[q*4+2]*255);aB[q*4+3]=Math.round(Math.max(0,Math.min(1,g.B[q*4+3]))*255);aW[q]=g.wl[q]>-1e8?g.wl[q]:-1e4;}
+  const edges=[[...Array(m).keys()],[...Array(m).keys()].map(t=>N*m+t),[...Array(m).keys()].map(t=>t*m),[...Array(m).keys()].map(t=>t*m+N)];
+  edges.forEach((E,ei)=>E.forEach((v,j)=>{const r=nv+ei*m+j;pos[r*3]=pos[v*3];pos[r*3+1]=pos[v*3+1]-drop;pos[r*3+2]=pos[v*3+2];for(let c=0;c<3;c++)nr[r*3+c]=nr[v*3+c];for(let c=0;c<4;c++){aA[r*4+c]=aA[v*4+c];aB[r*4+c]=aB[v*4+c];}aW[r]=aW[v];}));
+  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('normal',new THREE.BufferAttribute(nr,3,true));
+  geo.setAttribute('aA',new THREE.BufferAttribute(aA,4,true));geo.setAttribute('aB',new THREE.BufferAttribute(aB,4,true));geo.setAttribute('aW',new THREE.BufferAttribute(aW,1));geo.setIndex(wtIndex());
+  geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(S/2,(ymin+ymax)/2,S/2),Math.hypot(S/2,S/2,(ymax-ymin)/2+drop));
+  const mesh=new THREE.Mesh(geo,wtMaterial());mesh.position.set(x0,0,z0);mesh.frustumCulled=false;mesh.receiveShadow=true;mesh.castShadow=false;mesh.matrixAutoUpdate=false;mesh.updateMatrix();
+  /* water */
+  let water=null;{const wp=[],wa=[],wi=[];const vmap=new Int32Array(nv).fill(-1),vert=q=>{if(vmap[q]>=0)return vmap[q];const ii=q%m,kk=(q/m)|0;vmap[q]=wp.length/3;wp.push(ii*step,g.wl[q],kk*step);wa.push(g.wl[q]-g.h[q],g.fw[q*2],g.fw[q*2+1]);return vmap[q];};
+    /* a cell whose corners' levels differ is drawn only as a fall of one stream (every corner flowing, the level dropping along the flow); two waters at
+       different levels - a lake and a stream, two lakes, a stream and the world's water - never stretch a sheet between them */
+    const F=g.fw,tol=.3+.12*step,fl=q=>F[q*2]*F[q*2]+F[q*2+1]*F[q*2+1]>.25;
+    for(let kk=0;kk<N;kk++)for(let ii=0;ii<N;ii++){const a=kk*m+ii,b=a+1,d=a+m,e=d+1,W=g.wl;if(W[a]<-1e8||W[b]<-1e8||W[d]<-1e8||W[e]<-1e8)continue;const H=g.h;if(W[a]<=H[a]&&W[b]<=H[b]&&W[d]<=H[d]&&W[e]<=H[e])continue;
+      if(typeof wrvRibbon==='function'&&fl(a)&&fl(b)&&fl(d)&&fl(e))continue;/* (a stream's own water: its ribbon draws it, wriver.js) */
+      if(Math.max(W[a],W[b],W[d],W[e])-Math.min(W[a],W[b],W[d],W[e])>tol){let ok=true,fx=0,fz=0;for(const q of[a,b,d,e]){const u=F[q*2],v=F[q*2+1];if(u*u+v*v<.25){ok=false;break;}fx+=u;fz+=v;}
+        if(ok){const gx=(W[b]-W[a]+W[e]-W[d])*.5,gz=(W[d]-W[a]+W[e]-W[b])*.5,gl=Math.hypot(gx,gz)||1,fl=Math.hypot(fx,fz)||1;ok=-(gx*fx+gz*fz)/(gl*fl)>.5;}if(!ok)continue;}
+      const A=vert(a),B=vert(b),D=vert(d),E=vert(e);if(((ii+kk)&1)===0)wi.push(A,D,B,B,D,E);else wi.push(A,D,E,A,E,B);}
+    if(wi.length){const wg=new THREE.BufferGeometry();wg.setAttribute('position',new THREE.Float32BufferAttribute(wp,3));wg.setAttribute('aD',new THREE.Float32BufferAttribute(wa,3));wg.setIndex(wi);wg.computeVertexNormals();wg.computeBoundingSphere();
+      water=new THREE.Mesh(wg,wtWaterMat());water.position.set(x0,0,z0);water.frustumCulled=false;water.receiveShadow=true;water.renderOrder=2;water.matrixAutoUpdate=false;water.updateMatrix();}}
+  if(tile&&tile.g===g){/* (the tile keeps only what the game reads: heights and water) */g.nrm=null;g.A=null;g.B=null;g.fw=null;}
+  const ch={L,i,k,x0,z0,S,mesh,water,ymin,ymax,use:WT.frame,on:false};WT.stats.built++;WT.stats.ms+=performance.now()-T0;return ch;}
+const wtLite=L=>L>=3?2:L>=2?1:0;
+function wtDispose(ch){if(ch.on)wtShow(ch,false);ch.mesh.geometry.dispose();if(ch.water)ch.water.geometry.dispose();}
+function wtShow(ch,on){if(ch.on===on)return;ch.on=on;if(on){WT.group.add(ch.mesh);if(ch.water)WT.group.add(ch.water);}else{WT.group.remove(ch.mesh);if(ch.water)WT.group.remove(ch.water);}}
+/* ---------- which chunks: a quadtree round the camera, finer where it is near ---------- */
+const _wtFr=new THREE.Frustum(),_wtM=new THREE.Matrix4(),_wtSp=new THREE.Sphere(),_wtV=new THREE.Vector3();
+function wtWant(cx,cy,cz){const out=[],LM=WT.LMAX,S=WG_CFG.tile<<LM,K=WT.K,gy=WT.gy||0,alt=Math.max(0,cy-gy),MX=WT.maxD||1e9;
+  const visit=(L,i,k)=>{const s=WG_CFG.tile<<L,x0=i*s,z0=k*s,dx=Math.max(0,Math.abs(cx-(x0+s/2))-s/2),dz=Math.max(0,Math.abs(cz-(z0+s/2))-s/2),d=Math.hypot(dx,dz,alt*.6);if(Math.hypot(dx,dz)>MX)return;/* (past the end of the air nothing is drawn) */
+    if(L>0&&d<K*s){for(let b=0;b<2;b++)for(let a=0;a<2;a++)visit(L-1,i*2+a,k*2+b);}else out.push({L,i,k,d,key:wtKey(L,i,k)});};
+  const i0=Math.floor(cx/S),k0=Math.floor(cz/S),rr=MX>1e8?1:Math.max(1,Math.min(5,Math.ceil(MX/S)));/* (the top chunks round enough to reach the end of the air: 3 x 3 to about 4 km, 11 x 11 at 17.5 km) */
+  for(let k=k0-rr;k<=k0+rr;k++)for(let i=i0-rr;i<=i0+rr;i++)visit(LM,i,k);return out;}
+/* per frame: choose the chunks, build the missing ones (nearest first, within the time budget), show what is ready and keep the old chunks where the new ones
+   are not ready yet (a coarse chunk stays until all four of its children are built, and fine ones stay until the coarse one replacing them is built) */
+function wtUpdate(camera,force){if(!WT.on)return;WT.frame++;const cp=camera.position;WT.cam.x=cp.x;WT.cam.y=cp.y;WT.cam.z=cp.z;WT.time.value=performance.now()/1000;
+  if(typeof wrvUpdate==='function')wrvUpdate(cp,force);/* (the streams' ribbons, wriver.js) */
+  if(WT.frame%2===0||force){WT.gy=wtHasTile(cp.x,cp.z)?wtH(cp.x,cp.z):WT.gy||0;WT.want=wtWant(cp.x,cp.y,cp.z);}
+  const want=WT.want||[];const T0=performance.now(),lim=force?1e9:WT.budget;
+  const missing=want.filter(w=>!WT.chunks.has(w.key)).sort((a,b)=>a.d-b.d);
+  for(const w of missing){if(performance.now()-T0>lim)break;const rg=WT.ready.get(w.key);
+    if(rg){WT.ready.delete(w.key);WT.chunks.set(w.key,wtBuild(w.L,w.i,w.k,rg));continue;}
+    if(!WT.pool.length||(force&&w.d<WT.syncR)){WT.chunks.set(w.key,wtBuild(w.L,w.i,w.k));continue;}
+    if(w.L===0){const t=WT.tiles.get(w.i+','+w.k);if(t&&t.g.nrm){WT.chunks.set(w.key,wtBuild(0,w.i,w.k));continue;}if(!t){wtTileAsk(w.i,w.k);continue;}}
+    if(!WT.asked.has('c'+w.key)){const S=WG_CFG.tile<<w.L,key=w.key;if(wtAsk('c'+key,w.i*S,w.k*S,S/WT.N,WT.N,wtLite(w.L),g=>{WT.asked.delete('c'+key);if(WT.on&&WT.seed===WG.seed)WT.ready.set(key,g);}))WT.asked.add('c'+key);}}
+  /* what to show */
+  const show=new Set();
+  const has=(L,i,k)=>WT.chunks.get(wtKey(L,i,k));
+  /* a wanted chunk that is not built yet: shown by its built children (from before) or by its built parent */
+  for(const w of want){const ch=has(w.L,w.i,w.k);if(ch){show.add(ch);continue;}
+    if(w.L>0){const kids=[];for(let b=0;b<2;b++)for(let a=0;a<2;a++){const c=has(w.L-1,w.i*2+a,w.k*2+b);if(c)kids.push(c);}if(kids.length===4){kids.forEach(c=>show.add(c));continue;}}
+    let L=w.L,i=w.i,k=w.k;while(L<WT.LMAX){L++;i=Math.floor(i/2);k=Math.floor(k/2);const p=has(L,i,k);if(p){show.add(p);break;}}}
+  /* a parent shown for a missing child hides that parent's other children (they would overlap it) */
+  for(const ch of [...show]){if(ch.L>0){for(const o of [...show])if(o!==ch&&o.L<ch.L){const s=ch.S;if(o.x0>=ch.x0&&o.x0<ch.x0+s&&o.z0>=ch.z0&&o.z0<ch.z0+s)show.delete(o);}}}
+  camera.updateMatrixWorld();_wtM.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);_wtFr.setFromProjectionMatrix(_wtM);
+  /* (the far plane of the frustum is ignored: far chunks are drawn by the depth compression, see wdepth) */
+  _wtFr.planes[4].constant=1e9;_wtFr.planes[5].constant=1e9;
+  for(const ch of WT.chunks.values()){let on=show.has(ch);if(on){ch.use=WT.frame;_wtSp.center.set(ch.x0+ch.S/2,(ch.ymin+ch.ymax)/2,ch.z0+ch.S/2);_wtSp.radius=Math.hypot(ch.S*.71,(ch.ymax-ch.ymin)/2+20);on=_wtFr.intersectsSphere(_wtSp);}wtShow(ch,on);}
+  WT.shown=show;
+  /* chunks unused for a while go */
+  if(WT.chunks.size>320&&WT.frame%30===0){const arr=[...WT.chunks.values()].filter(c=>!show.has(c)).sort((a,b)=>a.use-b.use);for(let j=0;j<arr.length&&WT.chunks.size>260;j++){wtDispose(arr[j]);WT.chunks.delete(wtKey(arr[j].L,arr[j].i,arr[j].k));}}}
+function wtInit(group){WT.group=group;WT.on=true;wtMaterial();wtWaterMat();wtIndex();if(typeof wrvInit==='function')wrvInit(group);}
+function wtReset(){if(typeof wrvReset==='function')wrvReset();for(const ch of WT.chunks.values())wtDispose(ch);WT.chunks.clear();WT.tiles.clear();WT.want=null;WT.on=false;WT.asked.clear();WT.ready.clear();WT.reqs.clear();for(const w of WT.pool)w.busy=0;}
+

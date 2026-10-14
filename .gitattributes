@@ -1,0 +1,2 @@
+# keep every file byte-for-byte as it is (builds are compared with cmp)
+* -text

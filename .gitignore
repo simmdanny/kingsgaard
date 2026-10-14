@@ -1,0 +1,4 @@
+# build output (python build.py / build.py --dev); rebuilt from src
+dist/
+__pycache__/
+*.pyc

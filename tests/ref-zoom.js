@@ -1,0 +1,10 @@
+(function(){
+/* A zoomed piece of a reference picture with its edges marked and a grid in the picture's pixels: window.__zoomEdge(file, name, x0, y0, w, h, scale, step) -> uploads name.jpg */
+window.__zoomEdge=async function(file,name,x0,y0,w,h,s,step){const bm=await createImageBitmap(await (await fetch(file+'?'+Date.now())).blob());const c0=document.createElement('canvas');c0.width=bm.width;c0.height=bm.height;const g0=c0.getContext('2d');g0.drawImage(bm,0,0);const d=g0.getImageData(x0,y0,w,h).data;
+ const L=new Float32Array(w*h);for(let i=0;i<w*h;i++)L[i]=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2];const E=new Float32Array(w*h);for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;const gx=L[i-w+1]+2*L[i+1]+L[i+w+1]-L[i-w-1]-2*L[i-1]-L[i+w-1];const gy=L[i+w-1]+2*L[i+w]+L[i+w+1]-L[i-w-1]-2*L[i-w]-L[i-w+1];E[i]=Math.hypot(gx,gy);}
+ const t=document.createElement('canvas');t.width=w;t.height=h;const tg=t.getContext('2d');const id=tg.createImageData(w,h);for(let i=0;i<w*h;i++){const k=Math.min(1,Math.max(0,(E[i]-6)/22))*.5;id.data[i*4]=d[i*4]*(1-k)+255*k;id.data[i*4+1]=d[i*4+1]*(1-k);id.data[i*4+2]=d[i*4+2]*(1-k)+40*k;id.data[i*4+3]=255;}tg.putImageData(id,0,0);
+ const c=document.createElement('canvas');c.width=w*s+40;c.height=h*s+30;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.imageSmoothingEnabled=true;g.drawImage(t,0,0,w,h,40,30,w*s,h*s);g.font='11px sans-serif';
+ for(let x=Math.ceil(x0/step)*step;x<=x0+w;x+=step){const X=40+(x-x0)*s;g.strokeStyle=x%(step*5)===0?'rgba(0,200,255,.8)':'rgba(0,200,255,.25)';g.beginPath();g.moveTo(X,30);g.lineTo(X,30+h*s);g.stroke();if(x%(step*5)===0){g.fillStyle='#000';g.fillText(x,X-8,12);}}
+ for(let y=Math.ceil(y0/step)*step;y<=y0+h;y+=step){const Y=30+(y-y0)*s;g.strokeStyle=y%(step*5)===0?'rgba(0,200,0,.8)':'rgba(0,200,0,.25)';g.beginPath();g.moveTo(40,Y);g.lineTo(40+w*s,Y);g.stroke();if(y%(step*5)===0){g.fillStyle='#000';g.fillText(y,2,Y+4);}}
+ return fetch('http://localhost:8766/'+name+'.jpg',{method:'POST',body:c.toDataURL('image/jpeg',.92)}).then(r=>r.status);};
+})();
