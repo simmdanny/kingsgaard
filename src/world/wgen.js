@@ -135,7 +135,7 @@ function wgCragPrep(G,sd,He,Hk,a,b,s,ps,pw){const R=G.R,c0=R-G.sink,ca=sd*Math.c
   C.hills=[];const nh=sd>0?2:1+(wnHash(a,b,s+ps+40)<.5?1:0);for(let k=0;k<nh;k++){const h=k2=>wnHash(a*7+k,b*11-k,s+ps+41+k2),side=k===0?1:-1,
       hs=xe+R*(-.1+.5*h(0))+(k?R*.25:0),ht=side*C.Lv*(1.3+.6*h(1)),Hf=Hp*(sd>0?.38+.17*h(2):.3+.15*h(2)),an=h(3)*Math.PI;
     const e=1.15+.35*h(5),D=Math.hypot(hs,ht),L=Math.min(Hf*(3.2+.6*h(4)),(D-R*.35)/(e*1.25));/* (its footprint keeps clear of the ring's middle: the ring's height stays) */
-    if(L>40)C.hills.push({x:G.x+hs*ca-ht*sa,z:G.z+hs*sa+ht*ca,H:Math.min(Hf,L/3.2),L,e,ca:Math.cos(an),sa:Math.sin(an),id:7+40*h(6)});}
+    if(L>40)C.hills.push({x:G.x+hs*ca-ht*sa,z:G.z+hs*sa+ht*ca,H:Math.min(Hf,L/3.2),L,e,ca:Math.cos(an),sa:Math.sin(an),id:7+40*h(6),rr2:Math.pow(L*e*1.3,2)});}
   for(const F of C.hills){const r=Math.hypot(F.x-C.x,F.z-C.z)+F.L*F.e*1.35;if(r*r>C.r2)C.r2=r*r;}
   return C;}
 /* the body (over the mountain's ground): its distance from the apex in its own lengths (short inwards, long outwards, middling across), its outline
@@ -143,13 +143,14 @@ function wgCragPrep(G,sd,He,Hk,a,b,s,ps,pw){const R=G.R,c0=R-G.sink,ca=sd*Math.c
    (the top two fifths of its height, within a fifth of its lengths), under it a sheer inner side and a concave walkable ramp outwards */
 function wgCragBase(C,x,z){const dx=x-C.x,dz=z-C.z,u=dx*C.ca+dz*C.sa,v=-dx*C.sa+dz*C.ca,Lu=u>0?C.Lo:C.Li,nu=u/Lu,nv=v/C.Lv;let d=Math.sqrt(nu*nu+nv*nv)+1e-6;
   if(d>1.4)return 0;/* (the lobes bring its edge in by at most about a quarter: nothing out here) */
-  const N=WG.N[13],cu=nu/d,g=wnS(cu,-.35,.45),r=Math.hypot(u,v)+1e-6,ru=u/r,rv=v/r;
+  const N=WG.N[13],cu=nu/d,g=wnS(cu,-.35,.45),r=Math.sqrt(u*u+v*v)+1e-6,ru=u/r,rv=v/r;
   d*=1+(.18-.08*g)*wnN(N,ru*1.2+C.id,rv*1.2)+.05*wnN(N,ru*2.9-C.id,rv*2.9);if(d>=1)return 0;
   const cr=d<WG_CRD?Math.pow(1-d/WG_CRD,1.3):0;return C.H*((1-WG_CRK)*Math.pow(1-d,1.3+.4*g)+WG_CRK*cr);}
 /* a foothill (over the mountain's ground): a lobed, a little stretched mound - its lobes give it spurs and gullies - its
    profile concave and walkable (steepest at the top, 1.3 H / L), a small steep crown (rock) */
 const WG_FK=.22,WG_FD=.16;
-function wgCragHill(F,x,z){const dx=x-F.x,dz=z-F.z,u=dx*F.ca+dz*F.sa,v=-dx*F.sa+dz*F.ca,r=Math.hypot(u,v)+1e-6;let d=Math.hypot(u/F.e,v)/F.L;if(d>1.3)return 0;
+function wgCragHill(F,x,z){const dx=x-F.x,dz=z-F.z,r2=dx*dx+dz*dz;if(r2>F.rr2)return 0;/* (outside its bounding circle: nothing, cheaply) */
+  const u=dx*F.ca+dz*F.sa,v=-dx*F.sa+dz*F.ca,r=Math.sqrt(r2)+1e-6,ue=u/F.e;let d=Math.sqrt(ue*ue+v*v)/F.L;if(d>1.3)return 0;
   const N=WG.N[18];d*=1+.14*wnN(N,u/r*1.6+F.id,v/r*1.6)+.06*wnN(N,u/r*3.7-F.id,v/r*3.7);if(d>=1)return 0;
   return F.H*((1-WG_FK)*Math.pow(1-d,1.7)+WG_FK*(d<WG_FD?Math.pow(1-d/WG_FD,1.3):0));}
 /* the swell under the peak (over the mountain's ground): an ellipse round the apex in the peak's frame, its profile (1 - q)^1.7 - a mountain's concave
@@ -172,7 +173,7 @@ function wgCragCover(C,x,z){const dx=x-C.gx,dz=z-C.gz,s=dx*C.ga+dz*C.gs,t=-dx*C.
    the spires and crags */
 function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)return hm;let hb=wgCragBase(C,x,z);
   const N=WG.N,u=dx*C.ca+dz*C.sa,v=-dx*C.sa+dz*C.ca;
-  if(hb>.01){const Lu=u>0?C.Lo:C.Li,cu=u/Lu/(Math.hypot(u/Lu,v/C.Lv)+1e-6),inner=1-wnS(cu,-.2,.6),up=wnS(hb/C.H,.08,.55);
+  if(hb>.01){const Lu=u>0?C.Lo:C.Li,uL=u/Lu,vL=v/C.Lv,cu=uL/(Math.sqrt(uL*uL+vL*vL)+1e-6),inner=1-wnS(cu,-.2,.6),up=wnS(hb/C.H,.08,.55);
     if(!det||det<90)hb+=inner*up*C.H*.1*(wnRidged(N[9],v/48+C.id,u/120,2,2.2,.5,1,2)-.45);/* (buttresses) */
     if(!det||det<35)hb+=inner*up*C.H*.05*(wnRidged(N[10],v/17-C.id,u/55,2,2.1,.5,1,2)-.45);/* (ribs and gullies) */
     if(!det||det<150)hb+=(1-inner)*wnS(hb/C.H,0,.3)*C.H*.02*wnN(N[16],x/150+C.id,z/150);/* (shoulders and hollows on the grassy side) */
@@ -181,7 +182,10 @@ function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)r
      stand - so no step at the edge of either) */
   const hb0=Math.max(0,hb);let un=0,nf=0;for(const F of C.hills){const fh=wgCragHill(F,x,z);if(fh>0){un+=fh*fh*fh*fh;nf++;}}
   let h=hm+wgCragSwell(C,x,z)+(nf?Math.pow(hb0*hb0*hb0*hb0+un,.25):hb0);
-  const cv=wgCragCover(C,x,z);if(cv>h-24){let c=cv;if((!det||det<35)&&cv>h)c+=Math.min(cv-h,30)*.12*_wgCv.rk*(wnRidged(N[10],x/19+C.id,z/19,2,2.1,.5,1,2)-.45);h=wnSmax(h,c,24);}/* (ribs on its rock only: its grassy skirts stay smooth) *//* (a wide seam: the flanks run into the ground in a curve, no crease) */
+  /* (the cover only where it can reach this high: an upper bound from the same rules - its top, its edges at no less than .55 a metre - skips most of
+     the ground under the broad swells; the result is the same) */
+  const gs=(x-C.gx)*C.ga+(z-C.gz)*C.gs,gt=Math.abs(-(x-C.gx)*C.gs+(z-C.gz)*C.ga),cvMax=C.hc+C.He*1.04+3-Math.max(0,gt-C.tw*1.25)*.55-Math.max(0,gs-C.sOut)*1.3-Math.max(0,C.R*.25-gs);
+  const cv=cvMax>h-24?wgCragCover(C,x,z):-1e9;if(cv>h-24){let c=cv;if((!det||det<35)&&cv>h)c+=Math.min(cv-h,30)*.12*_wgCv.rk*(wnRidged(N[10],x/19+C.id,z/19,2,2.1,.5,1,2)-.45);h=wnSmax(h,c,24);}/* (ribs on its rock only: its grassy skirts stay smooth) *//* (a wide seam: the flanks run into the ground in a curve, no crease) */
   for(const p of C.pins){const px=x-p.x,pz=z-p.z;if(px*px+pz*pz>p.r2)continue;const a=px*p.ca+pz*p.sa,b=pz*p.ca-px*p.sa,q=Math.sqrt(a*a*p.ik+b*b*p.k)*p.sl/p.H;if(q>=1)continue;
     let ph=p.b+p.H*Math.pow(1-q,p.pw);if(!det||det<30)ph+=p.H*.05*wnN(N[9],a/7+p.x*.01,b/7);h=wnSmax(h,ph,6);}
   return h;}
