@@ -31,20 +31,21 @@ function wcmMat(tex,x0,z0){const tWN=wtNoiseTex(),m=new THREE.MeshPhongMaterial(
       .replace('#include <map_fragment>','#include <map_fragment>\n'+WCM_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\nnormal=normalize((viewMatrix*vec4(wcN,0.0)).xyz);')
       .replace('#include <lights_fragment_begin>',wcmLights());};
-  m.customProgramCacheKey=()=>'wcliff11';m.userData.U=U;WCM.mats.add(m);return m;}
+  m.customProgramCacheKey=()=>'wcliff18';m.userData.U=U;WCM.mats.add(m);return m;}
 const WCM_FUNCS=`
 /* a stone at P (from the tile's corner): x = relief, y = score (-1 outside it), z = cap (1 well inside, 0 at its rim); g = the relief's slope along the
    face (per metre, along u0 and up) - from the edge that is nearest (a block's straight bevels: the slope of one plane at a time) and the front's tilt */
-vec3 wcEval(vec4 A,vec4 B,vec4 C,vec4 D,vec4 E,vec4 F,vec3 P,out vec2 g){g=vec2(0.0);vec3 d=P-A.xyz;float dn=d.x*D.x+d.z*D.y,mx=max(A.w,B.x);if(abs(dn)>0.7*mx)return vec3(0.0,-1.0,0.0);
+vec3 wcEval(vec4 A,vec4 B,vec4 C,vec4 D,vec4 E,vec4 F,vec3 P,out vec2 g){g=vec2(0.0);vec3 d=P-A.xyz;float dn=d.x*D.x+d.z*D.y,mx=0.6*min(A.w,B.x);dn=dn>0.0?max(0.0,dn-C.x):-dn;if(dn>mx)return vec3(0.0,-1.0,0.0);/* (in front as far as it stands out) */
   float u0=-d.x*D.y+d.z*D.x,a=u0*B.y+d.y*B.z,b=-u0*B.z+d.y*B.y,isk=inversesqrt(1.0+B.w*B.w),sa=a+B.w*b;
   float dd=(A.w*0.5-abs(sa))*isk;vec2 ga=-sign(sa)*vec2(1.0,B.w)*isk;
   float d2=B.x*0.5-abs(b);if(d2<dd){dd=d2;ga=vec2(0.0,-sign(b));}
   float d3=E.w-(a*E.y+b*E.z);if(d3<dd){dd=d3;ga=-E.yz;}
   float d4=F.z-(a*F.x+b*F.y);if(d4<dd){dd=d4;ga=-F.xy;}
   if(dd<=0.0)return vec3(0.0,-1.0,0.0);
-  float mn=min(A.w,B.x),fd=1.0-smoothstep(0.2*mn,0.6*mn,abs(dn));if(fd<=0.0)return vec3(0.0,-1.0,0.0);
-  float t=min(1.0,dd/C.y),ka=C.z/(A.w*0.5),kb=C.w/(B.x*0.5),tl=1.0+ka*a+kb*b,amp=C.x*fd,f=amp*t*tl;
-  vec2 gab=amp*((dd<C.y?ga/C.y:vec2(0.0))*tl+t*vec2(ka,kb));g=vec2(gab.x*B.y-gab.y*B.z,gab.x*B.z+gab.y*B.y);
+  float mn=min(A.w,B.x),fd=1.0-smoothstep(0.2*mn,0.6*mn,dn);if(fd<=0.0)return vec3(0.0,-1.0,0.0);
+  float t=min(1.0,dd/C.y),ka=C.z/(A.w*0.5),kb=C.w/(B.x*0.5),tl=1.0+ka*a+kb*b,rm=1.0-F.w*abs(a)/(A.w*0.5),amp=C.x*fd;/* (F.w: a column's ridge) */
+  float kv=0.35*fract(D.z*7.13)*step(1.9*A.w,B.x)*(1.0-step(0.999,E.z)*step(abs(E.y),0.0001)),b0=(fract(D.z*3.37)-0.5)*0.6*B.x,K=1.0-kv*abs(b-b0)/(B.x*0.5),f=amp*t*tl*rm*K;/* (a column's kink: wclKink) */
+  vec2 gab=amp*((((dd<C.y?ga/C.y:vec2(0.0))*tl+t*vec2(ka,kb))*rm+t*tl*vec2(-F.w*sign(a)/(A.w*0.5),0.0))*K+t*tl*rm*vec2(0.0,-kv*sign(b-b0)/(B.x*0.5)));g=vec2(gab.x*B.y-gab.y*B.z,gab.x*B.z+gab.y*B.y);
   return vec3(f,f+E.x*fd,min(1.0,dd/(0.5*mn)));}
 /* the noise texture on the face, in world space, blended between the two upright planes by which way the face looks (and with the flat one: wcTex3) */
 vec4 wcTex(vec3 W,vec3 n,float s){float wx=abs(n.x),wz=abs(n.z),sm=wx+wz+1e-3;return (texture2D(tWN,W.xy/s)*wz+texture2D(tWN,W.zy/s)*wx)/sm;}
@@ -53,15 +54,19 @@ vec4 wcTex3(vec3 W,vec3 n,float s){vec3 a=abs(n);a=a*a;a/=a.x+a.y+a.z+1e-4;retur
 const WCM_COLOR=`
 {
   vec3 P=vWp-uOrg;vec3 n0=normalize(vN0);float dc=length(vWp-cameraPosition);
+  vec3 gnT=normalize(cross(dFdx(vWp),dFdy(vWp)));gnT*=sign(dot(gnT,cameraPosition-vWp)+1e-6);/* (the triangle's own normal, toward the eye) */
+  n0=normalize(mix(n0,gnT,smoothstep(0.25,0.6,n0.y-gnT.y)));
   vec3 T0=vec3(-n0.z,0.0,n0.x);float th=length(T0);T0=th>1e-3?T0/th:vec3(1.0,0.0,0.0);vec3 U0=cross(T0,n0);
   /* the vertex's candidate stones: the best two at the pixel, each with the slope of its relief (one evaluation a stone) */
-  float s1=-1.0,s2=-1.0,f1=0.0,cap=0.0,sid=0.5,ssc=1.0;vec3 g1=vec3(0.0),g2=vec3(0.0);vec2 gq;
+  float s1=-1.0,s2=-1.0,f1=0.0,cap=0.0,sid=0.5,ssc=1.0,colm=0.0;vec3 g1=vec3(0.0),g2=vec3(0.0);vec2 gq;
   for(int k=0;k<8;k++){float idx=k<4?vBlk[k]:vBlk2[k-4];if(idx<0.0)break;int i=int(idx+0.5);
     vec4 D=texelFetch(uBlk,ivec2(3,i),0);if(D.x*n0.x+D.y*n0.z<0.3*th)continue;
-    vec4 A=texelFetch(uBlk,ivec2(0,i),0),B=texelFetch(uBlk,ivec2(1,i),0);vec3 dq=P-A.xyz;if(dot(dq,dq)>0.36*(A.w*A.w+B.x*B.x)+0.5)continue;/* (beyond its corners: the rest of it unread) */
-    vec3 q=wcEval(A,B,texelFetch(uBlk,ivec2(2,i),0),D,texelFetch(uBlk,ivec2(4,i),0),texelFetch(uBlk,ivec2(5,i),0),P,gq);
+    vec4 A=texelFetch(uBlk,ivec2(0,i),0),B=texelFetch(uBlk,ivec2(1,i),0);vec3 dq=P-A.xyz;
+    {float u0=-dq.x*D.y+dq.z*D.x,qa=u0*B.y+dq.y*B.z,qb=-u0*B.z+dq.y*B.y;if(abs(qb)>B.x*0.5||abs(qa+B.w*qb)>A.w*0.5||dq.x*D.x+dq.z*D.y<-0.6*min(A.w,B.x))continue;}/* (outside its outline, or behind it: as wcEval would find, the rest unread) */
+    vec4 C=texelFetch(uBlk,ivec2(2,i),0);
+    vec3 q=wcEval(A,B,C,D,texelFetch(uBlk,ivec2(4,i),0),texelFetch(uBlk,ivec2(5,i),0),P,gq);
     if(q.y<0.0)continue;vec3 gw=gq.x*vec3(-D.y,0.0,D.x)+vec3(0.0,gq.y,0.0);
-    if(q.y>s1){s2=s1;g2=g1;s1=q.y;g1=gw;f1=q.x;cap=q.z;sid=D.z;ssc=D.w;}else if(q.y>s2){s2=q.y;g2=gw;}}
+    if(q.y>s1){s2=s1;g2=g1;s1=q.y;g1=gw;f1=q.x;cap=q.z;sid=D.z;ssc=D.w;colm=step(1.9*A.w,B.x);}else if(q.y>s2){s2=q.y;g2=gw;}}
   /* the seam: the gap between the best two, in metres by its slope along the face, drawn with fwidth (crisp at any distance); none without a real step */
   float gap=s1<0.0?1.0:(s2<0.0?f1:s1-s2);vec3 gG=s1<0.0?vec3(0.0):(s2<0.0?g1:g1-g2);gG-=n0*dot(n0,gG);
   float gl=length(gG),sdist=gap/max(gl,0.12),vis=smoothstep(0.35,0.85,gl)*step(0.0,s1);
@@ -73,10 +78,17 @@ const WCM_COLOR=`
   /* the noise: one read for the stone (its channels are other scales: tone, mottling, cracks, specks), one for the green (patches, moss, the grass line, snow) */
   vec3 Wq=vWp+vec3(sid*31.7,0.0,sid*17.3);vec4 NS=wcTex(Wq,n0,6.0);float nb=NS.r,nm=NS.g;
   float crev=max(vCrev,max(seam,0.45*seamSoft));
-  float t=0.54+0.12*(sid-0.5)+0.10*cap+0.30*(up-0.5)+0.10*(nb-0.5)+0.04*(nm-0.5)*(1.0-smoothstep(25.0,70.0,dc));
+  float hu=1.0-smoothstep(6.0,25.0,vWp.y-cameraPosition.y);/* (simpler higher up: the detail is where the hero is) */
+  float t=0.54+0.12*(sid-0.5)+0.10*cap+0.30*(up-0.5)+0.10*(nb-0.5)+0.04*(nm-0.5)*(1.0-smoothstep(25.0,70.0,dc))*hu;
   t-=0.15*crev;t-=0.14*(1.0-smoothstep(0.35,0.8,rk));
-  /* cracks: faint hairlines on about one stone in three, gone by 28 m */
-  {float ck=abs(NS.b-0.5);float cka=fwidth(ck)*0.8+0.002;float crack=(1.0-smoothstep(0.012-cka,0.012+cka,ck))*step(0.67,fract(sid*3.71))*smoothstep(0.25,0.5,cap)*(1.0-smoothstep(10.0,28.0,dc));t-=0.10*crack;}
+  /* the facets painted: lighter as a facet turns toward the sun's side of the face, darker as it turns away (and a little across) - a ridged column
+     shows its two faces, a chamfer its edge, in the shade as in the sun */
+  {vec2 Ls=normalize(uSunD.xz+vec2(1e-4)),tw=Nn.xz-n0.xz;t+=(0.55*dot(tw,Ls)+0.32*dot(tw,vec2(-Ls.y,Ls.x)))*rk;}
+  /* cracks: a few faint hairlines on about one stone in four - along its grain (the noise stretched upright on a column), in short runs (a mask),
+     only low down near the hero, gone by 22 m (and not read past it) */
+  if(dc<22.0){vec2 cw=vec2(dot(Wq,T0),Wq.y);float cn=texture2D(tWN,vec2(cw.x/3.0,cw.y/mix(4.0,14.0,colm))+sid).b,ck=abs(cn-0.5),cka=fwidth(ck)*0.8+0.002;
+    float run=smoothstep(0.56,0.70,texture2D(tWN,cw/9.0+sid*1.7).r);
+    float crack=(1.0-smoothstep(0.010-cka,0.010+cka,ck))*run*step(0.75,fract(sid*3.71))*smoothstep(0.3,0.6,cap)*(1.0-smoothstep(8.0,22.0,dc))*(1.0-smoothstep(3.0,10.0,vWp.y-cameraPosition.y));t-=0.08*crack;}
   float q4=t*4.0;t=mix(t,(floor(q4)+smoothstep(0.3,0.7,fract(q4)))/4.0,0.8);/* four tone steps, painted */
   vec3 warm=vec3(1.04,1.0,0.94),cool=mix(vec3(0.95,0.96,1.02),vec3(0.90,0.96,1.07),vPal);
   vec3 col=wcStone(t,vPal)*mix(cool,warm,fract(sid*5.31));
@@ -90,8 +102,9 @@ const WCM_COLOR=`
   float snA=vSn>0.002?smoothstep(0.25,0.5,vSn+0.35*(NG.a-0.5)+0.2*(nb-0.5)):0.0;vec3 snC=vec3(0.88,0.91,0.97)*(0.92+0.08*nm);
   gcol=mix(gcol,snC,snA);/* (the soil is snowed over where the ground is) */if(snA>0.0)col=mix(col,snC,snA*smoothstep(0.5,0.8,Nn.y+0.1*cap));
   /* moss on some tops; the grass at the foot (vGr: the soil climbing the face) and wherever the face eases (rho), the rock a little darker just above it */
-  float mo=smoothstep(0.62,0.9,Nn.y)*smoothstep(0.52,0.66,NG.r+0.1*cap)*(1.0-crev);col=mix(col,gcol*0.9,mo*0.8);
-  float gr=max(vGr,1.0-smoothstep(0.25,0.55,rk))+0.22*(NG.b-0.5)-0.15*smoothstep(0.4,0.9,cap);float gm=smoothstep(0.44,0.56,gr);
+  float mo=smoothstep(0.62,0.9,Nn.y)*smoothstep(0.30,0.46,NG.r+0.1*cap)*(1.0-crev);/* (the ledges and the tops of the columns: moss and grass on more of them) */col=mix(col,gcol*0.9,mo*0.8);
+  float gr=max(vGr*smoothstep(mix(0.12,0.30,colm),mix(0.45,0.62,colm),Nn.y+0.2*(NG.b-0.5)),1.0-smoothstep(0.25,0.55,rk))+0.22*(NG.b-0.5)-0.15*smoothstep(0.4,0.9,cap);float gm=smoothstep(0.44,0.56,gr);
+  gm*=smoothstep(0.35,0.7,gnT.y);
   col=mix(col,gcol,gm);col=mix(col,col*0.82,smoothstep(0.15,0.44,gr)*(1.0-gm));
   float sunF=clamp(dot(Nn,normalize(uSunD)),0.0,1.0);col*=1.0+0.30*(1.0-sunF)*(1.0-gm);
   wcN=normalize(mix(Nn,vec3(0.0,1.0,0.0),gm*0.5));
@@ -104,6 +117,8 @@ function wcmMesh(t,lod,out){if(!out.pos||!out.idx||!out.idx.length)return null;c
   g.setAttribute('aCrev',new THREE.BufferAttribute(out.crev,1));g.setAttribute('aRk',new THREE.BufferAttribute(out.rk,1));g.setAttribute('aPal',new THREE.BufferAttribute(out.pal,3));
   g.setIndex(new THREE.BufferAttribute(out.idx,1));g.computeBoundingSphere();
   const tex=wcmTex(out.stones,t.x0,t.z0),m=new THREE.Mesh(g,wcmMat(tex,t.x0,t.z0));m.position.set(t.x0,0,t.z0);m.castShadow=lod===0;m.receiveShadow=true;m.matrixAutoUpdate=false;m.updateMatrix();
+  m.renderOrder=-5;/* (drawn before the ground: the ground's pixels behind a cliff fail the depth test instead of being shaded and painted over - 8 ms of a
+     cliff-filled frame on a slow GPU) */
   m.userData.keep=1;m.userData.tex=tex;m.userData.cliff=1;return m;}
 function wcmDrop(m){if(!m)return;if(m.userData.tex)m.userData.tex.dispose();if(m.material){WCM.mats.delete(m.material);m.material.dispose();}}
 /* three.js' light chunk without its point lights, for the cliff: rock in the open is lit by the sun and the sky; with the village's eight point lights

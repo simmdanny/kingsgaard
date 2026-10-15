@@ -1,30 +1,31 @@
 /* =====================================================================================================
    CLIFFS (src/world/wcliff.js, world look 1): the rock of a cliff is one continuous surface, made with the ground - not walls of separate blocks.
    For a level-0 tile (128 m) this builds the sheet that covers its cliff faces, as plain arrays (no three.js here: the workers can run it too).
-   - The face: the land's own heights, sampled on a world-anchored raster of WCL.r (0.5 m) from the generator itself (wgH0 + the hydrology +
-     the settlements' stamps, exactly as wgGrid makes the tiles), read back with Catmull-Rom (a smooth surface and its slope everywhere). The
+   - The face: the land's own heights, sampled on a world-anchored raster of WCL.r (1 m) from the generator itself (wgH0 + the hydrology +
+     the settlements' stamps, exactly as wgGrid makes the tiles), read back with a cubic B-spline (a smooth surface and its slope everywhere). The
      2 m lattice the ground is drawn with is far too coarse for walls 10-90 m tall over a few metres.
-   - The stones: large interlocking stones pushed out of the face. They are anchored to the world, not to the tile: a jittered 3D grid of cells
-     (2.6 x 1.6 m, times the cliff's scale sc = 1, 2 or 3 by how tall the cliff is, as wrock.js measured it), each cell's point snapped onto
-     the face along the slope; a cell keeps a stone only if the face passes through it, it is steep there, the cliff's scale there is the
-     grid's, and (so a face running across the grid is no denser than one along it) with a chance of 1 / (|nx| + |nz|). Every tile finds the
-     same stones, so the sheet is the same on both sides of a tile border and after every reload. A stone is a superellipse pillow in the face's
-     plane (u along the face, v up): a flat, slightly tilted front (ta, tb), a soft bevel (bw), shallow (amp: 8-18 % of its smaller side),
-     blockier or more weathered; where stones overlap the one with the higher score (its relief plus a small priority, pr) wins, so one stone
-     can cut into its neighbour.
-   - The surface: an isosurface (surface nets on a world-anchored grid of WCL.cs per level: 0.5 m near, 1 m further) of
-       F = (H - y) / L  +  rho * R  -  b
-     the distance under the smooth face, plus the winning stone's relief R where the ground is steep (rho: 0 on gentle ground, 1 on a cliff,
-     its edge broken by noise), minus a burial b: on gentle ground the sheet goes 0.45 m under the turf (so the grass line at the foot and over
-     the rim is wherever the slope eases - never a straight line), and some metres further from any cliff it dives deep, where it ends.
-     Every node's F is a function of where it is alone, so two tiles agree on every node they share.
-   - For the material, per vertex: the face's normal without the stones (the stones' own shape is lit per pixel), the four best stones there
+   - The stones, of two kinds by the cliff's own height (the cliff rework's rule): where the land rises more than WCL.tall (7 m, about four times
+     the hero) over 12 m along the slope, tall columns; lower walls and outcrops, stacked blocks; the loose rocks are the boulders (wboulder.js). All
+     three share the palette and the material (wcliffmat.js). Anchored to the world, not to the tile: a jittered 3D grid of cells per kind and scale
+     (blocks 2.6 x 1.6 m, columns 1.8 x 5 m, times the cliff's scale sc = 1, 2, 3 or 5 by how tall it is - a column no wider or taller than at 2.5),
+     each cell's point snapped onto the face along the slope; a cell keeps a stone only if the face passes through it, it is steep there, the scale
+     and the kind there are the grid's, and (so a face running across the grid is no denser than one along it) with a chance of 1 / (|nx| + |nz|).
+     Every tile finds the same stones, so the sheet is the same on both sides of a tile border and after every reload. A stone is a carved
+     parallelogram in the face's plane with up to two corners cut off and straight bevels. A block is shallow; a column stands out 0.25-2.6 m (so
+     the columns step forward and back), most with a ridge down its front and a bend along its height, its top flat (the moss's) or cut; here and
+     there a row of columns ends level, the row above set back - the ledges. Where stones overlap the one standing furthest out wins.
+   - The surface: an isosurface (surface nets on a world-anchored grid of WCL.cs per level: 0.8, 1.6, 3.2 m) of the larger of the turf's part -
+     the distance under the smooth face, less a burial (0.45 m under the turf on gentle ground, so the grass line at the foot and over the rim is
+     wherever the slope eases; some metres from any cliff the sheet dives deep, where it ends) - and the wall's: the stones' relief less the wall's
+     horizontal distance at the node's own height (from a running maximum of the land along the way up), so a stone stands out of a sheer wall as
+     far as its relief and down to the ground. Every node's F is a function of where it is alone, so two tiles agree on every node they share.
+   - For the material, per vertex: the face's normal without the stones (the stones' own shape is lit per pixel), the eight best stones there
      (the shader finds the seams between them per pixel), the recess and concavity (baked occlusion, at most 0.35), rho, and the palette
      (grey on the spires' stone, brown on the tablelands').
    The cliff never looks at the camera: a tile's sheet is final as soon as it is made.
    ===================================================================================================== */
 const WCL_SN=24;/* (floats a stone: see wclStones) */
-const WCL={r:1,cs:[.8,1.6,3.2],cellH:2.6,cellV:1.6,steep:1.0,ring:4,margin:72,SC:[1,2,3,5],wp:9,ws:.5,rw:2.4,bury:.45,deep:3,ms:3,stats:{built:0,ms:0,verts:0,stones:0}};
+const WCL={r:1,cs:[.8,1.6,3.2],cellH:2.6,cellV:1.6,colH:1.8,colV:5,tall:7,crown:5,steep:1.0,ring:4,margin:72,SC:[1,2,3,5],wp:9,ws:.5,rw:3.4,bury:.45,deep:3,ms:3,stats:{built:0,ms:0,verts:0,stones:0}};
 /* cubic B-spline weights (and their derivatives): smooth, and never overshooting at a sheer step as an interpolating spline does (its ripples ran
    down the walls as ribs) - the face is the raster smoothed by about its own spacing */
 const WCL_CR=(u,w,d)=>{const u2=u*u,u3=u2*u,m=1-u;w[0]=m*m*m/6;w[1]=(3*u3-6*u2+4)/6;w[2]=(-3*u3+3*u2+3*u+1)/6;w[3]=u3/6;
@@ -61,6 +62,9 @@ function wclH(s,x,z,o){const fx=(x-s.X0)/s.r,fz=(z-s.Z0)/s.r,i=Math.floor(fx),k=
 /* the cliff's scale at a point (how tall it is: the rise over 10 m either side, uphill along the slope) */
 function wclScale(s,x,z,gx,gz){const o=_wclO2;wclH(s,x+gx*20,z+gz*20,o);const up=o.h;wclH(s,x-gx*20,z-gz*20,o);const rel=up-o.h;return rel<16?1:rel<34?2:rel<60?3:5;}
 const _wclO1={h:0,hx:0,hz:0,wl:0,sn:0,ko:0},_wclO2={h:0,hx:0,hz:0,wl:0,sn:0,ko:0},_wclO3={h:0,hx:0,hz:0,wl:0,sn:0,ko:0},_wclO4={h:0,hx:0,hz:0,wl:0,sn:0,ko:0};
+/* the cliff's own height at a point of its face: the rise over 6 m either side along the slope - taller than WCL.tall (7 m, about four times the
+   hero) it is a tall cliff of columns, lower a wall of stacked blocks (the rule of the cliff rework) */
+function wclTall(s,x,z,gx,gz){const o=_wclO2;wclH(s,x+gx*6,z+gz*6,o);const up=o.h;wclH(s,x-gx*6,z-gz*6,o);return up-o.h>WCL.tall?1:0;}
 /* a lattice cell (2 m, world indices) is steep: its corners rise more than WCL.steep per metre, not barred (from raster samples at lattice points) */
 function wclSteepCell(s,I,K){const g=WG_CFG.res,f=g/s.r,ix=Math.round((I*g-s.X0)/s.r),iz=Math.round((K*g-s.Z0)/s.r),h=s.h,e=s.wv;
   const a=s.at(ix,iz),b=s.at(ix+f,iz),c=s.at(ix,iz+f),d=s.at(ix+f,iz+f);if(wclWet(h[a],e[a])+wclWet(h[b],e[b])+wclWet(h[c],e[c])+wclWet(h[d],e[d])>2)return false;
@@ -72,7 +76,8 @@ function wclSteepCell(s,I,K){const g=WG_CFG.res,f=g/s.r,ix=Math.round((I*g-s.X0)
    A stone is a carved block: a parallelogram in the face's plane (w x h, turned by rot, its sides slanted by skew) with up to two corners cut off,
    pushed out of the face with straight bevels of a constant width (mitred at the corners: a block, not a pillow) */
 function wclStones(s,xa,za,xb,zb,steepAt){const out=[],seed=WG.seed|0,o=_wclO1,o2=_wclO3,g=WG_CFG.res;
-  for(const sc of WCL.SC){const Ah=WCL.cellH*sc,Av=WCL.cellV*sc,E=4*sc+Ah;
+  /* (two grids: mode 0 the stacked blocks of the low walls, mode 1 the columns of the tall cliffs - a stone is kept by the grid of its own kind) */
+  for(const mode of[0,1])for(const sc of WCL.SC){const Ah=mode?WCL.colH*Math.min(sc,2.5):WCL.cellH*sc,Av=mode?WCL.colV*Math.min(sc,2.5):WCL.cellV*sc,E=mode?.6*Math.hypot(1.85*Ah,2.2*Av+.4)+Ah+1:4*sc+Ah;/* (a column of the biggest cliffs: no wider and no taller than at scale 2.5; E: the cells round the tile whose stones can reach it) */
     for(let ck=Math.floor((za-E)/Ah);ck<=Math.floor((zb+E)/Ah);ck++)for(let ci=Math.floor((xa-E)/Ah);ci<=Math.floor((xb+E)/Ah);ci++){
       /* (only where the cell, or a lattice cell beside it, is steep; its heights bound the levels to try) */
       const I0=Math.floor(ci*Ah/g)-1,I1=Math.floor((ci+1)*Ah/g)+1,K0=Math.floor(ck*Ah/g)-1,K1=Math.floor((ck+1)*Ah/g)+1;let any=false;
@@ -81,10 +86,10 @@ function wclStones(s,xa,za,xb,zb,steepAt){const out=[],seed=WG.seed|0,o=_wclO1,o
       let lo=1e9,hi=-1e9;for(let K=K0;K<=K1+1;K++)for(let I=I0;I<=I1+1;I++){const q=s.at(Math.round((I*g-s.X0)/s.r),Math.round((K*g-s.Z0)/s.r)),hv=s.h[q];if(hv<lo)lo=hv;if(hv>hi)hi=hv;}
       /* (the cliff's scale at the cell, from its corner plane: more than a class from this grid's, none of its stones would pass the test below) */
       {const dx=(cH11+cH10-cH01-cH00)*.5,dz=(cH11+cH01-cH10-cH00)*.5,dl=Math.hypot(dx,dz);if(dl>1e-3&&Math.abs(WCL.SC.indexOf(wclScale(s,(ci+.5)*Ah,(ck+.5)*Ah,dx/dl,dz/dl))-WCL.SC.indexOf(sc))>1)continue;}
-      for(let cj=Math.floor(lo/Av)-1;cj<=Math.floor(hi/Av);cj++)for(let kc=0;kc<1;kc++){/* (one stone a cell: about twice its size, so the stones cover the face overlapping about twice) */const R=wnRng(wnHashI(ci*7919+cj*104729+kc*7,ck*1299709+cj*15485863,seed+7100+sc*131+kc*977));
+      for(let cj=Math.floor(lo/Av)-1;cj<=Math.floor(hi/Av);cj++)for(let kc=0;kc<1;kc++){/* (one stone a cell: about twice its size, so the stones cover the face overlapping about twice) */const R=wnRng(wnHashI(ci*7919+cj*104729+kc*7,ck*1299709+cj*15485863,seed+7100+sc*131+kc*977+mode*5003));
         /* (courses: the stones of a cell row sit at about the same height, the rows wandering gently along the cliff) */
         let x=(ci+.1+.8*R())*Ah,z=(ck+.1+.8*R())*Ah,y=(cj+.5+.6*(R()-.5))*Av+.45*Av*wnN(WG.N[18],x/(9*sc),z/(9*sc));
-        const w=(2.4+2.6*R())*sc,hh=Av*(1.0+.6*R())*(R()<.14?1.5:1);let ok=false;
+        const w=mode?Ah*(.75+1.1*R()):(2.4+2.6*R())*sc,hh=mode?Av*(1.2+1.0*R()):Av*(1.0+.6*R())*(R()<.14?1.5:1);let ok=false;
         /* (the face at this height: along the cell's overall slope (a plane through its corners), bracketed in half-metre steps either way of the
            start, then bisected; a start on the flat above or below a wall finds the wall too) */
         {const dx=(cH11+cH10-cH01-cH00)*.5,dz=(cH11+cH01-cH10-cH00)*.5,dl=Math.hypot(dx,dz);
@@ -101,28 +106,46 @@ function wclStones(s,xa,za,xb,zb,steepAt){const out=[],seed=WG.seed|0,o=_wclO1,o
         if(!ok)continue;wclH(s,x,z,o);const gl=Math.hypot(o.hx,o.hz);if(Math.abs(o.h-y)>.1||gl<1.1||wclWet(y,o.wl)>.5||o.ko>.3)continue;
         if(x<ci*Ah||x>=(ci+1)*Ah||z<ck*Ah||z>=(ck+1)*Ah)continue;/* (a point of the face belongs to one cell only) */
         const gx=o.hx/gl,gz=o.hz/gl;if(R()>1/(Math.abs(gx)+Math.abs(gz)))continue;
-        if(wclScale(s,x,z,gx,gz)!==sc)continue;
+        if(wclScale(s,x,z,gx,gz)!==sc||wclTall(s,x,z,gx,gz)!==mode)continue;
+        if(mode){/* a column: tall, upright, its sides a little slanted, its front turned a little (and on most of them a ridge down its middle: two facets), standing
+            out 0.25-2.6 m, evenly spread - so the columns step forward and back - with crisp bevels and a flat top (the grass and the moss on it) or a chamfered or pointed one (the
+            tops break the cliff's skyline). Never further out than 3 m at its most turned edge (the wall's reach, WCL.rw) */
+          const rot=(R()-.5)*.08,sk=(R()-.5)*.2,bev=(.06+.06*R())*w,ta=(R()-.5)*1.2,amp0=Math.min(2.6,(.3+2.0*R())*(sc>1?1.2:.85)),tb=(R()-.5)*.15,rg=R()<.9?.35+.5*R():0;let amp=Math.min(amp0,3.0/(1+Math.abs(ta)));
+          const cut=[0,0,1e3,0,0,1e3];for(let k2=0;k2<2;k2++)if(R()<.55){const th=Math.PI/2+(k2?-1:1)*(.45+.35*R()),cx=Math.cos(th),cy=Math.sin(th);cut[k2*3]=cx;cut[k2*3+1]=cy;cut[k2*3+2]=(Math.abs(cx)*w*.5+Math.abs(cy)*hh*.5)*(.72+.22*R());}
+          /* the ledges: here and there (a third of the rows, in stretches of 40 m) the columns of a row end level with each other at the line the rows wander
+             along, flat-topped, and the row above stands 1.3 m further back - a shelf for the grass and the moss, broken where a column's front is behind
+             the one above it */
+          let hs=hh;{const yb=(cj+1)*Av+.45*Av*wnN(WG.N[18],x/(9*sc),z/(9*sc)),gx4=Math.floor(x/40),gz4=Math.floor(z/40),
+              ledge=k=>wnRng(wnHashI(gx4*733+k*31,gz4*977+k*17,seed+7300+sc*13))()<.33;
+            if(ledge(cj)&&yb-y>.15*hh&&yb-y<.5*hh){hs=Math.max(hh,2*(yb-y)+.4);/* (the line within the column's own top half: a column settled onto the foot is not stretched up to it) */amp=Math.max(amp,Math.min(3.0/(1+Math.abs(ta)),1.7+.7*R()));cut[0]=0;cut[1]=1;cut[2]=yb-y;if(cut[5]<1e3&&cut[4]>0){cut[3]=0;cut[4]=0;cut[5]=1e3;}}/* (its top level at the line) */
+            if(ledge(cj-1))amp=Math.max(.25,amp-1.3);}/* (the row over a ledge, set back) */
+          out.push(x,y,z,w,hs,Math.cos(rot),Math.sin(rot),sk,amp,bev,ta,tb,-gx,-gz,R(),sc,R()*.06*sc,cut[0],cut[1],cut[2],cut[3],cut[4],cut[5],rg);continue;}
         const rot=(R()-.5)*.36,sk=(R()-.5)*.6,mn=Math.min(w,hh),bev=(.12+.10*R())*mn,amp=Math.min(1.5,bev*(.75+.5*R()));
         const cut=[0,0,1e3,0,0,1e3];for(let ci2=0;ci2<2;ci2++)if(R()<(ci2?.35:.7)){const th=Math.atan2((R()<.5?-1:1)*hh*.5,(R()<.5?-1:1)*w*.5)+(R()-.5)*.7,cx=Math.cos(th),cy=Math.sin(th);
           cut[ci2*3]=cx;cut[ci2*3+1]=cy;cut[ci2*3+2]=(Math.abs(cx)*w*.5+Math.abs(cy)*hh*.5)*(.6+.28*R());}
         out.push(x,y,z,w,hh,Math.cos(rot),Math.sin(rot),sk,amp,bev,(R()-.5)*.5,(R()-.5)*.5,-gx,-gz,R(),sc,R()*.06*sc,cut[0],cut[1],cut[2],cut[3],cut[4],cut[5],0);}}}
   return new Float32Array(out);}
+/* a column's front, bent back once along its height (0.65-1 of its relief, at a height of its own: two facets up it) - from its id, as the material
+   finds it; a block, or a ledge's flat-topped column, is not bent */
+const wclFr=v=>v-Math.floor(v);
+function wclKink(A,q,b,w,h){if(h<1.9*w||(A[q+17]===0&&A[q+18]===1))return 1;const id=A[q+14];return 1-.35*wclFr(id*7.13)*Math.abs(b-(wclFr(id*3.37)-.5)*.6*h)/(h*.5);}
 /* a stone's score and relief at a point (or -1 outside it); A: the stones array, k: its index */
 /* res.f: the stone's relief as painted (its own bevel); res.g: as built - the same pillow with a bevel at least WCL.bg metres wide, so the surface is
    smooth at the grid's spacing (the crisp edges are the shader's) */
-function wclStoneAt(A,k,x,y,z,res){const q=k*WCL_SN,dx=x-A[q],dy=y-A[q+1],dz=z-A[q+2],nx=A[q+12],nz=A[q+13],w=A[q+3],h=A[q+4],dn=dx*nx+dz*nz,mx=.7*Math.max(w,h);
-  if(dn>mx||dn<-mx){res.d=-1e9;return -1;}
+function wclStoneAt(A,k,x,y,z,res){const q=k*WCL_SN,dx=x-A[q],dy=y-A[q+1],dz=z-A[q+2],nx=A[q+12],nz=A[q+13],w=A[q+3],h=A[q+4],dn0=dx*nx+dz*nz,mx=.6*Math.min(w,h);
+  /* (along its normal: in front of the face it reaches as far as it stands out and a margin, behind it 0.6 of its size) */
+  const dn=dn0>0?Math.max(0,dn0-A[q+8]):-dn0;if(dn>mx){res.d=-1e9;return -1;}
   const u0=-dx*nz+dz*nx,a=u0*A[q+5]+dy*A[q+6],b=-u0*A[q+6]+dy*A[q+5],sk=A[q+7];
   let d=Math.min((w*.5-Math.abs(a+sk*b))/Math.sqrt(1+sk*sk),h*.5-Math.abs(b));
   d=Math.min(d,A[q+19]-(a*A[q+17]+b*A[q+18]),A[q+22]-(a*A[q+20]+b*A[q+21]));res.d=d;if(d<=0)return -1;
-  const mn=Math.min(w,h),fd=1-wnS(Math.abs(dn),.2*mn,.6*mn);if(fd<=0){res.d=-1e9;return -1;}
-  const amp=A[q+8]*fd,bev=A[q+9],t=Math.min(1,d/bev),tl=1+A[q+10]*a/(w*.5)+A[q+11]*b/(h*.5),f=amp*t*tl;res.f=f;res.cap=Math.min(1,d/(.5*mn));
+  const mn=Math.min(w,h),fd=1-wnS(dn,.2*mn,.6*mn);if(fd<=0){res.d=-1e9;return -1;}
+  const amp=A[q+8]*fd,bev=A[q+9],t=Math.min(1,d/bev),tl=(1+A[q+10]*a/(w*.5)+A[q+11]*b/(h*.5))*(1-A[q+23]*Math.abs(a)/(w*.5))*wclKink(A,q,b,w,h),f=amp*t*tl;/* (A[q+23]: a column's ridge) */res.f=f;res.cap=Math.min(1,d/(.5*mn));
   const tg=Math.min(1,d/Math.max(bev,WCL.bg));res.g=amp*tg*tg*(3-2*tg)*tl;return f+A[q+16]*fd;}
 /* the stones by cell of WCL_G metres (local to the tile's box) */
 const WCL_G=3;
 function wclGrid(A,X0,Z0,mg){const m=new Map(),n=A.length/WCL_SN;
-  for(let k=0;k<n;k++){const q=k*WCL_SN,rad=Math.max(A[q+3],A[q+4])*.6+.1+(mg||0);
-    for(let gy=Math.floor((A[q+1]-rad)/WCL_G);gy<=Math.floor((A[q+1]+rad)/WCL_G);gy++)for(let gz=Math.floor((A[q+2]-rad-Z0)/WCL_G);gz<=Math.floor((A[q+2]+rad-Z0)/WCL_G);gz++)
+  for(let k=0;k<n;k++){const q=k*WCL_SN,w=A[q+3],h=A[q+4],mn=Math.min(w,h),rad=.55*w+.5*h*(Math.abs(A[q+7])+Math.abs(A[q+6]))+.6*mn+A[q+8]+.1+(mg||0),rv=.55*h+.2*w+.1+(mg||0);
+    for(let gy=Math.floor((A[q+1]-rv)/WCL_G);gy<=Math.floor((A[q+1]+rv)/WCL_G);gy++)for(let gz=Math.floor((A[q+2]-rad-Z0)/WCL_G);gz<=Math.floor((A[q+2]+rad-Z0)/WCL_G);gz++)
       for(let gx=Math.floor((A[q]-rad-X0)/WCL_G);gx<=Math.floor((A[q]+rad-X0)/WCL_G);gx++){const key=gx+256*(gz+256*(gy+8192));let L=m.get(key);if(!L)m.set(key,L=[]);L.push(k);}}
   return {m,X0,Z0};}
 /* the winning stone at a point: relief of the winner (q.f), its index (q.k), the cap there, and the best four (q.top: indices, by score) */
@@ -168,10 +191,10 @@ function* wclGen(t,lod,out,st){const T0=performance.now();let tY=T0;const S=WG_C
     {const o4=_wclO4,E3=3;wclH(s,x+E3,z,o4);const a1=o4.h;wclH(s,x-E3,z,o4);const a2=o4.h;wclH(s,x,z+E3,o4);const a3=o4.h;wclH(s,x,z-E3,o4);
       const gx=(a1-a2)/(2*E3),gz=(a3-o4.h)/(2*E3),gm=Math.hypot(gx,gz);cW[q]=0;
       if(gm>.3){const ux=gx/gm,uz=gz/gm,b0=q*WP;let m=o.h;cUx[q]=ux;cUz[q]=uz;cPM[b0]=m;for(let k=1;k<WP;k++){wclH(s,x+ux*k*WS,z+uz*k*WS,o4);if(o4.h>m)m=o4.h;cPM[b0+k]=m;}
-        if(cPM[b0+WP-1]>o.h+.05){cW[q]=1;cHi[q]=Math.max(cHi[q],Math.ceil((cPM[b0+Math.min(WP-1,Math.ceil(WCL.rw/WS))]+.3)/c)+1);}}}};
+        if(cPM[b0+WP-1]>o.h+.05){cW[q]=1;cHi[q]=Math.max(cHi[q],Math.ceil((cPM[b0+Math.min(WP-1,Math.ceil(WCL.rw/WS))]+WCL.crown+.3)/c)+1);}}}};
   /* the wall's distance from column q at height y (horizontal, toward the wall; 1e9: none within 4 m). Under the column's own ground it is the distance
      at the ground (a stone's foot goes down into the turf) */
-  const wdist=(q,y)=>{const b0=q*WP,H0=cPM[b0],yy=y<H0+.01?H0+.01:y;if(yy>cPM[b0+WP-1])return 1e9;
+  const wdist=(q,y)=>{const b0=q*WP,H0=cPM[b0],top=cPM[b0+WP-1];let yy=y<H0+.01?H0+.01:y;if(yy>top){if(yy>top+WCL.crown)return 1e9;yy=top-.01;}/* (over the top: as at the top - a column's top may stand over the rim) */
     for(let k=1;k<WP;k++){const m1=cPM[b0+k];if(m1>=yy){const m0=cPM[b0+k-1];return (k-1+(yy-m0)/Math.max(1e-6,m1-m0))*WS;}}return 1e9;};
   let nCol=0;for(let lk=0;lk<NI;lk++){for(let li=0;li<NI;li++){const x=(iA+li)*c,z=(kA+lk)*c;if(distAt(x,z)>2.3)continue;colOn[lk*NI+li]=1;nCol++;}}
   let off=0;for(let q=0;q<NI*NI;q++){if(!colOn[q])continue;const li=q%NI,lk=(q-li)/NI;colEval((iA+li)*c,(kA+lk)*c,q);cOff[q]=off;off+=cHi[q]-cLo[q]+1;}
@@ -212,8 +235,8 @@ function* wclGen(t,lod,out,st){const T0=performance.now();let tY=T0;const S=WG_C
     if(performance.now()-tY>WCL.ms){yield;tY=performance.now();}}
   /* the deep skirt (a metre and more under the turf, where the sheet dives away from the cliff) is never seen: its triangles go */
   /* (and the sheet under the turf more than 1.3 cells from a cliff - the ground always covers it there; nearer, the ground's lattice stands back from the
-     faces and the buried sheet is what the rim and the foot show) */
-  {const nv0=pos.length/3,dp=new Uint8Array(nv0),o5=_wclO4;for(let v=0;v<nv0;v++){const x=pos[v*3],z=pos[v*3+2],dv=distAt(x,z);if(dv>1.6)dp[v]=1;else if(dv>1.3){wclH(s,x,z,o5);if(o5.h-pos[v*3+1]>.3)dp[v]=1;}}let w=0;
+     faces and the buried sheet is what the rim and the foot show. Past 1.6 cells, all but what stands clear of the turf: a column standing out of the wall reaches further than that) */
+  {const nv0=pos.length/3,dp=new Uint8Array(nv0),o5=_wclO4;for(let v=0;v<nv0;v++){const x=pos[v*3],z=pos[v*3+2],dv=distAt(x,z);if(dv>1.3){wclH(s,x,z,o5);const yv=pos[v*3+1];if(o5.h-yv>.3||(dv>1.6&&yv-o5.h<.25))dp[v]=1;}}let w=0;
     for(let i=0;i<tri.length;i+=3){if(dp[tri[i]]&&dp[tri[i+1]]&&dp[tri[i+2]])continue;tri[w++]=tri[i];tri[w++]=tri[i+1];tri[w++]=tri[i+2];}tri.length=w;}
   if(!tri.length){out.pos=null;return;}
   mark();

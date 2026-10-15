@@ -47,8 +47,11 @@ function wrkTake(t,key,lod,out){WRK.pend.delete(key);if(!WRK.on||WT.tiles.get(ke
 function wrkNear(cam,force,T0){const S=WG_CFG.tile;
   /* (world look 1: a tile's cliff sheet, wcliff.js - its grid 0.8 m within WRK.lodD[0], 1.6 m within WRK.lodD[1], 3.2 m beyond, so a triangle stays some
      pixels wide; a finer level is kept 15 m past its edge) */
+  /* (the level by the distance in 3D - the camera's height over the tile's highest ground counts: from a cliff top or the air the tiles below are far) */
+  const cy=cam.y!==undefined?cam.y:typeof camera!=='undefined'&&camera?camera.position.y:undefined;/* (the stream's focus has no height: the camera's) */
+  const top=t=>{if(t._hTop===undefined){let m=-1e9;const H=t.g&&t.g.h;if(H)for(let i=0;i<H.length;i++)if(H[i]>m)m=H[i];t._hTop=H?m:-1e9;}return t._hTop;};
   const want=(t)=>{const d=Math.hypot(Math.max(0,Math.abs(t.x0+S/2-cam.x)-S/2),Math.max(0,Math.abs(t.z0+S/2-cam.z)-S/2)),r=WRK.tiles.get(t.ti+','+t.tk),L=WRK.lodD;
-    let lod=d<L[0]?0:d<L[1]?1:2;if(r&&r.lod<lod&&d<L[r.lod]+15)lod=r.lod;return{d,lod};};
+    const dl=cy===undefined?d:Math.hypot(d,Math.max(0,cy-top(t)));let lod=dl<L[0]?0:dl<L[1]?1:2;if(r&&r.lod<lod&&dl<L[r.lod]+15)lod=r.lod;return{d,lod};};
   for(const[key,r]of WRK.tiles){const t=WT.tiles.get(key);if(!t||t!==r.t){wrkDrop(r);WRK.tiles.delete(key);continue;}if(want(t).d>WRK.clR+60){wrkDrop(r);WRK.tiles.delete(key);}}
   if(WRK.job){const j=WRK.job,w=WT.tiles.get(j.key)===j.t?want(j.t):null;if(!w||w.d>WRK.clR+60||w.lod!==j.lod)WRK.job=null;}
   /* (with the world workers the sheets are made there, two at a time, nearest first - a request lost with a reset is let go after 10 s; a forced view, or

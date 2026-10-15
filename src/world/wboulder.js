@@ -42,24 +42,34 @@ function wbldShapes(){if(WBLD.shapes)return;WBLD.shapes=[];WBLD.low=[];for(let i
 function wbldPlace(t){wbldShapes();const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng(wnHashI(t.ti,t.tk,WG.seed+701)),list=[],props=[];
   const RW=new Float64Array(4);wgRegions(t.x0+S/2,t.z0+S/2,RW);const grey=Math.min(1,Math.max(0,RW[1]*2+(1-RW[2]-RW[1])*.35));
   const lat=(x,z)=>{const i=Math.min(n-1,Math.max(0,((x-t.x0)/2)|0)),k=Math.min(n-1,Math.max(0,((z-t.z0)/2)|0));return k*s+i;};
-  const free=(x,z,h,sl)=>{if(x<t.x0||z<t.z0||x>=t.x0+S||z>=t.z0+S)return false;const k=lat(x,z);if(g.wl[k]>h-.2)return false;
+  const free=(x,z,h,sl,scr)=>{if(scr&&sl>1.2)return false;if(x<t.x0||z<t.z0||x>=t.x0+S||z>=t.z0+S)return false;const k=lat(x,z);if(g.wl[k]>h-.2)return false;
     const c=owCell(x,z),gv=grid[c.r]&&grid[c.r][c.c];if(gv!==0&&gv!==2)return false;if(gv===2&&sl<.5)return false;/* (closed but not steep: a building's ground or the keep) */
     if(typeof wtPathAt==='function'&&wtPathAt(x,z)<1.4)return false;/* (a trail, with a margin: world look 3) */
     /* (within reach of a cliff's stones: the ground rising more steeply than 1 in 1 within 4 m, any way) */
-    for(let a=0;a<8;a++){const ca=Math.cos(a*.7854),sa=Math.sin(a*.7854);let hp=h,dp=0;for(const d of[1.2,2.5,4]){const hd=owH(x+ca*d,z+sa*d);if((hd-hp)/(d-dp)>1.05)return false;hp=hd;dp=d;}}
+    for(let a=0;a<8;a++){const ca=Math.cos(a*.7854),sa=Math.sin(a*.7854);let hp=h,dp=0;if(scr)continue;for(const d of[1.2,2.5,4]){const hd=owH(x+ca*d,z+sa*d);if((hd-hp)/(d-dp)>1.05)return false;hp=hd;dp=d;}}
     return true;};
-  const put=(x,z,seed,fixed,talus)=>{const h=owH(x,z),e=.6,gx=(owH(x+e,z)-owH(x-e,z))/(2*e),gz=(owH(x,z+e)-owH(x,z-e))/(2*e),sl=Math.hypot(gx,gz);if(!free(x,z,h,sl))return;
-    const r=wnRng(seed),si=Math.floor(r()*WBLD.N),G=WBLD.shapes[si],ud=G.userData,u=r(),sc=fixed||(.22+1.9*Math.pow(u,2.4))*(1+.5*talus*(RW[1]+RW[2])),hg=(ud.ymax-ud.ymin)*sc;
+  const put=(x,z,seed,fixed,talus,dw)=>{const h=owH(x,z),e=.6,gx=(owH(x+e,z)-owH(x-e,z))/(2*e),gz=(owH(x,z+e)-owH(x,z-e))/(2*e),sl=Math.hypot(gx,gz);if(!free(x,z,h,sl,!!dw))return;
+    const r=wnRng(seed),si=Math.floor(r()*WBLD.N),G=WBLD.shapes[si],ud=G.userData,u=r();let sc=fixed||(.22+1.9*Math.pow(u,2.4))*(1+.5*talus*(RW[1]+RW[2]));
+    if(dw){sc=Math.min(sc,(dw-1.2)/ud.rx);if(sc<.2)return;}/* (scree: dw, the face's distance - its edge 1.2 m clear of it) */const hg=(ud.ymax-ud.ymin)*sc;
     const f=.45-.20*Math.min(1,Math.max(0,(sc-.3)/1.6)),nrm=new THREE.Vector3(-gx,1,-gz).normalize();/* (sunk 45 % of its height when small, 25 % when big) */
     const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),nrm).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),r()*6.283));
     const M=new THREE.Matrix4().compose(new THREE.Vector3(x,h-f*hg-ud.ymin*sc,z),q,new THREE.Vector3(sc,sc,sc));
     list.push({si,M:Float32Array.from(M.elements),d:[r(),h,r(),grey],x,z,h,nx:nrm.x,ny:nrm.y,nz:nrm.z,rw:ud.rx*sc,sc});
     if(sc>.35)props.push({type:'rock',x,z,r:ud.rx*sc*.85,alive:true});
-    if(!fixed&&sc>.6&&r()<.4){const k=1+Math.floor(r()*3);for(let j=0;j<k;j++){const a=r()*6.283,d=sc*ud.rx*(1.3+r()),cs=sc*(.22+.3*r());put(x+Math.cos(a)*d,z+Math.sin(a)*d,seed*7+j*13+1,cs,0);}}};
+    if(!fixed&&!dw&&sc>.6&&r()<.4){const k=1+Math.floor(r()*3);for(let j=0;j<k;j++){const a=r()*6.283,d=sc*ud.rx*(1.3+r()),cs=sc*(.22+.3*r());put(x+Math.cos(a)*d,z+Math.sin(a)*d,seed*7+j*13+1,cs,0);}}};
   const tries=6+Math.round(10*(RW[1]+RW[2])+4*RW[3]);
   for(let q=0;q<tries;q++){const x=t.x0+R()*S,z=t.z0+R()*S,pk=R(),sd=Math.floor(R()*2147483647),k=lat(x,z),h=owH(x,z);
     const e=1.5,sl=Math.hypot(owH(x+e,z)-owH(x-e,z),owH(x,z+e)-owH(x,z-e))/(2*e),talus=wnS(sl,.3,.75),shore=g.wl[k]>-1e8?1-wnS(h-g.wl[k],.5,4):0;
     if(pk>.12+talus*.85+shore*.6*RW[3]+.25*(RW[1]+RW[2]))continue;put(x,z,sd,0,talus);}
+  /* scree (the cliff rework): at the foot of a tall cliff - a rise of 6 m or more over 4 m of the lattice - boulders gather, big and small, thick by the
+     wall and thinning out into the grass; how far out each one is is measured to the face itself (the ground rising 3 m), and a boulder keeps its edge
+     1.2 m clear of it (a column stands out up to 2.6 m: the biggest rest against the columns). Their own stream, from a hash of the tile */
+  {const Rs=wnRng(wnHashI(t.ti*31+7,t.tk*17+3,WG.seed+709));for(let k=0;k<=n;k+=2)for(let i=0;i<=n;i+=2){const h0=g.h[k*s+i];
+    for(let dir=0;dir<4;dir++){const di=dir===0?2:dir===2?-2:0,dk=dir===1?2:dir===3?-2:0,ii=i+di,kk=k+dk;if(ii<0||kk<0||ii>n||kk>n)continue;if(g.h[kk*s+ii]-h0<6)continue;if(Rs()>.75)continue;
+      const ux=di/2,uz=dk/2,m=2+Math.floor(Rs()*4);for(let j=0;j<m;j++){const d0=-1+9*Math.pow(Rs(),1.6),lat=(Rs()-.5)*5,x=t.x0+i*2-ux*d0-uz*lat,z=t.z0+k*2-uz*d0+ux*lat,u=Rs(),sd=Math.floor(Rs()*2147483647);
+        /* (the face: the ground 3 m over this point, toward the wall, in half-metre steps) */
+        const hb=owH(x,z);let dF=-1;for(let e=0;e<=8;e+=.5)if(owH(x+ux*e,z+uz*e)>hb+3){dF=e;break;}if(dF<0)continue;
+        const sc=(.3+1.7*Math.pow(u,1.4))*(1-.55*Math.min(1,dF/9));put(x,z,sd,sc,0,dF);}}}}
   return {list,props};}
 
 /* ---------- the material: the cliff's stone (wcliffmat.js), per instance ---------- */
