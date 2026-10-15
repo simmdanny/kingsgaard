@@ -77,15 +77,17 @@ function wtMaterial(){return WT.mat||(WT.mat=wtMakeMat(null));}
 /* the same material for a landmark seen from afar (the Great Elder Circle, wfeat.js): its upper part shows faintly through the haze past the end of the
    air (wdepth.js WD_SEE; y0: the height of its foot, R: its size). One material each (its own uniform), one program for all. */
 function wtMaterialSee(y0,R){return wtMakeMat({y0,R});}
+/* the Great Elder Circles shown (wfeat.js fills it each frame): x, z, the height of its foot, its size (0: none) - the haze's top over them, wdepth.js */
+WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
 function wtMakeMat(see){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
   m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(see)m.userData.see=new THREE.Vector2(see.y0,see.R);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
-  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec2 uSee;\n'+sh.fragmentShader;}
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec2 uSee;\n'+sh.fragmentShader;}
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;')
       .replace('#include <begin_vertex>','#include <begin_vertex>\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS)
       .replace('#include <map_fragment>',WT_GLSL_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground7see':'wtground7';return m;}
+  m.customProgramCacheKey=()=>see?'wtground9see':'wtground9';return m;}
 const WT_GLSL_COLOR=`
   /* (four texture reads: two for the green, two for rock where there is rock - every channel of the noise texture is a different scale) */
   vec3 P=vWp;vec3 Nw=normalize(vWn);
@@ -239,15 +241,10 @@ function wtDispose(ch){if(ch.on)wtShow(ch,false);ch.mesh.geometry.dispose();if(c
 function wtShow(ch,on){if(ch.on===on)return;ch.on=on;if(on){WT.group.add(ch.mesh);if(ch.water)WT.group.add(ch.water);}else{WT.group.remove(ch.mesh);if(ch.water)WT.group.remove(ch.water);}}
 /* ---------- which chunks: a quadtree round the camera, finer where it is near ---------- */
 const _wtFr=new THREE.Frustum(),_wtM=new THREE.Matrix4(),_wtSp=new THREE.Sphere(),_wtV=new THREE.Vector3();
-/* the Great Elder Circles shown from afar (wfeat.js): round each one's summit the ground is built out as far as its ring is shown, so the ring never
-   stands on nothing past the end of the air (its pedestal shows through the haze, wdepth.js WD_PED) */
-function wtSeeGreats(MX){const out=[];if(MX>1e8||typeof WF==='undefined'||!WF.great)return out;const see=Math.min(6200,Math.max(MX,MX*(WF.seeK||2.6)));
-  for(const f of WF.great.values())if(f&&f.G)out.push({x:f.G.x,z:f.G.z,r:f.G.Rb*.7,see});return out;}
-function wtWant(cx,cy,cz){const out=[],LM=WT.LMAX,S=WG_CFG.tile<<LM,K=WT.K,gy=WT.gy||0,alt=Math.max(0,cy-gy),MX=WT.maxD||1e9,GS=wtSeeGreats(MX);
-  const seen=(x0,z0,s,dh)=>{for(const g of GS){const ex=Math.max(0,Math.abs(g.x-(x0+s/2))-s/2),ez=Math.max(0,Math.abs(g.z-(z0+s/2))-s/2);if(ex*ex+ez*ez<g.r*g.r&&dh<g.see)return true;}return false;};
-  const visit=(L,i,k)=>{const s=WG_CFG.tile<<L,x0=i*s,z0=k*s,dx=Math.max(0,Math.abs(cx-(x0+s/2))-s/2),dz=Math.max(0,Math.abs(cz-(z0+s/2))-s/2),d=Math.hypot(dx,dz,alt*.6),dh=Math.hypot(dx,dz);if(dh>MX&&!seen(x0,z0,s,dh))return;/* (past the end of the air nothing is drawn - but a Great Elder Circle's summit) */
+function wtWant(cx,cy,cz){const out=[],LM=WT.LMAX,S=WG_CFG.tile<<LM,K=WT.K,gy=WT.gy||0,alt=Math.max(0,cy-gy),MX=WT.maxD||1e9;
+  const visit=(L,i,k)=>{const s=WG_CFG.tile<<L,x0=i*s,z0=k*s,dx=Math.max(0,Math.abs(cx-(x0+s/2))-s/2),dz=Math.max(0,Math.abs(cz-(z0+s/2))-s/2),d=Math.hypot(dx,dz,alt*.6);if(Math.hypot(dx,dz)>MX)return;/* (past the end of the air nothing is drawn: a Great Elder Circle's pedestal is under the haze there, only the top of its ring shows) */
     if(L>0&&d<K*s){for(let b=0;b<2;b++)for(let a=0;a<2;a++)visit(L-1,i*2+a,k*2+b);}else out.push({L,i,k,d,key:wtKey(L,i,k)});};
-  const i0=Math.floor(cx/S),k0=Math.floor(cz/S),rr=MX>1e8?1:Math.max(1,Math.min(GS.length?8:5,Math.ceil(Math.max(MX,...GS.map(g=>g.see))/S)));/* (the top chunks round enough to reach the end of the air: 3 x 3 to about 4 km, 11 x 11 at 17.5 km) */
+  const i0=Math.floor(cx/S),k0=Math.floor(cz/S),rr=MX>1e8?1:Math.max(1,Math.min(5,Math.ceil(MX/S)));/* (the top chunks round enough to reach the end of the air: 3 x 3 to about 4 km, 11 x 11 at 17.5 km) */
   for(let k=k0-rr;k<=k0+rr;k++)for(let i=i0-rr;i<=i0+rr;i++)visit(LM,i,k);return out;}
 /* per frame: choose the chunks, build the missing ones (nearest first, within the time budget), show what is ready and keep the old chunks where the new ones
    are not ready yet (a coarse chunk stays until all four of its children are built, and fine ones stay until the coarse one replacing them is built) */

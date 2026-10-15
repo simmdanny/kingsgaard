@@ -5906,7 +5906,7 @@ function owSkyInit(){if(window.__skyInit)return;window.__skyInit=true;const g=ne
 const _owZD=new THREE.Color(.40,.60,.86),_owZG=new THREE.Color(.36,.40,.64),_owZN=new THREE.Color(.02,.035,.09),_owZc=new THREE.Color();
 function owSkyDome(){const d=OWSKY.dome;if(!d)return;const spell=(DOM.on||PURG.on||VAEL.on||BM.applied||SF.applied||SGL.n>0);d.visible=!spell&&OW.on;if(!d.visible)return;
   const u=OWSKY.domeMat.uniforms,e=DAYC.e,k=DAYC.k,g=DAYC.g||0,day=SMS(e,.05,.17);/* the sun appears once the moon has all but gone */
-  u.uHor.value.copy(scene.fog.color);_owZc.copy(_owZN).lerp(_owZD,k).lerp(_owZG,g*.55);u.uZen.value.copy(_owZc).lerp(scene.fog.color,.18);
+  u.uHor.value.copy(scene.fog.color);_owZc.copy(_owZN).lerp(_owZD,k).lerp(_owZG,g*.55);u.uZen.value.copy(_owZc).lerp(scene.fog.color,.18);if(typeof WD!=='undefined'&&WD.zen)WD.zen.copy(u.uZen.value);/* (the haze round a Great Elder Circle takes the sky's colour: wdepth.js) */
   u.uSunDir.value.copy(DAYC.dir);u.uSunCol.value.copy(SUN_C0).multiplyScalar(1.0);u.uSunA.value=day;u.uGlow.value=day*(.7+.9*g);}
 /* called every frame: fades the sky with the day/night cycle, aims the moon along the night light and sets its phase */
 function owSkyUpdate(dt){if(!OWSKY.group)owSkyInit();owSkyDome();const night=SMS(1-DAYC.k,.28,.88),spell=(DOM.on||PURG.on||VAEL.on||BM.applied||SF.applied)?0:1,tgt=night*spell;

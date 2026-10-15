@@ -72,7 +72,10 @@ function wfUpdate(cam,force){if(!WF.on)return;if(typeof wrkView==='function')wrk
   for(let b=gb-ra;b<=gb+ra;b++)for(let a=ga-ra;a<=ga+ra;a++){const r=wgRegCell(a,b);if(r.type!==WG_T.GLADE)continue;const G=wgGreat(r);if(!G)continue;const d=Math.hypot(G.x-cx,G.z-cz),want=d<see+G.R;
     const f=want?wfGreat(G):WF.great.get(wgKey(a,b));if(!f)continue;
     if(want){if(!f.mesh){if(force?d>see+G.R:built>0)continue;wfMesh(f);built++;}if(!f.mesh.parent)WF.group.add(f.mesh);}else if(f.mesh&&f.mesh.parent)WF.group.remove(f.mesh);}
-  for(const f of WF.great.values())if(f.mesh&&Math.hypot(f.x-cx,f.z-cz)>see*1.5+f.R){WF.group.remove(f.mesh);f.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});f.mesh=null;}}
+  for(const f of WF.great.values())if(f.mesh&&Math.hypot(f.x-cx,f.z-cz)>see*1.5+f.R){WF.group.remove(f.mesh);f.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});f.mesh=null;}
+  /* the haze's top over the nearest four shown (wterrain.js WT.gU, wdepth.js WD_PED) */
+  if(typeof WT!=='undefined'&&WT.gU){const L=[...WF.great.values()].filter(f=>f.mesh&&f.mesh.parent).sort((p,q)=>Math.hypot(p.x-cx,p.z-cz)-Math.hypot(q.x-cx,q.z-cz));
+    for(let i=0;i<4;i++){const f=L[i];if(f)WT.gU[i].set(f.x,f.z,f.y,f.R);else WT.gU[i].set(0,0,0,0);}}}
 function wfInit(group){WF.group=group;WF.on=true;if(typeof wrkInit==='function')wrkInit(group);/* (the stone on the cliffs near the player, wrock.js) */}
 function wfReset(){if(typeof wrkReset==='function')wrkReset();for(const f of[...WF.list.values(),...WF.great.values()])if(f&&f.mesh){if(f.mesh.parent)f.mesh.parent.remove(f.mesh);f.mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
   for(const f of WF.great.values()){if(f.mat)f.mat.dispose();if(f.vmat)f.vmat.dispose();}WF.list.clear();WF.great.clear();WF.on=false;}
