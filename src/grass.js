@@ -24,7 +24,7 @@ function grsKits(){if(GRS.kits)return GRS.kits;
   const blade=(K,a,r0,h,L,wd,seg,cv,o)=>{o=o||[0,0,0];const ca=Math.cos(a),sa=Math.sin(a),at=(t,s)=>{const lean=L*Math.pow(t,1.5),wv=(wd*Math.pow(1-t,.8)+.004)*s;return add(o,[ca*(r0+lean)-sa*wv,h*t*(1-.18*t),sa*(r0+lean)+ca*wv]);};
     const c0=cv[0],c1=cv[1],c2=cv[2],i0=vert(K,at(0,-1),ca,sa,c0),i1=vert(K,at(0,1),ca,sa,c0);
     if(seg){const i2=vert(K,at(.55,-1),ca,sa,c1),i3=vert(K,at(.55,1),ca,sa,c1),i4=vert(K,at(1,0),ca,sa,c2);K.I.push(i0,i1,i3,i0,i3,i2,i2,i3,i4);}else{const i4=vert(K,at(1,0),ca,sa,L3(c1,c2,.5));K.I.push(i0,i1,i4);}};
-  const blades=(n,seg,wk)=>{const B=mk();for(let j=0;j<n;j++){const v=(j%3-1)*.06,cv=[[.24+v*.3,.46+v*.4,.1],[.36+v*.4,.62+v*.4,.13],[.56+v*.5,.8+v*.3,.22]];
+  const blades=(n,seg,wk)=>{const B=mk();for(let j=0;j<n;j++){const v=(j%3-1)*.06,cv=[[.27+v*.3,.5+v*.4,.11],[.4+v*.4,.66+v*.4,.14],[.62+v*.5,.83+v*.3,.24]];/* (world look 5: a touch brighter and yellower at the tips, the meadow's) */
       blade(B,j/n*6.283+.43*(j%3),.01+.15*((j*7)%5)/4,.15+.15*((j*3)%5)/4,.05+.08*((j*2)%3)/2,(.034+.016*(j%2))*(seg?1:1.25)*(wk||1),seg,cv);}return geo(B);};
   /* clover: groups of three round leaflets, each a fan from the top of its (hidden) stem; near: two triangles a leaflet, plain: one */
   const clover=(n,near)=>{const K=mk();for(let j=0;j<n;j++){const a=j/n*6.283+.7*(j%2),r=.03+.15*((j*3)%4)/3,h=.06+.1*((j*5)%4)/3,lx=Math.cos(a)*r*.25,lz=Math.sin(a)*r*.25,top=[Math.cos(a)*r+lx,h,Math.sin(a)*r+lz];
@@ -83,7 +83,12 @@ function grsSite(x0,z0,cs){const keep=OW.keep,G=OW.G,T=G.T;
   const pathOut=(x,z)=>{let o=99;for(const g of segs){if(x<g.x0||x>g.x1||z<g.z0||z>g.z1)continue;const tt=Math.max(0,Math.min(1,((x-g.ax)*g.dx+(z-g.az)*g.dz)*g.il2)),ex=x-(g.ax+g.dx*tt),ez=z-(g.az+g.dz*tt);
       const pl=g.pa+(g.pb-g.pa)*tt,w=owgWVis(g.wa+(g.wb-g.wa)*tt,pl,x,z)+(g.sx||0)/* (upgrade 12: not on the sand of a street with a pavement) */,d=Math.sqrt(ex*ex+ez*ez)-w*(pl>.45?1:.9);if(d<o)o=d;}return o;};
   const onSq=(x,z)=>{for(const q of sqs)if(owrSqD(q,x,z)<.4)return true;return false;};
-  const prop=(x,z)=>{const L=OW.propGrid&&OW.propGrid.get(Math.floor(x/4)+','+Math.floor(z/4));if(!L)return false;for(const p of L)if(p.alive&&Math.hypot(p.x-x,p.z-z)<(p.r||.5)+.2)return true;return false;};
+  /* (world look 5: round a boulder the tufts grow right up to it and over its foot - kept out only of its middle - and thicker in a ring round it, which
+     prop() reports in near.rock) */
+  const near={rock:0},prop=(x,z)=>{near.rock=0;const L=OW.propGrid&&OW.propGrid.get(Math.floor(x/4)+','+Math.floor(z/4));if(!L)return false;for(const p of L){if(!p.alive)continue;const d=Math.hypot(p.x-x,p.z-z),r=p.r||.5;
+      if(p.type==='rock'){if(d<r*.6)return true;if(d<r+.9)near.rock=1;}else if(d<r+.2)return true;}return false;};
+  /* (and along a cliff's foot: thick where the land rises steeply within 2.6 m, none within 1.2 m of the rise - the cliff's stones stand out there) */
+  const foot=(x,z,h)=>{let f=0;for(let a=0;a<4;a++){const ca=a===0?1:a===2?-1:0,sa=a===1?1:a===3?-1:0;if(owH(x+ca*2.6,z+sa*2.6)-h>2.2){if(owH(x+ca*1.2,z+sa*1.2)-h>1)return -1;f=1;}}return f;};
   return (kind,x,z,pk,o)=>{
     /* patches: blades everywhere, thicker in meadows; clover in its own patches and along the paths; the broad-leaved plants where the two meet and at the path edges */
     const nz=Math.sin(x*.13+z*.07+1.1)*Math.sin(x*.05-z*.11+2.3)+.4*Math.sin(x*.41+z*.37),nc=Math.sin(x*.19-z*.15+.7)*Math.sin(x*.07+z*.13+3.1)+.35*Math.sin(x*.53-z*.47);
@@ -92,10 +97,12 @@ function grsSite(x0,z0,cs){const keep=OW.keep,G=OW.G,T=G.T;
     /* (a trail, world look 3: the grass thins through its band - all of it 0.45 m out, a few clumps near the edge inside, fewer in the middle) */
     if(tp<.45){const keep=tp<0?(tp>-.25?.07:.02):.07+.93*tp/.45;if((pk*7.31)%1>keep)return false;}
     if(po<0){/* a few clumps creep a little onto the edge of a path or a street (thinning out within a third of a metre) */if(kind===2||po<-.32||pk>.5*(1+po/.32))return false;}
-    const edge=po<1.6?1:0,want=kind===0?(.6+.35*nz+.25*edge):kind===1?(.25+.75*Math.max(0,nc)+.4*edge):(.4+.3*(1-Math.abs(nz-nc))+.6*edge);if(pk>want)return false;
+    const edge=po<1.6?1:0,w0=kind===0?(.6+.35*nz+.25*edge):kind===1?(.25+.75*Math.max(0,nc)+.4*edge):(.4+.3*(1-Math.abs(nz-nc))+.6*edge);if(pk>w0+.55)return false;/* (cheap first: the most it could want) */
     if(gv!==0&&po>1.2&&tp>1.6)return false;/* (a marked cell that is no path: the yard of a building, a step - a trail's own cells keep their grass) */
     if(Math.hypot(x-keep.x,z-keep.z)<30||onSq(x,z)||prop(x,z))return false;
-    const h=owH(x,z);if(owSlope(x,z)>.5||wtWater(x,z)>h-.02)return false;
+    const h=owH(x,z),ft=foot(x,z,h);if(ft<0)return false;const boost=Math.max(near.rock,ft)*(kind===1?.2:.55);
+    if(pk>w0+boost)return false;
+if(owSlope(x,z)>.5||wtWater(x,z)>h-.02)return false;
     for(const q of strm)if((q[0]-x)*(q[0]-x)+(q[1]-z)*(q[1]-z)<3.2)return false;
     o.h=h;o.edge=edge;o.nz=nz;o.nc=nc;return true;};}
 /* one cell: candidates from its own seeded stream, kept where grass grows, in a random order, as instanced meshes (a generator: it stops every few hundred candidates) */
