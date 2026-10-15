@@ -19,7 +19,7 @@ function sig(x0,z0,x1,z1){const N=[],S=[];
   const C=WS_CFG.cell;for(let b=Math.ceil(z0/C);b<Math.floor(z1/C);b++)for(let a=Math.ceil(x0/C);a<Math.floor(x1/C);a++){const s=wsSite(a,b);S.push(s?s.name+':'+s.size+'@'+s.x+','+s.z+','+s.h:'-');}
   const FC=WF.cell;for(let b=Math.ceil(z0/FC);b<Math.floor(z1/FC);b++)for(let a=Math.ceil(x0/FC);a<Math.floor(x1/FC);a++){const f=wfSite(a,b);S.push(f?f.kind+'@'+f.x+','+f.z+','+f.y+','+f.R:'-');}
   const mx=Math.floor((x0+x1)/2/128)*128,mz=Math.floor((z0+z1)/2/128)*128;
-  for(const g of[wgGrid(mx,mz,2,64,0),wgGrid(mx-512,mz+256,8,64,0)])for(const k of['h','wl','fw','nrm','A','B'])for(const v of g[k])N.push(v);
+  for(const g of[wgGrid(mx,mz,2,64,0),wgGrid(mx-512,mz+256,8,64,0)])for(const k of['h','wl','fw','nrm','A','B','pu'])for(const v of g[k])N.push(v);
   return{N:f64(N),S:S.join('|'),segs:H.segs.length,lakes:H.lakes.length};}
 const sigEq=(a,b)=>bitsEq(a.N,b.N)&&a.S===b.S;
 function fresh(seed){wgInit(seed);wsReset();wfReset();}

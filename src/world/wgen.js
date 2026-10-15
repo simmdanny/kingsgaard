@@ -511,7 +511,7 @@ function wgGrid(x0,z0,step,n,lite,st){const m=n+3,M=m*m,hh=new Float32Array(M),w
     if(o.sink&&o.w2>.95&&o.sink>_wgHo.wl){_wgHo.wl=o.sink;_wgHo.fx=0;_wgHo.fz=0;}/* (a sinkhole's pool) */
     hh[q]=h;wl[q]=_wgHo.wl;fw[q*2]=_wgHo.fx;fw[q*2+1]=_wgHo.fz;A[q*4]=o.w1;A[q*4+1]=o.w2;A[q*4+2]=o.w3;A[q*4+3]=o.F;
     Bt[q*2]=o.w1>0?o.w1*wnS(o.mtn,70,190):o.ped*o.w3;/* (snow on the spires; elsewhere a Great Elder Circle's pedestal, whose rock is the ring's stone) */Bt[q*2+1]=o.w2>0?o.w2*(o.tier-Math.floor(o.tier)):0;}
-  const n1=n+1,N1=n1*n1,out={x0,z0,step,n,h:new Float32Array(N1),wl:new Float32Array(N1),fw:new Float32Array(N1*2),nrm:new Float32Array(N1*3),A:new Float32Array(N1*4),B:new Float32Array(N1*4)};
+  const n1=n+1,N1=n1*n1,out={x0,z0,step,n,h:new Float32Array(N1),wl:new Float32Array(N1),fw:new Float32Array(N1*2),nrm:new Float32Array(N1*3),A:new Float32Array(N1*4),B:new Float32Array(N1*4),pu:new Float32Array(N1*2)};
   for(let k=0;k<n1;k++)for(let i=0;i<n1;i++){const q=(k+1)*m+i+1,o=k*n1+i,h=hh[q];out.h[o]=h;out.wl[o]=wl[q];out.fw[o*2]=fw[q*2];out.fw[o*2+1]=fw[q*2+1];
     let nx=hh[q-1]-hh[q+1],nz=hh[q-m]-hh[q+m],ny=2*step;const l=wgHyp(nx,ny,nz);out.nrm[o*3]=nx/l;out.nrm[o*3+1]=ny/l;out.nrm[o*3+2]=nz/l;
     for(let c=0;c<4;c++)out.A[o*4+c]=A[q*4+c];
@@ -521,7 +521,13 @@ function wgGrid(x0,z0,step,n,lite,st){const m=n+3,M=m*m,hh=new Float32Array(M),w
     /* a floor for how rocky: near a cliff (the steepest neighbour slope over a couple of samples) the ground is rock, so a cliff never shows the odd
        green triangle where its lattice cells happen to be less steep */
     let smax=0;for(let dk=-1;dk<=1;dk++)for(let di=-1;di<=1;di++){if(!di&&!dk)continue;const q2=q+dk*m+di,dh=Math.abs(hh[q2]-h)/(step*Math.hypot(di,dk));if(dh>smax)smax=dh;}
-    out.B[o*4+3]=step<=4?wnS(smax,.95,1.6)*.9:0;}
+    out.B[o*4+3]=step<=4?wnS(smax,.95,1.6)*.9:0;
+    /* where a cliff sheet covers the ground (wcliff.js), its lattice stands back into the rock (WT_INSET, wterrain.js): which way and how much (pu, a
+       horizontal vector up to 1). Into the slope from every steep edge - its rise toward the neighbour above, its drop away from the one below - so a
+       foot steps into the wall, a rim back from the edge, a face into itself: with the diagonals (a wall that runs across the lattice has its
+       foot's only steep edge on a diagonal) and the border (the same vector in both chunks of a shared vertex) */
+    {let px=0,pz=0;if(step<=4)for(let dk=-1;dk<=1;dk++)for(let di=-1;di<=1;di++){if(!di&&!dk)continue;const l=Math.hypot(di,dk),dh=hh[q+dk*m+di]-h;if(Math.abs(dh)>step*l*.8){px+=dh*di/l;pz+=dh*dk/l;}}
+      const pl=Math.hypot(px,pz),ps=pl>1e-6?wnS(smax,.95,1.35)*Math.min(1,pl/(2*step))/pl:0;out.pu[o*2]=px*ps;out.pu[o*2+1]=pz*ps;}}
   return out;}
 /* one point of the world (slow: for single queries; the game reads heights from the level-0 tiles) */
 /* the land with its streams and lakes, but no settlements or roads (the landmarks stand on it) */
