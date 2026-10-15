@@ -1,0 +1,22 @@
+{
+  "renderer": {"antialias": true, "pixelRatio": 2, "viewport": [1440, 810], "outputEncoding": "three.js r128 default (LinearEncoding), no tone mapping"},
+  "lights": {
+    "sun": {"color": "0xfff0d6", "intensity": 0.95, "direction": [30, 40, 12], "shadow": "2048, PCFSoft, bias -0.0002, normalBias 0.16"},
+    "hemisphere": {"sky": "0xd8ecff", "ground": "0x8a7a58", "intensity": 0.62},
+    "ambient": {"color": "0xffffff", "intensity": 0.10},
+    "fog": {"color": "0xbcdaef", "near": 80, "far": 200}, "background": "0xa9d0ee"
+  },
+  "time": 3.0,
+  "shots": [
+    {"name": "river-wide",  "cam": [15, 6.5, 30],          "target": [27, 0, 8]},
+    {"name": "river-mid",   "cam": [30.6, 1.75, 36.2],     "target": [27.4, 1.0, 33.6]},
+    {"name": "river-close", "cam": [28.83, 1.98, 24.44],   "target": [29.83, 0.98, 19.44]},
+    {"name": "flow-t3.0",   "cam": [28.2, 2.3, 13.6],      "target": [29.5, 0.5, 19.4], "time": 3.0},
+    {"name": "flow-t4.2",   "cam": [28.2, 2.3, 13.6],      "target": [29.5, 0.5, 19.4], "time": 4.2},
+    {"name": "flow-t5.4",   "cam": [28.2, 2.3, 13.6],      "target": [29.5, 0.5, 19.4], "time": 5.4},
+    {"name": "stone-row",   "cam": [-14.95, 2.6, 51.5],    "target": [-14.95, 0.5, 44]},
+    {"name": "river-mid-nowater",   "cam": [30.6, 1.75, 36.2],   "target": [27.4, 1.0, 33.6],  "js": "water.visible=false;leaves.visible=false;flecks.visible=false;"},
+    {"name": "river-close-nowater", "cam": [28.83, 1.98, 24.44], "target": [29.83, 0.98, 19.44], "js": "water.visible=false;leaves.visible=false;flecks.visible=false;"},
+    {"name": "river-wide-grey", "cam": [15, 6.5, 30], "target": [27, 0, 8], "rock": "grey"}
+  ]
+}

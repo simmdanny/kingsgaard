@@ -1,0 +1,820 @@
+<meta charset="utf-8">
+<title>Kingsgaard Surface Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+Sans+SC:wght@500;700&family=Alegreya+Sans:wght@400;500&display=swap">
+<style>
+/* layout: one full-screen 3D view, a small floating control card (top-left on wide screens, bottom sheet on phones) */
+:root{
+  --ink:#eef0e2;        /* text on the card */
+  --ink-dim:#b9bfa6;    /* secondary text */
+  --card:rgba(28,33,22,.84);
+  --line:rgba(238,240,226,.16);
+  --moss:#9bc24a;       /* active state, the meadow's own green */
+  --ground:#1f251a;     /* page behind the canvas */
+  --f-label:"Alegreya Sans SC","Trebuchet MS",sans-serif;
+  --f-body:"Alegreya Sans","Segoe UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--ground);color:var(--ink);font-family:var(--f-body);overflow:hidden}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#view:active{cursor:grabbing}
+#ui{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));
+  width:min(300px,calc(100% - 32px));background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:14px 14px 12px;display:flex;flex-direction:column;gap:12px;backdrop-filter:blur(6px)}
+.brand{font-family:var(--f-label);font-weight:700;font-size:17px;letter-spacing:.06em;line-height:1.1}
+.brand small{display:block;font-family:var(--f-body);font-weight:400;letter-spacing:0;font-size:13px;color:var(--ink-dim);margin-top:4px}
+.row{display:flex;flex-direction:column;gap:6px}
+.lab{font-family:var(--f-label);font-size:12px;letter-spacing:.12em;color:var(--ink-dim)}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{flex:1 1 auto;min-width:0;font:500 14px var(--f-body);color:var(--ink);background:transparent;border:1px solid var(--line);
+  border-radius:6px;padding:6px 10px;cursor:pointer}
+.seg button:hover{border-color:var(--ink-dim)}
+.seg button.on{background:var(--moss);border-color:var(--moss);color:#18200f}
+.seg button:focus-visible{outline:2px solid var(--moss);outline-offset:2px}
+.note{font-size:13px;line-height:1.4;color:var(--ink-dim);margin:0}
+@media (max-width:620px){
+  #ui{top:auto;bottom:calc(12px + env(safe-area-inset-bottom,0px));left:max(16px,env(safe-area-inset-left,0px));width:calc(100% - 32px);gap:9px;padding:11px 12px}
+  .brand small,.note{display:none}
+}
+</style>
+
+<canvas id="view" aria-label="3D view of a meadow with a dirt path, a rock cliff and boulders"></canvas>
+<div id="ui">
+  <div class="brand">Kingsgaard surface study<small>Tier 1–2 dirt path, painted cliff, boulders and meadow ground</small></div>
+  <div class="row"><span class="lab">Look</span>
+    <div class="seg" id="look"><button id="look-old" data-v="old">Current game</button><button id="look-new" data-v="new" class="on">New</button></div></div>
+  <div class="row"><span class="lab">Cliff rock</span>
+    <div class="seg" id="rock"><button id="rock-brown" data-v="brown" class="on">Brown</button><button id="rock-grey" data-v="grey">Grey</button></div></div>
+  <div class="row"><span class="lab">View</span>
+    <div class="seg" id="views"><button id="v-path" data-v="path" class="on">Path</button><button id="v-bank" data-v="bank">Cliff</button><button id="v-boulders" data-v="boulders">Boulders</button><button id="v-over" data-v="over">Overview</button><button id="v-row" data-v="row">Boulder row</button><button id="v-top" data-v="top">Path top-down</button><button id="v-water" data-v="water">Stream</button><button id="v-shore" data-v="shore">Shore</button></div></div>
+  <p class="note">Drag to look around, scroll or pinch to zoom.</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ===================== noise (JS, for the shapes) ===================== */
+function h2(i,j){let h=Math.imul(i|0,374761393)+Math.imul(j|0,668265263)|0;h=Math.imul(h^(h>>>13),1274126177);return((h^(h>>>16))>>>0)/4294967296;}
+function h3(i,j,k){return h2(i+Math.imul(k|0,1442695041),j-Math.imul(k|0,40503));}
+function vn2(x,y){const i=Math.floor(x),j=Math.floor(y);let u=x-i,v=y-j;u=u*u*(3-2*u);v=v*v*(3-2*v);const a=h2(i,j),b=h2(i+1,j),c=h2(i,j+1),d=h2(i+1,j+1);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;}
+function fbm2(x,y){let s=0,a=.5,f=1;for(let k=0;k<4;k++){s+=a*vn2(x*f+k*17.1,y*f-k*9.3);a*=.5;f*=2.03;}return s/.9375;}
+function vq2(x,y){const i=Math.floor(x),j=Math.floor(y);let u=x-i,v=y-j;u=u*u*u*(u*(u*6-15)+10);v=v*v*v*(v*(v*6-15)+10);const a=h2(i,j),b=h2(i+1,j),c=h2(i,j+1),d=h2(i+1,j+1);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;}
+function fbq2(x,y){let s=0,a=.5,f=1;for(let k=0;k<4;k++){const r=.62+k*.9,c=Math.cos(r),sn=Math.sin(r);s+=a*vq2((x*c-y*sn)*f+k*17.1,(x*sn+y*c)*f-k*9.3);a*=.5;f*=2.03;}return s/.9375;}
+function vn3(x,y,z){const i=Math.floor(x),j=Math.floor(y),k=Math.floor(z);let u=x-i,v=y-j,w=z-k;u=u*u*(3-2*u);v=v*v*(3-2*v);w=w*w*(3-2*w);
+  const L=(a,b,t)=>a+(b-a)*t;return L(L(L(h3(i,j,k),h3(i+1,j,k),u),L(h3(i,j+1,k),h3(i+1,j+1,k),u),v),L(L(h3(i,j,k+1),h3(i+1,j,k+1),u),L(h3(i,j+1,k+1),h3(i+1,j+1,k+1),u),v),w);}
+function fbm3(x,y,z){let s=0,a=.5,f=1;for(let k=0;k<3;k++){s+=a*vn3(x*f+k*5.3,y*f-k*2.1,z*f+k*7.7);a*=.5;f*=2.07;}return s/.875;}
+const S=(e0,e1,x)=>{const t=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return t*t*(3-2*t);};
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646;};
+
+/* ===================== the place ===================== */
+/* a meadow; on the left a cliff (one continuous rock face, not blocks) with a grassy top that rises into a hill at the back; a narrow dirt
+   path winds through, bending right towards the hill; boulders on the meadow */
+const bankX=z=>-6.5-1.0*Math.sin(z*.12);
+const PATH=[];for(let z=54;z>=-44;z-=1){let x=1.2*Math.sin(z*.075)+.7*Math.sin(z*.21+1);if(z<-14)x+=-(z+14)*.35;PATH.push([x,z]);}
+function pathDist(x,z){let best=1e9;for(let i=0;i<PATH.length-1;i++){const a=PATH[i],b=PATH[i+1];if(z>Math.max(a[1],b[1])+3||z<Math.min(a[1],b[1])-3)continue;
+  const dx=b[0]-a[0],dz=b[1]-a[1],t=Math.max(0,Math.min(1,((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz))),ex=x-a[0]-dx*t,ez=z-a[1]-dz*t,d=Math.hypot(ex,ez);if(d<best)best=d;}return best;}
+/* the path mask: 1 on the path, 0 on the meadow, with a wide noisy band between. Width varies 0.6-1.4x along the spline; the edge is
+   broken by two scales of noise. The same function decides the ground colour, the grass falloff and the prop keep-out. */
+const PATH_SEED=3.7,PATH_HALF=.8;
+function pathHalfAt(x,z){return PATH_HALF*(1+.4*(fbq2(x*.08+PATH_SEED,z*.08)-.5)*2);}
+function pathMask(x,z){const d=pathDist(x,z),h=pathHalfAt(x,z),e=d-h+.34*h*(fbq2(x*.9+PATH_SEED*5,z*.9)-.5)*2+.14*h*(vq2(x*3.2,z*3.2+PATH_SEED)-.5)*2;
+  return 1-S(-.45*h,.45*h,e);}/* (a 60%-of-half-width band: dirt and grass mix through noise) */
+function Hbase(x,z){/* the meadow and the hill, without the cliff */
+  let h=1.5*(fbq2(x/22,z/22)-.5);
+  h+=13*S(-38,-78,z)+3*(fbq2(x/18,z/18)-.3)*S(-36,-62,z);
+  h+=1.8*S(12,45,x);return h;}
+/* the cliff: its foot line; a height that rises and falls, vanishing into the slope in places; a grassy soil slope that climbs the face to an
+   uneven height (gl) over a run (wl); above that the exposed rock, leaning back and bulging */
+const LEAN=.26,footX=z=>bankX(z)+1.8,footDX=z=>-.12*Math.cos(z*.12);
+const cliffFade=z=>S(36,22,z)*S(-48,-40,z);
+const plateauH=z=>Math.max(0,(4.8+1.6*(fbq2(z/13,3.7)-.42))*cliffFade(z));/* the top of the step: 0 where the cliff disappears */
+const cliffH=z=>plateauH(z)+(.5*(vq2(z/2.2,8.1)-.5)+.25*(vq2(z/.9,2.3)-.5))*S(.3,1.5,plateauH(z));/* the rock's own top edge: broken */
+const glF=z=>Math.min(.40,Math.max(0,(fbq2(z/9,9.2)-.38)*1.6));/* how far up the face the grass climbs (fraction) */
+const gLev=z=>glF(z)*plateauH(z),gRun=z=>1.0+4.2*glF(z)+.6*vq2(z/3,4.4);
+const bul=(z,y)=>.45*(fbm2(z*.18+11,y*.25+2)-.5)*2;
+/* ===================== the stream: a spline + a half-width; it carves its bed into the land and raises low banks so the water stays in.
+   The water level is flat here (a slow stretch); phase 2 adds the drops. ===================== */
+const RIV=[];for(let z=80;z>=-34;z-=1){const x=26+3.2*Math.sin(z*.055+.4)+1.3*Math.sin(z*.16+2.1)+.7*Math.sin(z*.31+.7);RIV.push([x,z]);}
+function rivNear(x,z){let best=1e9,bs=0,sd=1;for(let i=0;i<RIV.length-1;i++){const a=RIV[i],b=RIV[i+1];if(z>Math.max(a[1],b[1])+9||z<Math.min(a[1],b[1])-9)continue;
+  const dx=b[0]-a[0],dz=b[1]-a[1],t=Math.max(0,Math.min(1,((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz))),ex=x-a[0]-dx*t,ez=z-a[1]-dz*t,d=Math.hypot(ex,ez);if(d<best){best=d;bs=i+t;sd=Math.sign(dx*ez-dz*ex)||1;}}return[best,bs,sd];}
+function rivHalf(z){return 2.4+1.5*(fbq2(z*.035+11,3.3)-.5)*2+3.0*Math.exp(-Math.pow((z-6)/7,2));}/* (a pool around z=6) */
+const WL=(()=>{const v=RIV.filter(q=>q[1]<44).map(q=>Hland(q[0],q[1])).sort((a,b)=>a-b);return v[Math.floor(v.length*.3)]-.12;})();/* the water level */
+/* the bank, at any point: the shore wobbles (bays, bumps, points); along each side the profile changes from a gentle muddy shore (grass almost
+   to the water) to a steep earth cut with a lip. Returns the height, how much of the earth face this is, and how steep the bank is here. */
+function rivBank(x,z){const h=Hland(x,z);if(x<12||x>46||z<-42)return{y:h,face:0,steep:0,dd:99,w:1,run:1};const rn=rivNear(x,z),w=rivHalf(z);
+  const e=.95*(fbq2(x*.18+3,z*.18)-.5)*2+.30*(vq2(x*.7,z*.7+5)-.5)*2;const dd=rn[0]-e;/* (the shore pushed in and out) */
+  const steep=S(.42,.58,fbq2(z*.12+rn[2]*13,5.1+rn[2]));const run=.75+2.3*(1-steep),lev=.16+.62*steep+.08*(vq2(x*.5,z*.5)-.5)*2;
+  if(dd>w+run+4)return{y:h,face:0,steep,dd,w,run};const top=Math.max(h,WL+lev);
+  if(dd<w){const q=Math.max(0,dd)/w;return{y:Math.min(h,WL-.18-1.15*(1-q*q)*(.75+.25*vq2(x*.3,z*.3))),face:0,steep,dd,w,run};}
+  if(dd<w+run){const t=(dd-w)/run,sh=S(0,1,t)*(1-steep)+Math.pow(t,.5)*steep;/* (a gentle S, or a cut bank: steep low, rounding over at the lip) */
+    return{y:(WL-.18)+(top-(WL-.18))*sh,face:1,steep,dd,w,run};}
+  return{y:top+(h-top)*S(w+run,w+run+4,dd),face:0,steep,dd,w,run};}
+function H(x,z){return rivBank(x,z).y;}
+function rivMask(x,z,m){if(x<12||x>46)return false;const b=rivBank(x,z);return b.dd<b.w+(m||2.2);}
+function Hland(x,z){const hp=plateauH(z),xf=footX(z),gl=gLev(z),wl=gRun(z);return Hbase(x,z)+gl*S(xf+.3,xf-wl,x)+(hp-gl)*S(xf-wl-.2,xf-wl-LEAN*(hp-gl)-1.3,x);}
+
+/* ===================== renderer, light ===================== */
+const canvas=document.getElementById('view');
+const R=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});
+R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));R.shadowMap.enabled=true;R.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xa9d0ee);scene.fog=new THREE.Fog(0xbcdaef,80,200);
+const camera=new THREE.PerspectiveCamera(55,1,.1,500);
+const SUN=new THREE.Vector3(30,40,12).normalize();
+const sun=new THREE.DirectionalLight(0xfff0d6,.95);sun.position.copy(SUN).multiplyScalar(80);sun.target.position.set(0,0,-6);
+sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-62,right:62,top:62,bottom:-62,near:1,far:220});sun.shadow.bias=-.0002;sun.shadow.normalBias=.16;
+scene.add(sun,sun.target,new THREE.HemisphereLight(0xd8ecff,0x8a7a58,.62),new THREE.AmbientLight(0xffffff,.10));
+
+/* ===================== shared GLSL ===================== */
+const GLSL_NOISE=`
+float h31(vec3 p){p=fract(p*0.3183099+vec3(0.71,0.113,0.419));p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float vn(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.0-2.0*f);
+  return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){float s=0.0,a=0.5;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+vec3(1.7,9.2,3.1);a*=0.5;}return s/0.9375;}
+float vn2(vec2 p){return vn(vec3(p,0.37));}
+float fbm2(vec2 p){return fbm(vec3(p,0.37));}
+/* a jittered dot per cell: x = chance, y = distance to its dot, z = a second random */
+vec3 cell2(vec2 p){vec2 i=floor(p),f=fract(p);vec2 c=vec2(h31(vec3(i,2.1)),h31(vec3(i,5.7)))*0.7+0.15;return vec3(h31(vec3(i,1.3)),length(f-c),h31(vec3(i,9.9)));}
+/* distance to the nearest edge between random cells: angular cracks and joints */
+float vedge(vec3 p){vec3 i=floor(p),f=fract(p);float d1=8.0,d2=8.0;
+  for(int z=-1;z<=1;z++)for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec3 g=vec3(float(x),float(y),float(z));vec3 r=g+vec3(h31(i+g),h31(i+g+17.3),h31(i+g+31.7))-f;float d=dot(r,r);
+    if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;}
+  return sqrt(d2)-sqrt(d1);}
+/* painted grass strokes: one short pointed stroke per cell, leaning with a slowly turning 'combed' direction; returns (light, dark) cover */
+vec2 gStrokes(vec2 X,float sc,float ang,float seed){vec2 p=X*sc,i=floor(p);vec2 L=vec2(0.0);float aa=0.7*length(fwidth(p))+0.012;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 c=i+vec2(float(x),float(y));
+    float r1=h31(vec3(c,seed)),r2=h31(vec3(c,seed+1.7)),r3=h31(vec3(c,seed+3.1)),r4=h31(vec3(c,seed+5.3)),r5=h31(vec3(c,seed+8.9));
+    float a=ang+(r3-0.5)*0.9;vec2 dd=p-c-vec2(r1,r2);vec2 l=vec2(dot(dd,vec2(cos(a),sin(a))),dot(dd,vec2(-sin(a),cos(a))));
+    float u=l.x/(0.7+0.5*r4);float w=0.19*max(1.0-u*u,0.0)*(1.0-0.4*u);
+    float m=(1.0-smoothstep(w-aa,w+aa,abs(l.y)))*step(abs(u),1.0);
+    if(r5<0.58)L.x=max(L.x,m);else L.y=max(L.y,m);}
+  return L;}
+vec3 ramp4(float t,vec3 a,vec3 b,vec3 c,vec3 d){t=clamp(t,0.0,1.0);return t<0.3333?mix(a,b,t*3.0):t<0.6667?mix(b,c,(t-0.3333)*3.0):mix(c,d,(t-0.6667)*3.0);}
+vec3 ramp5(float t,vec3 a,vec3 b,vec3 c,vec3 d,vec3 e){t=clamp(t,0.0,1.0)*4.0;return t<1.0?mix(a,b,t):t<2.0?mix(b,c,t-1.0):t<3.0?mix(c,d,t-2.0):mix(d,e,t-3.0);}
+vec3 grassRamp(float t){return ramp5(t,vec3(0.11,0.24,0.07),vec3(0.21,0.39,0.09),vec3(0.34,0.54,0.12),vec3(0.49,0.66,0.16),vec3(0.65,0.75,0.25));}
+/* the meadow's own pattern (shared by the ground and the grass painted over the cliff, so the two meet without a seam):
+   broad patches, darker clover clumps, and two sizes of painted blade strokes, lighter yellow-green and darker blue-green */
+float meadowT(vec2 X,float fd,out float clump){
+  float big=fbm2(X*0.035),mid=fbm2(X*0.14+7.0);
+  float t=0.55+0.34*(big-0.5)+0.30*(mid-0.5)+0.06*(vn2(X*1.6)-0.5)*fd;
+  clump=smoothstep(0.58,0.74,vn2(X*0.75+20.0)+0.10*(vn2(X*3.0)-0.5))*(0.15+0.85*fd);t-=0.10*clump;
+  return t;}
+vec3 meadowStrokes(vec3 col,vec2 X,float fd){/* fd here: the near fade */
+  float ang=0.5+1.6*(fbm2(X*0.04)-0.5);
+  vec2 s1=gStrokes(X,2.6,ang,1.0)*fd,s2=gStrokes(X,6.5,ang+0.3,7.0)*fd*fd;
+  col=mix(col,col*vec3(1.16,1.10,0.78)+vec3(0.035,0.035,0.0),max(s1.x*0.75,s2.x*0.6));
+  col=mix(col,col*vec3(0.70,0.80,0.86),max(s1.y*0.6,s2.y*0.5));
+  return col;}
+`;
+function patch(key,mat,vtxDecl,vtxBody,fragDecl,fragColor,uniforms,fragNormal,hook){
+  mat.onBeforeCompile=sh=>{Object.assign(sh.uniforms,uniforms||{});
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vWP;varying vec3 vWN;'+vtxDecl)
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvec4 _wp=vec4(transformed,1.0);vec3 _wn=objectNormal;\n#ifdef USE_INSTANCING\n_wp=instanceMatrix*_wp;_wn=mat3(instanceMatrix)*_wn;\n#endif\nvWP=(modelMatrix*_wp).xyz;vWN=normalize(mat3(modelMatrix)*_wn);'+vtxBody);
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vWP;varying vec3 vWN;'+GLSL_NOISE+fragDecl)
+      .replace('#include <'+(hook||'map_fragment')+'>','#include <'+(hook||'map_fragment')+'>\n'+fragColor).replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n'+(fragNormal||''));};
+  mat.customProgramCacheKey=()=>key;/* (each look its own program: three.js would otherwise reuse the first one built from this same function) */
+  mat.extensions={derivatives:true};return mat;}
+
+/* ===================== ground: meadow + dirt path ===================== */
+const U={uNew:{value:1},uHalf:{value:.8},uSun:{value:SUN.clone()}};
+const groundMat=patch('ground',new THREE.MeshPhongMaterial({color:0xffffff,shininess:2,specular:0x000000}),
+ 'attribute float aCav;attribute float aPd;attribute float aOcc;attribute float aPm;attribute float aWd;attribute float aBf;varying float vCav;varying float vPd;varying float vOcc;varying float vPm;varying float vWd;varying float vBf;',
+ 'vCav=aCav;vPd=aPd;vOcc=aOcc;vPm=aPm;vWd=aWd;vBf=aBf;',
+ 'varying float vCav;varying float vPd;varying float vOcc;varying float vPm;varying float vWd;varying float vBf;uniform float uNew;uniform float uHalf;uniform vec3 uSun;',
+ `{
+  vec3 P=vWP;vec3 N=normalize(vWN);vec2 X=P.xz;vec3 col;
+  float fd=1.0-smoothstep(28.0,80.0,length(P-cameraPosition));/* (fine detail fades with distance: no shimmer) */
+  if(uNew<0.5){
+    /* --- the current game's ground: broad smooth drifts of two greens, a lighter patch, a flat-coloured road --- */
+    float b=fbm2(X*0.02),m=fbm2(X*0.09);
+    col=mix(vec3(0.115,0.245,0.085),vec3(0.215,0.395,0.105),smoothstep(0.25,0.75,b));col=mix(col,vec3(0.39,0.545,0.14),smoothstep(0.55,0.9,m)*0.45);
+    col=mix(col,vec3(0.47,0.37,0.25),1.0-smoothstep(uHalf-0.15,uHalf+0.35,vPd));
+  }else{
+    /* --- MEADOW: a painted green made of several shades, laid in strokes, changed by where it is --- */
+    float slope=1.0-N.y;
+    float clump;float t=meadowT(X,fd,clump);
+    t+=0.20*clamp(-vCav*2.5,0.0,1.0)-0.34*clamp(vCav*2.5,0.0,1.0);/* crests lighter, hollows deeper */
+    t-=0.50*smoothstep(0.18,0.6,slope);/* banks darker */
+    t-=0.50*vOcc;/* at the foot of rocks and boulders */
+    float sunF=clamp(dot(N,normalize(uSun)),0.0,1.0);t+=0.14*(sunF-0.65);/* faces to the sun warmer */
+    col=grassRamp(t);col=meadowStrokes(col,X,1.0-smoothstep(14.0,42.0,length(P-cameraPosition)));
+    float dry=smoothstep(0.6,0.8,fbm2(X*0.06+3.0))*(0.4+0.6*sunF)*(1.0-vOcc)*(1.0-smoothstep(0.1,0.4,slope));
+    col=mix(col,col*vec3(1.12,1.05,0.68)+vec3(0.05,0.03,0.0),dry*0.55);/* sunny dry patches */
+    col=mix(col,col*vec3(0.84,0.95,1.10),clamp(vOcc*1.4+max(vCav,0.0)*2.0+clump*0.5,0.0,1.0)*0.5);/* shade and clumps a little bluer */
+    float bare=smoothstep(0.50,0.72,slope+0.28*(fbm2(X*0.3)-0.5));/* only very steep ground shows earth */
+    vec3 earth=mix(vec3(0.36,0.25,0.16),vec3(0.50,0.36,0.23),fbm2(X*0.8));
+    col=mix(col,earth,bare*0.7);
+    vec3 cl=cell2(X*2.2);/* little flowers, only on gentle ground */
+    float fl=step(0.968,cl.x)*(1.0-smoothstep(0.05,0.1,cl.y))*smoothstep(0.35,0.65,fbm2(X*0.14+7.0))*(1.0-smoothstep(0.1,0.3,slope))*fd*(1.0-vOcc);
+    col=mix(col,cl.z<0.45?vec3(0.96,0.96,0.92):cl.z<0.75?vec3(0.95,0.66,0.78):vec3(0.98,0.86,0.33),fl);
+
+    /* --- DIRT PATH (tier 1-2 roads): narrow, its edge ragged with grass tufts, lighter worn middle, darker damp edges, pebbles --- */
+    /* the mask (vertex) plus fine per-pixel noise in the band: grass patches creep onto the path, dirt pokes into the grass; no line anywhere */
+    float bandW=smoothstep(0.0,0.2,vPm)*smoothstep(1.0,0.8,vPm)*5.0;
+    float m=vPm+(0.26*(fbm2(X*1.6+9.0)-0.5)+0.14*(vn2(X*5.5)-0.5)+0.08*(vn2(X*12.0)-0.5)*fd)*bandW;
+    float inside=smoothstep(0.30,0.70,m);/* dirt wins gradually: the two mix through noise over the whole band */
+    float dpatch=smoothstep(0.55,0.75,m)*smoothstep(0.45,0.65,fbm2(X*2.2+3.0));inside=max(inside,dpatch);/* dirt patches poking into the grass */
+    float gpatch=(1.0-smoothstep(0.35,0.55,m))*smoothstep(0.6,0.75,fbm2(X*2.6+17.0));inside=min(inside,1.0-gpatch);/* grass patches creeping onto the path */
+    float dn=fbm2(X*0.9+1.0),df=vn2(X*6.0);
+    float td=0.50+0.26*(dn-0.5)+0.10*(df-0.5)*fd+0.22*smoothstep(0.6,1.0,vPm)-0.14*smoothstep(0.5,0.7,fbm2(X*0.5+4.0))-0.4*vOcc;/* lighter worn middle, darker damp patches */
+    vec3 dirt=ramp4(td,vec3(0.30,0.23,0.17),vec3(0.42,0.33,0.25),vec3(0.54,0.44,0.34),vec3(0.66,0.56,0.44));/* dusty, muted brown */
+    vec3 pc=cell2(X*3.0);float peb=step(0.88,pc.x)*(1.0-smoothstep(0.06,0.11,pc.y))*fd;
+    dirt=mix(dirt,mix(vec3(0.62,0.57,0.50),vec3(0.42,0.38,0.33),pc.z),peb*0.9);
+    float band=smoothstep(0.0,0.35,vPm)*(1.0-inside);col=mix(col,mix(col*vec3(0.95,0.9,0.66),dirt,0.45),band*0.8);/* trodden, thinning, dusty grass in the band */
+    col=mix(col,dirt,inside);
+    /* the stream bed: wet earth at the waterline, then sand and pebbles, darker and greener with depth */
+    if(vWd>-0.4){vec3 bc=cell2(X*2.6);float pb=step(0.55,bc.x)*(1.0-smoothstep(0.18,0.26,bc.y));
+      vec3 bed=mix(vec3(0.62,0.54,0.38),vec3(0.47,0.40,0.28),fbm2(X*0.7));bed=mix(bed,mix(vec3(0.58,0.55,0.50),vec3(0.36,0.33,0.29),bc.z),pb*0.85);
+      bed=mix(bed,bed*vec3(0.62,0.80,0.74),smoothstep(0.2,1.2,vWd));bed*=1.0-0.38*vOcc;
+      vec3 wet=mix(vec3(0.27,0.22,0.15),vec3(0.24,0.28,0.14),fbm2(X*1.3));
+      col=mix(col,wet,smoothstep(-0.4,-0.12,vWd)*0.8);col=mix(col,bed,smoothstep(-0.08,0.04,vWd));}
+    /* the earth bank: the path's dusty brown family, sampled in 3D (no stretching on the steep face); wet dark mud near the water,
+       drier and lighter up the bank; the grass edge broken by noise; mud patches at the waterline */
+    if(vBf>0.01||vWd>-0.6){float hw=-vWd;/* height above the water */
+      float n3=fbm(P*vec3(1.1,2.2,1.1)+3.0),n4=vn(P*vec3(3.5,7.0,3.5));
+      float te=0.50+0.30*(n3-0.5)+0.10*(n4-0.5)*fd+0.25*smoothstep(0.05,0.7,hw);
+      vec3 earthC=ramp4(te,vec3(0.21,0.16,0.11),vec3(0.33,0.25,0.18),vec3(0.46,0.37,0.27),vec3(0.58,0.49,0.37));
+      earthC*=1.0-0.18*smoothstep(0.55,0.75,vn(P*vec3(2.0,5.0,2.0)+7.0));/* darker streaks down the face */
+      float sF=P.z+0.35*P.x;/* (along the face) */
+      float ly=abs(fract(P.y*4.2+0.35*fbm(P*0.8))-0.5);earthC*=1.0-0.20*(1.0-smoothstep(0.05,0.13,ly))*(0.5+0.5*fd);/* soft horizontal layers */
+      float bm=vn(P*vec3(4.0,6.0,4.0)+2.0),bmU=vn(P*vec3(4.0,6.0,4.0)+2.0+vec3(0.0,0.06,0.0));earthC*=1.0+0.9*(bmU-bm)*fd;/* little bumps, lit from above */
+      vec3 pc3=cell2(vec2(sF*3.2,P.y*3.2));float peb3=step(0.80,pc3.x)*(1.0-smoothstep(0.11,0.16,pc3.y))*fd;
+      vec3 pebC=mix(vec3(0.47,0.40,0.31),vec3(0.36,0.30,0.23),pc3.z);earthC=mix(earthC,pebC*(0.92+0.18*(1.0-pc3.y*6.0)),peb3*0.85);/* embedded pebbles */
+      float rid=floor(sF*1.4);float rx=fract(sF*1.4)-0.5+0.10*sin(P.y*7.0+rid*3.0);float rw=fwidth(sF*1.4)+0.012;
+      float root=(1.0-smoothstep(0.024,0.024+rw,abs(rx)))*step(0.62,h31(vec3(rid,4.0,1.0)))*smoothstep(0.2,0.5,hw)*(0.4+0.6*fd);earthC=mix(earthC,vec3(0.26,0.17,0.10),root*0.85);/* exposed roots near the top */
+      earthC=mix(earthC,earthC*vec3(0.78,0.80,0.86),1.0-smoothstep(0.0,0.25,hw));/* wet at the waterline */
+      float onFace=smoothstep(0.08+0.30*(n3-0.5),0.3+0.30*(n3-0.5),vBf*(0.4+1.6*slope));/* steep part of the bank shows earth; noise breaks the grass edge */
+      float mud=(1.0-smoothstep(0.02,0.22,hw))*smoothstep(-0.15,0.0,hw)*smoothstep(0.42,0.6,fbm2(X*0.9+5.0));/* mud patches at the waterline */
+      float e=clamp(max(onFace,mud),0.0,1.0)*smoothstep(-0.25,-0.05,hw+0.0);col=mix(col,earthC,e);}
+  }
+  diffuseColor.rgb=col;
+ }`,U);
+
+/* ===================== rock: painted (new) and one-colour facets (current) ===================== */
+const PAL={
+  brown:{r:[[.30,.22,.16],[.48,.39,.29],[.66,.56,.43],[.82,.73,.58]],warm:[1.04,1.0,.94],cool:[.95,.96,1.02]},
+  grey:{r:[[.14,.15,.18],[.27,.28,.30],[.42,.42,.42],[.60,.60,.57]],warm:[1.04,1.0,.94],cool:[.90,.96,1.07]}};
+function palU(name,moss,strata){const p=PAL[name];return{uR0:{value:new THREE.Vector3(...p.r[0])},uR1:{value:new THREE.Vector3(...p.r[1])},uR2:{value:new THREE.Vector3(...p.r[2])},
+  uR3:{value:new THREE.Vector3(...p.r[3])},uWarm:{value:new THREE.Vector3(...p.warm)},uCool:{value:new THREE.Vector3(...p.cool)},uMoss:{value:moss},uStrata:{value:strata}};}
+function setPal(u,name){const p=PAL[name];u.uR0.value.set(...p.r[0]);u.uR1.value.set(...p.r[1]);u.uR2.value.set(...p.r[2]);u.uR3.value.set(...p.r[3]);u.uWarm.value.set(...p.warm);u.uCool.value.set(...p.cool);}
+const ROCK_DECL='uniform vec3 uR0;uniform vec3 uR1;uniform vec3 uR2;uniform vec3 uR3;uniform vec3 uWarm;uniform vec3 uCool;uniform float uMoss;uniform float uStrata;';
+function rockNew(u){return patch('rockNew',new THREE.MeshPhongMaterial({color:0xffffff,shininess:5,specular:0x0b0b0b}),
+ 'attribute float aOcc;attribute float aEdge;attribute float aSeed;varying float vOcc;varying float vEdge;varying float vSeed;','vOcc=aOcc;vEdge=aEdge;vSeed=aSeed;',
+ 'varying float vOcc;varying float vEdge;varying float vSeed;'+ROCK_DECL,
+ `{
+  /* --- one surface, many colours: a painted tone (up-facing lighter, hollows and the underside darker, rims caught by light), patches of warmer and
+     cooler stone, cracks, specks, moss on the tops --- */
+  vec3 P=vWP;vec3 N=normalize(vWN);float fd=1.0-smoothstep(25.0,70.0,length(P-cameraPosition));
+  float up=clamp(N.y*0.5+0.5,0.0,1.0);
+  float big=fbm(P*0.22+vSeed*13.0),mid=fbm(P*0.9),fine=vn(P*4.5);
+  float t=0.50+0.42*(up-0.5)+0.30*(big-0.5)+0.20*(mid-0.5)+0.08*(fine-0.5)*fd-0.72*vOcc+0.30*vEdge*smoothstep(-0.1,0.6,N.y)+0.12*(vSeed-0.5);
+  float side=1.0-abs(N.y);
+  /* bedding: thin darker layers on the sides (sandstone), broken up */
+  float bed=abs(fract(P.y*1.15+0.6*fbm(P*0.35+vSeed*3.0))-0.5);
+  t-=uStrata*0.16*(1.0-smoothstep(0.03,0.09,bed))*side*smoothstep(0.35,0.6,fbm(P*0.6+8.0));
+  /* cracks: a dark line inside a softer dark halo, fewer on the tops */
+  float c1=vedge(vec3(P.x*0.62,P.y*0.34,P.z*0.62)+vSeed*7.0),c2=vedge(vec3(P.x*1.9,P.y*1.2,P.z*1.9)+3.3);
+  float m1=smoothstep(0.50,0.62,fbm(P*0.45+5.0+vSeed*3.0)),m2=smoothstep(0.60,0.70,fbm(P*0.8+11.0))*fd;
+  float core=(1.0-smoothstep(0.0,0.035,c1))*m1+0.7*(1.0-smoothstep(0.0,0.04,c2))*m2;
+  float halo=(1.0-smoothstep(0.0,0.11,c1))*m1+0.4*(1.0-smoothstep(0.0,0.10,c2))*m2;
+  float topk=1.0-0.75*smoothstep(0.55,0.9,N.y);core=clamp(core*topk,0.0,1.0);halo=clamp(halo*topk,0.0,1.0);
+  t-=0.16*halo;
+  /* soft posterise: the tone falls into painted bands, like brush work, not a smooth gradient */
+  float q=t*5.0;t=mix(t,(floor(q)+smoothstep(0.3,0.7,fract(q)))/5.0,0.65);
+  vec3 col=ramp4(t,uR0,uR1,uR2,uR3);
+  col*=mix(uCool,uWarm,fbm(P*0.12+vec3(4.0,1.0,2.0)));
+  col=mix(col,col*uCool*0.82,clamp((1.0-up)*0.45+vOcc*0.6,0.0,1.0));/* shadowed parts cooler */
+  col*=1.0-0.55*core;
+  col*=1.0-(0.10+0.10*(1.0-uStrata))*smoothstep(0.55,0.72,fbm(P*1.3+vSeed*5.0+9.0));/* stains */
+  float sp=vn(P*12.0);col*=1.0+(0.02*step(0.86,sp)-0.03*step(sp,0.10))*fd;
+  float mo=smoothstep(0.5,0.85,N.y)*smoothstep(0.52,0.68,fbm(P*0.6+2.0)+0.12*N.y)*uMoss;
+  col=mix(col,mix(vec3(0.19,0.29,0.09),vec3(0.32,0.44,0.13),mid),mo);
+  diffuseColor.rgb=col;
+ }`,u);}
+function rockOld(u){return patch('rockOld',new THREE.MeshPhongMaterial({color:0xffffff,shininess:2,specular:0x000000,flatShading:true}),'','',ROCK_DECL,
+ `{ /* --- the current look: every facet one flat colour, from which way it faces --- */
+  vec3 Nf=normalize(cross(dFdx(vWP),dFdy(vWP)));float fh=fract(sin(dot(floor(Nf*5.0+0.5),vec3(12.9898,78.233,37.719)))*43758.5453);
+  float rv=clamp(0.44+0.34*smoothstep(-0.25,0.75,Nf.y)+0.17*(fh-0.5),0.0,1.0);diffuseColor.rgb=mix(uR1,uR3,rv);}`,u);}
+/* --- the cliff: real lumps (see cliffGeo). The colour stays simple, like the reference: a warm tan, a little lighter on top of each lump,
+   deep red-brown in the creases where lumps meet and in the recessed wall between them, moss on some tops, a green stain where the grass starts --- */
+function cliffMat(u){return patch('cliffNew',new THREE.MeshPhongMaterial({color:0xffffff,shininess:6,specular:0x111111}),
+ 'attribute float aCrev;attribute float aLump;attribute float aCap;attribute float aGy;attribute float aS;attribute float aGr;attribute float aD;attribute vec4 aBlk;varying float vCrev;varying float vLump;varying float vCap;varying float vGy;varying float vS;varying float vGr;varying float vD;flat varying vec4 vBlk;',
+ 'vCrev=aCrev;vLump=aLump;vCap=aCap;vGy=aGy;vS=aS;vGr=aGr;vD=aD;vBlk=aBlk;',
+ 'varying float vCrev;varying float vLump;varying float vCap;varying float vGy;varying float vS;varying float vGr;varying float vD;flat varying vec4 vBlk;uniform vec3 uSunDir;uniform sampler2D uBlk;uniform sampler2D uGrid;uniform vec4 uGridA;uniform vec3 uGridB;'+ROCK_DECL+`vec3 gN;
+ /* a block's score at (s,y): its relief + priority, or -1 outside it. x = relief without priority */
+ vec2 bscore(float idx,float s,float y){if(idx<0.0)return vec2(-1.0);int i=int(idx+0.5);vec4 A=texelFetch(uBlk,ivec2(0,i),0),B=texelFetch(uBlk,ivec2(1,i),0),C=texelFetch(uBlk,ivec2(2,i),0);
+  float ds=s-A.x,dy=y-A.y;float c=cos(B.x),sn=sin(B.x);float u=(ds*c+dy*sn)/(A.z*0.5),v=(-ds*sn+dy*c)/(A.w*0.5);
+  float r=pow(abs(u),B.y)+pow(abs(v),B.y);if(r>=1.0)return vec2(-1.0);float f=B.z*smoothstep(0.0,C.x,1.0-r)*(1.0+C.y*u+C.z*v);return vec2(f,f+B.w);}
+ /* every block near (s,y), from a grid of cells: the two best scores, exactly, at any pixel */
+ float seamGap(float s,float y){int ix=int(clamp(floor((s-uGridA.x)/uGridA.z),0.0,uGridB.x-1.0)),iy=int(clamp(floor((y-uGridA.y)/uGridA.w),0.0,uGridB.y-1.0));int row=iy*int(uGridB.x)+ix;
+  float s1=-1.0,s2=-1.0,f1=0.0;
+  for(int k=0;k<14;k++){float idx=texelFetch(uGrid,ivec2(k,row),0).x;if(idx<0.0)break;vec2 q=bscore(idx,s,y);
+    if(q.y>s1){s2=s1;s1=q.y;f1=q.x;}else if(q.y>s2)s2=q.y;}
+  return s1<0.0?1.0:(s2<0.0?f1:s1-s2);}`,
+ `{
+  vec3 P=vWP;vec3 N=normalize(vWN);vec2 X=P.xz;float fd=1.0-smoothstep(25.0,70.0,length(P-cameraPosition));
+  float up=clamp(N.y*0.5+0.5,0.0,1.0);
+  float t=0.54+0.12*(vLump-0.5)+0.10*vCap+0.30*(up-0.5)+0.10*(fbm(P*0.45+vLump*9.0)-0.5)+0.04*(vn(P*3.0)-0.5)*fd;
+  /* the seam, per pixel: where the winning block's score meets the runner-up's (or the recess, score 0). Converted to a world distance
+     through the screen-space gradient, then drawn with fwidth: crisp at any distance, no grid in it */
+  float h=0.02;float g0=seamGap(vS,vGy),gs=(seamGap(vS+h,vGy)-seamGap(vS-h,vGy))/(2.0*h),gy=(seamGap(vS,vGy+h)-seamGap(vS,vGy-h))/(2.0*h);
+  float gl=length(vec2(gs,gy));float sdist=g0/max(gl,0.12);float vis=smoothstep(0.35,0.85,gl);/* metres to the seam; a seam with no real step (flat overlap) is not drawn */
+  float wpx=(fwidth(vS)+fwidth(vGy))*0.7+1e-5;float sw=0.045,sa=fwidth(sdist)*0.8+0.002;float seam=(1.0-smoothstep(sw-sa,sw+sa,sdist))*step(0.0,vBlk.x)*vis;float seamSoft=(1.0-smoothstep(0.045,0.20,sdist))*step(0.0,vBlk.x)*vis;/* a thin crisp line plus a soft shade beside it, antialiased at any distance */
+  float crev=max(vCrev,max(seam,0.45*seamSoft));
+  t-=0.15*crev;/* seams and recess: the rest of the darkening is a capped multiply below */
+  t-=0.14*(1.0-smoothstep(0.0,1.4,vGy));/* a little darker near the ground */
+  float ck=vedge(vec3(P.x*0.8,P.y*0.5,P.z*0.8)+vLump*9.0);float cka=fwidth(ck)*0.8+0.003;float crackFade=1.0-smoothstep(10.0,28.0,length(P-cameraPosition));float crack=(1.0-smoothstep(0.008-cka,0.008+cka,ck))*smoothstep(0.5,0.62,fbm(P*0.6+vLump*4.0))*smoothstep(0.25,0.5,vCap)*step(0.67,fract(vLump*3.71))*crackFade;t-=0.12*crack;/* faint hairline cracks, on about one block in three, gone at a distance */
+  vec3 ch=cell2(P.xz*2.2+P.y*1.7);float chip=step(0.93,ch.x)*(1.0-smoothstep(0.08,0.16,ch.y))*smoothstep(0.3,0.5,vCap)*fd;t+=0.04*chip*(ch.z<0.5?-1.0:1.0)*crackFade;/* small chips */
+  float q=t*4.0;t=mix(t,(floor(q)+smoothstep(0.3,0.7,fract(q)))/4.0,0.8);/* 4 tone steps, painted */
+  vec3 col=ramp4(t,uR0,uR1,uR2,uR3);
+  col*=mix(uCool,uWarm,fract(vLump*5.31));
+  col*=mix(1.0,0.70,smoothstep(0.15,0.9,crev));col=mix(col,col*vec3(1.0,0.88,0.78),smoothstep(0.4,1.0,crev)*0.5);/* darkest = 58% of base, warm *//* creases go red-brown */
+  col=mix(col,col*uCool*0.9,clamp((1.0-up)*0.35,0.0,1.0));
+  col*=1.0-0.07*smoothstep(0.58,0.74,fbm(P*1.1+7.0));/* faint stains */
+  float clump;vec3 gcol=meadowStrokes(grassRamp(meadowT(X,fd,clump)),X,1.0-smoothstep(14.0,42.0,length(P-cameraPosition)));
+  float mo=smoothstep(0.55,0.9,N.y)*smoothstep(0.50,0.62,fbm(P*0.7+2.0)+0.08*vCap)*uMoss*(1.0-vCrev);/* moss on some tops */
+  col=mix(col,gcol*0.85,mo);
+  /* where the slope's soil covers the rock: soil, grass over it, and only stones that rise far enough show through */
+  float soilLine=0.02;float through=smoothstep(soilLine,soilLine+0.06,vD);
+  vec3 soil=mix(vec3(0.33,0.22,0.13),vec3(0.46,0.33,0.20),fbm2(X*0.9));float gOnSoil=smoothstep(0.25,0.45,fbm2(X*0.5+4.0)+0.25*vGr);
+  vec3 cover=mix(soil,gcol*0.9,gOnSoil);float gm=vGr*(1.0-through);col=mix(col,cover,gm);
+  col=mix(col,col*0.62,vGr*through*(1.0-smoothstep(soilLine+0.10,soilLine+0.5,vD)));col*=1.0-0.12*vGr*through;/* stones darker where they come out of the soil */
+  float base=0.15+0.55*fbm2(vec2(vS*0.25,1.0))+0.12*(vn2(vec2(vS*1.4,3.0))-0.5)-0.25*smoothstep(0.4,0.9,vCap);float aa=fwidth(vGy)+0.01;gm=max(gm,1.0-smoothstep(base-aa,base+0.10,vGy));/* grass grows up over the bottom blocks, less over a block's middle */col=mix(col,gcol*0.8,(1.0-smoothstep(base-aa,base+0.10,vGy)));col=mix(col,col*0.8,(1.0-smoothstep(base+0.10,base+0.5,vGy))*(1.0-gm));/* the grass stain at the foot (3D tufts stand in front of it) */
+  gN=normalize(mix(N,vec3(0.0,1.0,0.0),gm*0.5));
+  float sunF=clamp(dot(N,normalize(uSunDir)),0.0,1.0);col*=1.0+0.32*(1.0-sunF)*(1.0-gm);/* fill for the cliff only: faces turned from the sun stay readable */
+  diffuseColor.rgb=col;
+ }`,u,'normal=normalize((viewMatrix*vec4(gN,0.0)).xyz);');}
+/* --- boulders: the same stone as the cliff (same palette, ramp, tone steps, seam/crack hierarchy); one exact plane seam on the bigger ones;
+   the bottom fades into the earth. Instanced: per-instance tint = (brightness, ground level in object space, seed) --- */
+function boulderMat(u){return patch('bldNew',new THREE.MeshPhongMaterial({color:0xffffff,shininess:6,specular:0x111111}),
+ 'attribute float aEdge;attribute float aOcc;attribute float aSeam;attribute float aRel;varying float vEdge;varying float vOcc;varying float vSeam;varying float vOy;varying vec3 vTint;varying float vRel;varying float vSc;',
+ 'vEdge=aEdge;vOcc=aOcc;vSeam=aSeam;vOy=position.y;vRel=aRel;vSc=1.0;\n#ifdef USE_INSTANCING\nvSc=length(instanceMatrix[0].xyz);\n#endif\n\n#ifdef USE_INSTANCING_COLOR\nvTint=instanceColor;\n#else\nvTint=vec3(0.5,0.25,0.5);\n#endif',
+ 'varying float vEdge;varying float vOcc;varying float vSeam;varying float vOy;varying vec3 vTint;varying float vRel;varying float vSc;uniform vec3 uSunDir;uniform float uDbg;uniform float uMossP;uniform float uIvy;uniform float uMossTop;uniform float uUpK;uniform float uUW;uniform float uWL;'+ROCK_DECL,
+ `{
+  vec3 P=vWP;vec3 N=normalize(vWN);vec2 X=P.xz;float fd=1.0-smoothstep(25.0,70.0,length(P-cameraPosition));float seed=vTint.z;
+  diffuseColor.rgb=vec3(1.0);/* (three.js multiplied in the instance colour: it is data, not a tint) */
+  float up=clamp(N.y*0.5+0.5,0.0,1.0);
+  float t=0.54+uUpK*(up-0.5)+0.10*(fbm(P*0.45+seed*9.0)-0.5)+0.04*(vn(P*3.0)-0.5)*fd+0.12*vEdge*smoothstep(-0.1,0.6,N.y)-0.30*vOcc;
+  float sd=abs(vSeam),on=step(sd,5.0);float sw=0.045,sa=fwidth(sd)*0.8+0.002;float seam=(1.0-smoothstep(sw-sa,sw+sa,sd))*on;float seamSoft=(1.0-smoothstep(0.045,0.2,sd))*on;
+  float crev=max(seam,0.45*seamSoft);t-=0.15*crev;
+  float ck=vedge(vec3(P.x*0.8,P.y*0.5,P.z*0.8)+seed*9.0);float cka=fwidth(ck)*0.8+0.003;float crackFade=1.0-smoothstep(10.0,28.0,length(P-cameraPosition));
+  float crack=(1.0-smoothstep(0.008-cka,0.008+cka,ck))*smoothstep(0.5,0.62,fbm(P*0.6+seed*4.0))*step(0.67,fract(seed*3.71))*crackFade;t-=0.12*crack;
+  vec3 ch=cell2(P.xz*2.2+P.y*1.7);float chip=step(0.93,ch.x)*(1.0-smoothstep(0.08,0.16,ch.y))*fd;t+=0.04*chip*(ch.z<0.5?-1.0:1.0)*crackFade;
+  float q=t*4.0;t=mix(t,(floor(q)+smoothstep(0.3,0.7,fract(q)))/4.0,0.8);
+  vec3 col=ramp4(t,uR0,uR1,uR2,uR3);
+  col*=mix(uCool,uWarm,fract(seed*5.31));col*=0.93+0.14*vTint.x;/* per-boulder hue and brightness, a few percent */
+  col=mix(col,col*uCool*0.9,clamp((1.0-up)*0.35,0.0,1.0));
+  col*=1.0-0.07*smoothstep(0.58,0.74,fbm(P*1.1+7.0));
+  float sp=vn(P*12.0);col*=1.0+(0.02*step(0.86,sp)-0.03*step(sp,0.10))*fd;
+  col*=mix(1.0,0.70,smoothstep(0.15,0.9,crev));col=mix(col,col*vec3(1.0,0.88,0.78),smoothstep(0.4,1.0,crev)*0.5);
+  float clump;vec3 gcol=meadowStrokes(grassRamp(meadowT(X,fd,clump)),X,1.0-smoothstep(14.0,42.0,length(P-cameraPosition)));
+  float mo=smoothstep(0.6,0.9,N.y)*smoothstep(0.5-0.25*uMossTop,0.62-0.25*uMossTop,fbm(P*0.7+2.0))*step(fract(seed*7.13),uMossP)*uMoss;/* moss on some tops, not every boulder */
+  col=mix(col,gcol*0.85,mo);
+  /* hanging ivy (bank stones only): strands of leaf blobs dripping from the top over the sides */
+  if(uIvy>0.5&&fract(seed*11.3)<0.3){float cx=(P.x+P.z)*2.2;float sc=floor(cx),sx=fract(cx)-0.5;float has=step(0.45,h31(vec3(sc,seed*13.0,1.0)));float drip=(0.25+0.6*h31(vec3(sc,seed*13.0,2.0)))*has;
+    vec2 lp=vec2(sx*3.0+0.35*sin(P.y*9.0+sc),P.y*9.0);vec3 lc=cell2(lp);float lw=fwidth(lc.y)+0.02;float strand=1.0-smoothstep(0.22,0.30,abs(sx+0.08*sin(P.y*5.0+sc)));
+    float leaf=(1.0-smoothstep(0.45-lw,0.45+lw,lc.y))*strand*step(vRel,drip)+step(vRel,0.12)*(1.0-smoothstep(0.45-lw,0.45+lw,lc.y))*has;
+    vec3 iv=mix(vec3(0.13,0.28,0.07),vec3(0.36,0.55,0.14),lc.z)*(0.85+0.3*up);col=mix(col,iv,leaf*smoothstep(0.85,0.3,N.y+0.0*vRel));}
+  /* the base: fades to a darker, greener earth tone where it goes into the ground */
+  float hgt=P.y-(vTint.y*60.0-20.0);vec3 earth=mix(mix(vec3(0.16,0.13,0.08),vec3(0.14,0.20,0.07),fbm2(X*0.9)),gcol*0.55,0.35);
+  float bnd=clamp(vSc*0.45,0.04,1.0);/* (a pebble's base band is a few cm, a boulder's 30) */float gm0=1.0-smoothstep(-0.05*bnd,0.30*bnd,hgt);col=mix(col,earth,gm0*0.9);col*=1.0-0.25*(1.0-smoothstep(0.0,0.6*bnd,hgt));
+  float sunF=clamp(dot(N,normalize(uSunDir)),0.0,1.0);col*=1.0+0.32*(1.0-sunF)*(1.0-gm0);
+  if(uUW>0.5){float uw=uWL-P.y;col=mix(col,mix(vec3(0.16,0.55,0.55),vec3(0.05,0.36,0.42),smoothstep(0.2,0.9,uw)),smoothstep(0.0,0.45,uw)*0.92);}/* under water: fades into the water's colour with depth */
+  diffuseColor.rgb=col;
+ }`,u,null,'color_fragment');}
+const cliffU=palU('brown',.35,1),boulderU=palU('brown',.7,0);cliffU.uSunDir={value:SUN.clone()};boulderU.uSunDir={value:SUN.clone()};boulderU.uDbg={value:0};boulderU.uMossP={value:.4};boulderU.uIvy={value:0};boulderU.uMossTop={value:0};boulderU.uUpK={value:.30};boulderU.uUW={value:0};boulderU.uWL={value:0};
+const cliffNew=cliffMat(cliffU),cliffOld=rockOld(cliffU),boulderNew=boulderMat(boulderU);
+const boulderOld=new THREE.MeshPhongMaterial({color:0x7a7266,flatShading:true,shininess:2,specular:0x000000});
+
+/* ===================== geometry helpers ===================== */
+function weld(g){const pos=g.attributes.position,src=g.index?g.index.array:null,cnt=src?src.length:pos.count,map=new Map(),np=[],idx=[];
+  for(let k=0;k<cnt;k++){const i=src?src[k]:k,x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i),key=Math.round(x*1e4)+'_'+Math.round(y*1e4)+'_'+Math.round(z*1e4);
+    let j=map.get(key);if(j===undefined){j=np.length/3;map.set(key,j);np.push(x,y,z);}idx.push(j);}
+  const o=new THREE.BufferGeometry();o.setAttribute('position',new THREE.Float32BufferAttribute(np,3));o.setIndex(idx);return o;}
+/* flat chips: cut the shape by a few random planes near its surface, so it gets broad flat faces like hewn or broken stone */
+function chip(p,k,sd){const cuts=[];for(let c=0;c<k;c++){const a=h2(sd*97+c,3)*6.283,b=(h2(sd*31+c,7)-.35)*1.6,n=[Math.cos(b)*Math.cos(a),Math.sin(b),Math.cos(b)*Math.sin(a)];
+    let mx=-1e9;for(let i=0;i<p.count;i++)mx=Math.max(mx,p.getX(i)*n[0]+p.getY(i)*n[1]+p.getZ(i)*n[2]);cuts.push([n,mx*(.84+.08*h2(sd*13+c,5))]);}
+  for(let i=0;i<p.count;i++){let x=p.getX(i),y=p.getY(i),z=p.getZ(i);for(const[n,c]of cuts){const o=x*n[0]+y*n[1]+z*n[2]-c;if(o>0){x-=o*n[0];y-=o*n[1];z-=o*n[2];}}p.setXYZ(i,x,y,z);}}
+/* a chunky boulder: a lumpy, flattened ball with a flat-ish bottom */
+function boulder(r,sd){const g=weld(new THREE.IcosahedronGeometry(1,3)),p=g.attributes.position,n=p.count,occ=new Float32Array(n),edge=new Float32Array(n),seedA=new Float32Array(n).fill(sd);
+  for(let i=0;i<n;i++){let x=p.getX(i),y=p.getY(i),z=p.getZ(i);const rad=1+.3*(fbm3(x*1.3+sd*5,y*1.3,z*1.3)-.5)*2+.08*(vn3(x*4,y*4,z*4)-.5);
+    x*=rad*1.25*r;y*=rad*.82*r;z*=rad*1.05*r;if(y<-.5*r)y=-.5*r+(y+.5*r)*.2;p.setXYZ(i,x,y,z);
+    edge[i]=Math.min(1,Math.max(0,(rad-1)*3.5));occ[i]=.8*Math.pow(1-Math.min(1,Math.max(0,(y/(.82*r)+1)/2)),1.5);}
+  chip(p,4,Math.floor(sd*1e5));g.setAttribute('aOcc',new THREE.BufferAttribute(occ,1));g.setAttribute('aEdge',new THREE.BufferAttribute(edge,1));g.setAttribute('aSeed',new THREE.BufferAttribute(seedA,1));g.computeVertexNormals();return g;}
+
+/* ===================== build: the cliff, the boulders ===================== */
+const solids=[];/* (x, z, radius) of everything that darkens the grass at its foot */
+const boulderMeshes=[];
+/* a chunky boulder from a seed: a stretched ball, several plane cuts (flat faces), a flattened bottom, light noise, then smoothed so the cut
+   edges become soft bevels; attributes: edge (bevel rims), occ (underside), seam (signed distance to one seam plane, or 10 = none) */
+function mkRng(seed){let x=(seed*9301+49297)%233280;return()=>{x=(x*9301+49297)%233280;return x/233280;};}
+function makeBoulder(seed,o){o=o||{};const r=mkRng(seed),g=weld(new THREE.IcosahedronGeometry(1,4)),p=g.attributes.position,n=p.count;
+  const sx=(o.sx||.8)+.8*r(),sy=(o.sy||.55)+.6*r(),sz=(o.sx||.8)+.8*r();const moved=new Float32Array(n);
+  for(let i=0;i<n;i++){let x=p.getX(i),y=p.getY(i),z=p.getZ(i);const l=Math.hypot(x,y,z),dd=1+.10*(fbm3(x*1.6+seed,y*1.6,z*1.6)-.5)*2;x*=sx*dd;y*=sy*dd;z*=sz*dd;p.setXYZ(i,x,y,z);}
+  const k=(o.k0!=null?o.k0:6)+Math.floor(r()*(o.kr!=null?o.kr:6));const cuts=[];
+  for(let c=0;c<k;c++){const a=r()*6.283,b=(r()<.3?.9:.3)*(r()-.5)*2;cuts.push([Math.cos(b)*Math.cos(a),Math.sin(b),Math.cos(b)*Math.sin(a),(o.f0||.42)+.3*r()]);}
+  for(const[nx,ny,nz,f]of cuts){let mx=-1e9;for(let i=0;i<n;i++)mx=Math.max(mx,p.getX(i)*nx+p.getY(i)*ny+p.getZ(i)*nz);const d=mx*f;
+    for(let i=0;i<n;i++){const o=p.getX(i)*nx+p.getY(i)*ny+p.getZ(i)*nz-d;if(o>0){p.setXYZ(i,p.getX(i)-o*nx,p.getY(i)-o*ny,p.getZ(i)-o*nz);moved[i]+=o;}}}
+  let ymin=1e9;for(let i=0;i<n;i++)ymin=Math.min(ymin,p.getY(i));const yb=ymin*.72;for(let i=0;i<n;i++){const y=p.getY(i);if(y<yb)p.setY(i,yb+(y-yb)*.25);}/* flat-ish bottom */
+  /* neighbours, then one light smoothing pass: the cut edges become soft bevels, the faces stay flat */
+  const adj=Array.from({length:n},()=>new Set()),ix=g.index.array;for(let t=0;t<ix.length;t+=3){const a=ix[t],b=ix[t+1],c=ix[t+2];adj[a].add(b).add(c);adj[b].add(a).add(c);adj[c].add(a).add(b);}
+  {const q=new Float32Array(n*3);for(let i=0;i<n;i++){let x=0,y=0,z=0,m=0;for(const j of adj[i]){x+=p.getX(j);y+=p.getY(j);z+=p.getZ(j);m++;}q[i*3]=x/m;q[i*3+1]=y/m;q[i*3+2]=z/m;}
+    for(let i=0;i<n;i++)p.setXYZ(i,p.getX(i)*.75+q[i*3]*.25,p.getY(i)*.75+q[i*3+1]*.25,p.getZ(i)*.75+q[i*3+2]*.25);}
+  for(let pass=0;pass<(o.sm||0);pass++){const q=new Float32Array(n*3);for(let i=0;i<n;i++){let x=0,y=0,z=0,m=0;for(const j of adj[i]){x+=p.getX(j);y+=p.getY(j);z+=p.getZ(j);m++;}q[i*3]=x/m;q[i*3+1]=y/m;q[i*3+2]=z/m;}
+    for(let i=0;i<n;i++)p.setXYZ(i,p.getX(i)*.5+q[i*3]*.5,p.getY(i)*.5+q[i*3+1]*.5,p.getZ(i)*.5+q[i*3+2]*.5);}/* (rounder: bank stones) */
+  const edge=new Float32Array(n),occ=new Float32Array(n),seam=new Float32Array(n);let ymax=-1e9;ymin=1e9;for(let i=0;i<n;i++){ymax=Math.max(ymax,p.getY(i));ymin=Math.min(ymin,p.getY(i));}
+  const sm=r()<.45?[(()=>{const a=r()*6.283,b=(r()-.5)*1.2;return[Math.cos(b)*Math.cos(a),Math.sin(b),Math.cos(b)*Math.sin(a),(r()-.5)*.5];})()]:[];
+  for(let i=0;i<n;i++){let e=0;for(const j of adj[i])e=Math.max(e,Math.abs(moved[i]-moved[j]));edge[i]=Math.min(1,e*4);
+    occ[i]=.6*Math.pow(1-(p.getY(i)-ymin)/(ymax-ymin),1.5);seam[i]=sm.length?(p.getX(i)*sm[0][0]+p.getY(i)*sm[0][1]+p.getZ(i)*sm[0][2]-sm[0][3]):10;}
+  const rel=new Float32Array(n);for(let i=0;i<n;i++)rel[i]=(ymax-p.getY(i))/(ymax-ymin);/* 0 at the top, 1 at the bottom */
+  g.setAttribute('aEdge',new THREE.BufferAttribute(edge,1));g.setAttribute('aOcc',new THREE.BufferAttribute(occ,1));g.setAttribute('aSeam',new THREE.BufferAttribute(seam,1));g.setAttribute('aRel',new THREE.BufferAttribute(rel,1));
+  g.computeVertexNormals();g.userData={ymin,ymax,rx:Math.max(sx,sz)};return g;}
+/* every rock in the game from one generator: a box, scaled unevenly; 3-6 plane cuts chop off corners and edges (big flat faces); then a small
+   bevel, exact: each vertex of a dense sphere is pulled onto the cut box shrunk by the bevel radius (closest point, Dykstra's projection onto
+   the half-spaces), then pushed back out by that radius. Faces stay perfectly flat, only edges and corners round; normals are exact. */
+function makeStone(seed,o){o=o||{};const r=mkRng(seed);
+  const sx=(o.x0||.75)+(o.xr||.75)*r(),sy=(o.y0||.45)+(o.yr||.6)*r(),sz=(o.z0||.6)+(o.zr||.6)*r();
+  const PL=[[1,0,0,sx],[-1,0,0,sx],[0,1,0,sy],[0,-1,0,sy],[0,0,1,sz],[0,0,-1,sz]];
+  const k=3+Math.floor(r()*4);
+  for(let c=0;c<k;c++){let nx=(r()<.5?-1:1)*(.4+.6*r()),ny=(r()<.75?1:-.35)*(.25+.7*r()),nz=(r()<.5?-1:1)*(.4+.6*r());if(r()<.35){if(r()<.5)nx*=.15;else nz*=.15;}/* (corners, sometimes an edge) */
+    const L=Math.hypot(nx,ny,nz);nx/=L;ny/=L;nz/=L;const sup=Math.abs(nx)*sx+Math.abs(ny)*sy+Math.abs(nz)*sz;PL.push([nx,ny,nz,sup*(.52+.3*r())]);}
+  const bev=(o.bev||.075)*Math.min(sx,sy,sz)*2;/* 5-10% of the stone's size */
+  const SH=PL.map(q=>[q[0],q[1],q[2],q[3]-bev]);
+  const g=weld(new THREE.IcosahedronGeometry(1,5)),p=g.attributes.position,n=p.count,nrm=new Float32Array(n*3),edge=new Float32Array(n);const R0=3*Math.max(sx,sy,sz);
+  for(let i=0;i<n;i++){const P0=[p.getX(i)*R0,p.getY(i)*R0,p.getZ(i)*R0];let x=P0.slice();const Y=SH.map(()=>[0,0,0]);
+    for(let it=0;it<40;it++){for(let j=0;j<SH.length;j++){const q=SH[j],zx=x[0]+Y[j][0],zy=x[1]+Y[j][1],zz=x[2]+Y[j][2],d=zx*q[0]+zy*q[1]+zz*q[2]-q[3];
+      const nxv=d>0?[zx-d*q[0],zy-d*q[1],zz-d*q[2]]:[zx,zy,zz];Y[j]=[zx-nxv[0],zy-nxv[1],zz-nxv[2]];x=nxv;}}
+    let dx=P0[0]-x[0],dy=P0[1]-x[1],dz=P0[2]-x[2];const dl=Math.hypot(dx,dy,dz)||1;dx/=dl;dy/=dl;dz/=dl;
+    p.setXYZ(i,x[0]+dx*bev,x[1]+dy*bev,x[2]+dz*bev);nrm[i*3]=dx;nrm[i*3+1]=dy;nrm[i*3+2]=dz;
+    let best=-1;for(const q of PL)best=Math.max(best,dx*q[0]+dy*q[1]+dz*q[2]);edge[i]=Math.min(1,(1-best)*6);}/* (on a bevel: the normal is between faces) */
+  let ymin=1e9,ymax=-1e9;for(let i=0;i<n;i++){ymin=Math.min(ymin,p.getY(i));ymax=Math.max(ymax,p.getY(i));}
+  const occ=new Float32Array(n),seam=new Float32Array(n),rel=new Float32Array(n);
+  const sm=r()<.35?(()=>{const a=r()*6.283,b=(r()-.5)*.8;return[Math.cos(b)*Math.cos(a),Math.sin(b),Math.cos(b)*Math.sin(a),(r()-.5)*.4*Math.min(sx,sz)];})():null;
+  for(let i=0;i<n;i++){const y=p.getY(i);rel[i]=(ymax-y)/(ymax-ymin);occ[i]=.6*Math.pow(rel[i],1.5);seam[i]=sm?(p.getX(i)*sm[0]+y*sm[1]+p.getZ(i)*sm[2]-sm[3]):10;}
+  g.setAttribute('normal',new THREE.BufferAttribute(nrm,3));g.setAttribute('aEdge',new THREE.BufferAttribute(edge,1));g.setAttribute('aOcc',new THREE.BufferAttribute(occ,1));
+  g.setAttribute('aSeam',new THREE.BufferAttribute(seam,1));g.setAttribute('aRel',new THREE.BufferAttribute(rel,1));
+  g.userData={ymin,ymax,rx:Math.max(sx,sz),sx,sy,sz};return g;}
+const SHAPES=[];for(let i=0;i<14;i++)SHAPES.push(makeStone(1000+i*37));
+/* placing: every boulder from a seed (shape, size, rotation); aligned to the slope and sunk 20-40% (deeper when small); sometimes a cluster */
+const BINST=SHAPES.map(()=>[]);
+function placeBoulder(x,z,seed,fixedScale,shapeIdx){const r=mkRng(seed);const s0=Math.floor(r()*SHAPES.length),si=shapeIdx!=null?shapeIdx:s0,G=SHAPES[si],ud=G.userData;
+  const u=r();const sc=fixedScale||(.22+1.9*Math.pow(u,2.4));const h=(ud.ymax-ud.ymin)*sc;
+  const f=.45-.20*Math.min(1,Math.max(0,(sc-.3)/1.6));/* sink fraction: 25% for the big ones, 45% for pebbles */
+  const e=.4,nx=-(H(x+e,z)-H(x-e,z))/(2*e),nz=-(H(x,z+e)-H(x,z-e))/(2*e);const nrm=new THREE.Vector3(nx,1,nz).normalize();
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),nrm).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),r()*6.283));
+  const y=H(x,z)-f*h-ud.ymin*sc;/* the lowest point sits f*h under the ground */const M=new THREE.Matrix4().compose(new THREE.Vector3(x,y,z),q,new THREE.Vector3(sc,sc,sc));
+  BINST[si].push({M,tint:new THREE.Color(r(),(H(x,z)+20)/60,r()),x,z,sc,rw:ud.rx*sc});
+  if(!fixedScale&&sc>.6&&r()<.4){const k=1+Math.floor(r()*3);for(let j=0;j<k;j++){const a=r()*6.283,d=sc*ud.rx*(1.3+1.0*r());const cx=x+Math.cos(a)*d,cz=z+Math.sin(a)*d;if(pathDist(cx,cz)<pathHalfAt(cx,cz)*1.6+.4||rivMask(cx,cz,2.5))continue;placeBoulder(cx,cz,seed*7+j*13+1,sc*(.22+.3*r()));}}}
+/* the cliff is one surface: columns along its foot line, each a profile: buried foot, up the (leaning, bulging) face, round the rim, back under the grass */
+/* the lumps: rows of rounded slabs (superellipse pillows) laid along the face in (s = distance along the foot, y = height), overlapping, each
+   with its own tilt, size and how far it sticks out; the surface takes the highest lump at each point, so they merge like one rock mass */
+const LUMPS=[];{let y0=-.8;while(y0<9.5){const rh=1.0+1.5*rnd();let s=-1.5-2*rnd();const ph=rnd()*6.3,fr=.1+.12*rnd();
+  while(s<92){const w=1.6+3.6*rnd()*rnd()+1.6*rnd(),h=rh*(.7+.7*rnd());const yc=y0+h/2+.5*Math.sin(s*fr+ph)+(rnd()-.5)*.5;
+    const blocky=rnd();/* 0 = weathered and rounded, 1 = flat face with sharp edges */
+    LUMPS.push({s:s+w/2+(rnd()-.5)*.3,y:yc,w,h,amp:(.08+.10*rnd())*Math.min(w,h),tilt:(rnd()-.5)*.5,p:3.0+5.0*blocky+1.5*rnd(),k:.75-.5*blocky,
+      ta:(rnd()-.5)*.3,tb:(rnd()-.5)*.3,pr:rnd()*.06,bw:.26+.36*(1-blocky)+.08*rnd(),id:rnd()});s+=w*(.62+.25*rnd());}
+  y0+=rh*.70;}
+ for(let i=0;i<22;i++){const w=3.5+3.5*rnd(),h=1.8+2.2*rnd(),blocky=rnd();LUMPS.push({s:rnd()*90,y:.4+rnd()*7.5,w,h,amp:(.08+.09*rnd())*Math.min(w,h),tilt:(rnd()-.5)*.4,p:3.0+4*blocky,k:.7-.45*blocky,ta:(rnd()-.5)*.3,tb:(rnd()-.5)*.3,pr:rnd()*.08,bw:.26+.36*(1-blocky)+.08*rnd(),id:rnd()});}}
+LUMPS.forEach((L,i)=>L.i=i);
+const BLK_TEX=(()=>{const n=LUMPS.length,d=new Float32Array(n*3*4);LUMPS.forEach((L,i)=>{d.set([L.s,L.y,L.w,L.h, L.tilt,L.p,L.amp,L.pr, L.bw,L.ta,L.tb,1],i*12);});
+  const t=new THREE.DataTexture(d,3,n,THREE.RGBAFormat,THREE.FloatType);t.magFilter=t.minFilter=THREE.NearestFilter;t.needsUpdate=true;return t;})();cliffU.uBlk={value:BLK_TEX};
+const GRID={s0:-4,y0:-1.5,cs:2,cy:1.5,nx:50,ny:9,slots:14};
+const GRID_TEX=(()=>{const G=GRID,cells=Array.from({length:G.nx*G.ny},()=>[]);
+  for(const L of LUMPS){const c=Math.abs(Math.cos(L.tilt)),sn=Math.abs(Math.sin(L.tilt)),hw=L.w/2*c+L.h/2*sn,hh=L.w/2*sn+L.h/2*c;
+    const x0=Math.max(0,Math.floor((L.s-hw-G.s0)/G.cs)),x1=Math.min(G.nx-1,Math.floor((L.s+hw-G.s0)/G.cs)),y0=Math.max(0,Math.floor((L.y-hh-G.y0)/G.cy)),y1=Math.min(G.ny-1,Math.floor((L.y+hh-G.y0)/G.cy));
+    for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)cells[y*G.nx+x].push(L.i);}
+  let over=0;const d=new Float32Array(G.slots*cells.length*4).fill(-1);cells.forEach((c,r)=>{if(c.length>G.slots)over++;c.slice(0,G.slots).forEach((i,k)=>{d[(r*G.slots+k)*4]=i;});});
+  if(over)console.warn('grid cells over capacity: '+over);
+  const t=new THREE.DataTexture(d,G.slots,cells.length,THREE.RGBAFormat,THREE.FloatType);t.magFilter=t.minFilter=THREE.NearestFilter;t.needsUpdate=true;return t;})();
+cliffU.uGrid={value:GRID_TEX};cliffU.uGridA={value:new THREE.Vector4(GRID.s0,GRID.y0,GRID.cs,GRID.cy)};cliffU.uGridB={value:new THREE.Vector3(GRID.nx,GRID.ny,GRID.slots)};
+function winnerAt(s,y){let b1=-1,id=-1;for(const L of LUMPS){const ds=s-L.s;if(ds>L.w||ds<-L.w)continue;const dy=y-L.y;if(dy>L.h||dy<-L.h)continue;
+    const c=Math.cos(L.tilt),sn=Math.sin(L.tilt),u=(ds*c+dy*sn)/(L.w/2),v=(-ds*sn+dy*c)/(L.h/2),r=Math.pow(Math.abs(u),L.p)+Math.pow(Math.abs(v),L.p);if(r>=1)continue;
+    const b=L.amp*S(0,L.bw,1-r)*(1+L.ta*u+L.tb*v)+L.pr;if(b>b1){b1=b;id=L.id;}}return id;}
+function lumpsAt(s,y){let b1=-1,f1=0,f2=0,id=0,cap=0;const top=[];/* the winning stone (height + a priority, so a stone can cut into a taller neighbour: interlocking) */
+  for(const L of LUMPS){const ds=s-L.s;if(ds>L.w||ds<-L.w)continue;const dy=y-L.y;if(dy>L.h||dy<-L.h)continue;
+    const c=Math.cos(L.tilt),sn=Math.sin(L.tilt),u=(ds*c+dy*sn)/(L.w/2),v=(-ds*sn+dy*c)/(L.h/2),r=Math.pow(Math.abs(u),L.p)+Math.pow(Math.abs(v),L.p);if(r>=1)continue;
+    const f=L.amp*S(0,L.bw,1-r)*(1+L.ta*u+L.tb*v);/* a flat, slightly tilted face with a bevel of bounded slope (no stretched lip) */
+    const b=f+L.pr;if(b>b1){f2=f1;b1=b;f1=f;id=L.id;cap=1-r;}else if(f>f2)f2=f;
+    top.push([b,L.i]);}
+  top.sort((a,b)=>b[0]-a[0]);return[f1,f2,id,cap,top.length>0?top[0][1]:-1,top.length>1?top[1][1]:-1,top.length>2?top[2][1]:-1,top.length>3?top[3][1]:-1];}
+function cliffGeo(dz,nF,nR,lumpy){const zs=[];for(let z=-47;z<=32.001;z+=dz)zs.push(z);
+  const pos=[],nrm=[],aS=[],aGy=[],aCrev=[],aLump=[],aCap=[],aGr=[],aD=[],aBlk=[];let sAcc=0,zp=zs[0];const ledges=[];
+  for(const z of zs){sAcc+=Math.hypot(z-zp,footX(z)-footX(zp));zp=z;
+    const hc=cliffH(z),hp=plateauH(z),gl=gLev(z),wl=gRun(z),xf=footX(z),y0=Hbase(xf,z),fx=footDX(z),nl=Math.hypot(1,fx),nx=1/nl,nz=-fx/nl,sink=.8*(1-S(.2,1.5,hp)),endF=S(.4,2.0,hp);
+    const Ts=[fx/nl,0,1/nl];/* along the foot */
+    const field=(ss,yy,fade)=>{const r=lumpsAt(ss,yy);return[(r[0]+.10*(fbq2(ss*.10,yy*.18)-.5)+.02*(vn2(ss*1.3,yy*1.3)-.5))*fade*endF,r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[7]];};
+    const put=(d,y,yy,fade,ox,oy,oz,gr,inset,ty)=>{let D=0,cr=0,id=.5,cap=0,N=[ox,oy,oz],blk=[-1,-1,-1,-1];
+      if(lumpy){const e=.06,c0=field(sAcc,yy,fade),cs1=field(sAcc+e,yy,fade),cs0=field(sAcc-e,yy,fade),cy1=field(sAcc,yy+e,fade),cy0=field(sAcc,yy-e,fade);
+        D=c0[0];id=c0[3];cap=c0[4];
+        const dDs=(cs1[0]-cs0[0])/(2*e),dDy=(cy1[0]-cy0[0])/(2*e),lap=(cs1[0]+cs0[0]+cy1[0]+cy0[0]-4*D)/(e*e);
+        /* seam AO: only where the winning block changes within a short distance (two rings: a soft gradient along the seam), plus a little in the recess behind blocks */
+        blk=[c0[5],c0[6],c0[7],c0[8]];/* the 4 best blocks here: the shader draws the seam between them per pixel */
+        const valley=Math.min(1,Math.max(0,lap*.004)),gap=(1-Math.min(1,c0[1]/.05))*.35;
+        cr=Math.max(valley,gap)*fade*endF;/* baked AO: seams between blocks and the recess behind them */
+        if(gr>.5&&inset>0){const k=Math.min(1,(gr-.5)*2);const Db=D<.22?-.05:.12+(D-.22)*1.1;D=Db*k+D*(1-k);}/* under the grass slope: a stone either breaks clearly through, or stays under the turf */
+        const Ps=[Ts[0]+ox*dDs,Ts[1]+oy*dDs,Ts[2]+oz*dDs],Py=[ty[0]+ox*dDy,ty[1]+oy*dDy,ty[2]+oz*dDy];
+        N=[Py[1]*Ps[2]-Py[2]*Ps[1],Py[2]*Ps[0]-Py[0]*Ps[2],Py[0]*Ps[1]-Py[1]*Ps[0]];const L=Math.hypot(...N)||1;N=[N[0]/L*.8+ox*.2,N[1]/L*.8+oy*.2,N[2]/L*.8+oz*.2];const L2=Math.hypot(...N);N=[N[0]/L2,N[1]/L2,N[2]/L2];}/* (edges read as rounded, like painted stone) */
+      if(lumpy&&gr<.5&&fade>.9&&N[1]>.6&&cap>.3&&yy<hc-.4&&rnd()<.06)ledges.push([xf+d*nx+ox*D,y-sink+oy*D,z+d*nz+oz*D]);
+      D-=inset;pos.push(xf+d*nx+ox*D,y-sink+oy*D,z+d*nz+oz*D);nrm.push(...N);aS.push(sAcc);aGy.push(y-y0);aCrev.push(cr);aLump.push(id);aCap.push(cap);aGr.push(gr);aD.push(D+inset);const ok=fade*endF>.5;aBlk.push(ok?blk[0]:-1,ok?blk[1]:-1,ok?blk[2]:-1,ok?blk[3]:-1);};
+    const nn=Math.hypot(1,LEAN),ox=nx/nn,oy=LEAN/nn,oz=nz/nn;/* the exposed face's outward normal */
+    const sl=Math.hypot(wl,Math.max(gl,.01)),sx=Math.max(gl,.01)/sl,sy=wl/sl;/* the grass slope's normal */
+    const TyF=[-LEAN*nx/nn,1/nn,-LEAN*nz/nn],TyS=[-sy*nx,sx,-sy*nz];/* up-tangents of the face and of the slope */
+    put(.35,y0-.7,-.6,1,ox,oy,oz,1,.3,TyS);put(.12,y0-.15,-.15,1,ox,oy,oz,1,.3,TyS);
+    for(let k=0;k<=nF;k++){const yy=k/nF*hc;
+      if(yy<gl){const q=yy/gl,d=-wl*q,yg=H(xf+d*nx,z+d*nz)-y0,m=S(.75,1,q);put(d+bul(z,yy)*(.3+.7*m),y0+yg,yg,.35+.6*q,sx*nx*(1-m)+ox*m,sy*(1-m)+oy*m,sx*nz*(1-m)+oz*m,1-m*.5,.22+.04*m,TyS);}/* under the grassy slope (following the real ground): only the bigger stones break through */
+      else{const yr=yy-gl,gr=1-S(0,.9,yr);put(-wl-LEAN*yr+bul(z,yy),y0+yy,yy,1,ox,oy,oz,gr,.26*gr,TyF);}}
+    const dT=-wl-LEAN*(hc-gl)+bul(z,hc),rr=Math.min(.45,hc*.15+.05);
+    for(let k=1;k<=nR;k++){const a=k/nR*Math.PI/2;put(dT-rr+rr*Math.cos(a),y0+hc+rr*Math.sin(a),hc+rr*Math.sin(a),1-k/nR,ox,oy,oz,0,0,[-Math.sin(a)*ox,Math.cos(a),-Math.sin(a)*oz]);}
+    for(const [dd,oy2] of [[-1.0,.12],[-1.7,-.45],[-2.4,-1.1]]){const d=dT+dd;put(d,H(xf+d*nx,z+d*nz)+oy2+sink,hc+1,0,ox,oy,oz,0,0,TyF);}}
+  const NR=pos.length/3/zs.length,idx=[];
+  for(let c=0;c<zs.length-1;c++)for(let r=0;r<NR-1;r++){const a=c*NR+r,b=a+NR;idx.push(a,a+1,b,b,a+1,b+1);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('aS',new THREE.Float32BufferAttribute(aS,1));
+  g.setAttribute('aGy',new THREE.Float32BufferAttribute(aGy,1));g.setAttribute('aCrev',new THREE.Float32BufferAttribute(aCrev,1));g.setAttribute('aGr',new THREE.Float32BufferAttribute(aGr,1));g.setAttribute('aD',new THREE.Float32BufferAttribute(aD,1));g.setAttribute('aBlk',new THREE.Float32BufferAttribute(aBlk,4));
+  g.setAttribute('aLump',new THREE.Float32BufferAttribute(aLump,1));g.setAttribute('aCap',new THREE.Float32BufferAttribute(aCap,1));g.setIndex(idx);
+  if(lumpy)g.setAttribute('normal',new THREE.Float32BufferAttribute(nrm,3));else g.computeVertexNormals();/* (analytic normals: clean shading however the grid is stretched) */
+  g.userData.ledges=ledges;return g;}
+const cliffFine=new THREE.Mesh(cliffGeo(.065,122,10,true),cliffNew),cliffCoarse=new THREE.Mesh(cliffGeo(1.3,5,2,false),cliffOld);
+for(const m of[cliffFine,cliffCoarse]){m.castShadow=m.receiveShadow=true;scene.add(m);}cliffCoarse.visible=false;
+[[7,4,1.3],[9.6,8.5,.7],[12,-6,1.8],[6.4,-15,1.0],[-3.4,16,.8],[-3.2,-28,1.4],[15,18,1.1],[-2.2,-11,.6],[17,-20,2.2],[4.4,24,.55]].forEach(([x,z,r],i)=>{if(pathDist(x,z)<pathHalfAt(x,z)*1.6+.6+r||rivMask(x,z,2.5+r))return;placeBoulder(x,z,500+i*11,r*1.05);});
+for(let i=0;i<70;i++){const r=3+40*Math.sqrt(rnd()),a=rnd()*6.283,x=1.5+r*Math.cos(a),z=4+r*Math.sin(a);if(pathMask(x,z)>0.02||pathDist(x,z)<pathHalfAt(x,z)*1.6+.6||rivMask(x,z,3.0))continue;/* never on the path or in the stream, plus a margin */const hp=plateauH(z),gl=gLev(z),wl=gRun(z);if(hp>.3&&x<footX(z)-wl+.3&&x>footX(z)-wl-LEAN*(hp-gl)-1.6)continue;
+  placeBoulder(x,z,2000+i*17);}
+for(let i=0;i<10;i++)placeBoulder(-28+i*2.9,44,101+i,.9,i);/* the debug row: ten seeds side by side */
+/* ===================== the stream's banks: rounded warm stones along both edges, partly under water; rocks in the water ===================== */
+PAL.bank={r:[[.34,.21,.14],[.56,.39,.27],[.75,.59,.43],[.90,.79,.62]],warm:[1.05,1.0,.92],cool:[.94,.95,1.03]};
+const bankU=palU('bank',1.0,0);bankU.uSunDir={value:SUN.clone()};bankU.uDbg={value:0};bankU.uMossP={value:.45};bankU.uIvy={value:0};bankU.uMossTop={value:.3};bankU.uUpK={value:.16};bankU.uUW={value:1};bankU.uWL={value:0};
+const bankMat=boulderMat(bankU);
+const BSH=[],BKIND=[];/* 0-3 flat slabs, 4-8 blocks, 9-11 small stones */
+for(let i=0;i<4;i++){BSH.push(makeStone(3000+i*41,{x0:1.0,xr:.6,y0:.28,yr:.18,z0:.75,zr:.4}));BKIND.push(0);}
+for(let i=0;i<5;i++){BSH.push(makeStone(3200+i*43,{x0:.7,xr:.5,y0:.5,yr:.4,z0:.6,zr:.4}));BKIND.push(1);}
+for(let i=0;i<3;i++){BSH.push(makeStone(3400+i*47,{x0:.55,xr:.4,y0:.4,yr:.35,z0:.5,zr:.35}));BKIND.push(2);}
+const BKI=BSH.map(()=>[]),bankSpots=[],bankTops=[];
+function seedWith(r,want){for(let k=0;k<40;k++){const s=r();if(want(s))return s;}return r();}
+function putStone(x,z,y,sc,yaw,tilt,r,mossy,ivy,groundY,kind){const pool=BSH.map((g,i)=>i).filter(i=>kind==null||BKIND[i]===kind),si=pool[Math.floor(r()*pool.length)],ud=BSH[si].userData;
+  const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt[0],yaw,tilt[1]));
+  const h0=(ud.ymax-ud.ymin)*sc,bedY=H(x,z),ys=Math.min(3.5,Math.max(1,(y-(bedY-.28*h0))/h0));/* (reach down into the bed: never end at the water) */
+  const yy=y-ud.ymax*sc*ys;/* (y is where its top sits) */groundY=bedY;
+  const M=new THREE.Matrix4().compose(new THREE.Vector3(x,yy,z),q,new THREE.Vector3(sc,sc*ys,sc));
+  const sd=seedWith(r,s=>(fract7(s)<.75)===mossy&&(fract11(s)<.3)===ivy);
+  BKI[si].push({M,tint:new THREE.Color(kind===0?.15*r():r(),(groundY+20)/60,sd)});return{x,z,top:y,rw:ud.rx*sc,h:h0*ys,si,M,yaw,bed:bedY};}
+const fract7=s=>(s*7.13)%1,fract11=s=>(s*11.3)%1;const waterRocks=[];
+{const r=mkRng(777);
+ /* along each bank: a cluster of 2-6 stones (now and then one big flat slab, blocks, small stones), then a gap where the grass meets the water */
+ const at=(u)=>{const i=Math.max(0,Math.min(RIV.length-2,Math.floor(u))),f=u-i,a=RIV[i],b=RIV[i+1];return[a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,b[0]-a[0],b[1]-a[1]];};
+ for(const side of[-1,1]){let u=r()*2;while(u<RIV.length-3){const nCl=2+Math.floor(r()*5);let v=u;
+   for(let c=0;c<nCl&&v<RIV.length-3;c++){const [px,pz,tx,tz]=at(v),tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side,w=rivHalf(pz);
+     const roll=r(),kind=roll<.22?0:roll<.68?1:2;
+     const size=kind===0?2.2+1.0*r():kind===1?1.0+.7*r():.45+.4*r();const sc=size/2/1.15;
+     const rel=(kind===0?-.25:-.05)+.25*(r()-.4)+(kind===2?(r()-.5)*.6:0);let off=w+rel;for(let it=0;it<4;it++){const bk=rivBank(px+nx*off,pz+nz*off);off+=(bk.w+rel)-bk.dd;}/* (on the real, wobbly shore) */const x=px+nx*off,z=pz+nz*off;
+     const topAbove=kind===0?.18+.22*r():kind===1?.4+.5*r():.12+.3*r();
+     const flat=kind===0||r()<.45,tilt=flat?[(r()-.5)*.08,(r()-.5)*.08]:[(r()-.5)*.6,(r()-.5)*.6];
+     const yaw=Math.atan2(nx,nz)+(r()-.5)*.6;/* (roughly along the bank) */
+     const st=putStone(x,z,WL+topAbove,sc,yaw,tilt,r,r()<.7,false,WL-.05,kind);st.kind=kind;bankSpots.push(st);bankTops.push([st,nx,nz]);
+     v+=(size*.55+.15*r())/1.0;}
+   u=v+1.5+3.5*r();}}
+ /* rocks in the water: mossy tops */
+ for(const [t,o,sz] of [[50,.15,1.1],[55,-.45,.8],[60,.5,1.3],[64,-.25,.9],[69,.35,.7],[74,-.4,1.0],[78,.2,.8]]){const a=RIV[t],b=RIV[t+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz);
+   const w=rivHalf(a[1]),x=a[0]-tz/tl*o*w,z=a[1]+tx/tl*o*w;const sc=sz/2/1.1;
+   const st=putStone(x,z,WL+sz*(.3+.2*r()),sc,r()*6.283,[(r()-.5)*.2,(r()-.5)*.2],r,true,false,WL-.05);bankSpots.push(st);waterRocks.push(st);
+   solids.push([x,z,st.rw*.85,1]);for(let j=0;j<5;j++){const a=r()*6.283,d=st.rw*(1.0+.7*r());placeBoulder(x+Math.cos(a)*d,z+Math.sin(a)*d,7000+t*13+j,.08+.1*r());}}/* (a darker contact patch and pebbles on the bed) */
+ /* pebbles: small clusters at the waterline in the gaps */
+ for(let c=0;c<26;c++){const i=Math.floor(r()*(RIV.length-2)),side=r()<.5?-1:1,a=RIV[i],b=RIV[i+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
+   let d=rivHalf(a[1]),x=a[0]+nx*d,z=a[1]+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+.05)-bk.dd;x=a[0]+nx*d;z=a[1]+nz*d;}
+   if(bankSpots.some(q=>Math.hypot(q.x-x,q.z-z)<q.rw+.4)||rivBank(x,z).steep>.35)continue;const m=3+Math.floor(r()*6);
+   for(let j=0;j<m;j++){const u=(r()-.5)*1.4,v=(r()-.5)*.6;placeBoulder(x-nz*u+nx*v,z+nx*u+nz*v,9000+c*31+j,.07+.12*r());}}
+}
+const bankMeshes=[];BKI.forEach((list,si)=>{if(!list.length)return;const m=new THREE.InstancedMesh(BSH[si],bankMat,list.length);
+  list.forEach((b,i)=>{m.setMatrixAt(i,b.M);m.setColorAt(i,b.tint);});m.instanceMatrix.needsUpdate=true;m.instanceColor.needsUpdate=true;m.castShadow=m.receiveShadow=true;scene.add(m);bankMeshes.push(m);});
+/* ===================== ivy: small leaf cards in strands, hanging down the water side of a few taller bank stones (ray-cast onto the stone) ===================== */
+const ivyMat=new THREE.ShaderMaterial({side:THREE.DoubleSide,fog:true,uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uSun:{value:SUN.clone()}}]),
+  vertexShader:`varying vec2 vUv;varying vec3 vC;varying float vL;uniform vec3 uSun;
+    #include <fog_pars_vertex>
+    void main(){vUv=uv;vC=instanceColor;vec3 n=normalize(mat3(modelMatrix*instanceMatrix)*vec3(0.0,0.0,1.0));vL=0.55+0.45*abs(dot(n,normalize(uSun)));
+      vec4 mvPosition=viewMatrix*modelMatrix*instanceMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mvPosition;
+      #include <fog_vertex>
+    }`,
+  fragmentShader:`varying vec2 vUv;varying vec3 vC;varying float vL;
+    #include <fog_pars_fragment>
+    void main(){vec2 q=vUv-vec2(0.5,0.55);float w=0.42*(1.0-pow(abs(q.y*1.9),1.6))*(1.0-0.35*(q.y));if(abs(q.x)>w||abs(q.y)>0.5)discard;/* a pointed leaf */
+      float vein=1.0-smoothstep(0.0,0.035,abs(q.x));vec3 col=mix(vec3(0.16,0.33,0.07),vec3(0.42,0.62,0.16),vC.y)*(0.9+0.25*vUv.y);col=mix(col,col*1.25,vein*0.35);
+      gl_FragColor=vec4(col*vL,1.0);
+      #include <fog_fragment>
+    }`});
+const leafSpots=[];
+{const rc=new THREE.Raycaster(),tmp=new THREE.Mesh(BSH[0],new THREE.MeshBasicMaterial()),r=mkRng(4242);
+ for(const [st,nx,nz] of bankTops){if(st.kind!==1||st.top<WL+.55||r()>.35)continue;
+   tmp.geometry=BSH[st.si];tmp.matrixAutoUpdate=false;tmp.matrix.copy(st.M);tmp.matrixWorld.copy(st.M);tmp.geometry.computeBoundingSphere();
+   const nS=2+Math.floor(r()*3);
+   for(let k=0;k<nS;k++){const j=(r()-.5)*st.rw*1.3,len=.35+.6*r();
+     for(let y=st.top-.02;y>st.top-len&&y>WL+.05;y-=.055+.02*r()){const sw=.05*Math.sin(y*9+k);
+       const o=new THREE.Vector3(st.x-nx*st.rw*2.5-nz*(j+sw),y,st.z-nz*st.rw*2.5+nx*(j+sw));rc.set(o,new THREE.Vector3(nx,0,nz));
+       const h=rc.intersectObject(tmp,false)[0];if(!h)continue;const fn=h.face.normal.clone().transformDirection(st.M);
+       leafSpots.push([h.point.clone().addScaledVector(fn,.025),fn,r()]);}}}}
+const ivy=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).translate(0,-.38,0),ivyMat,Math.max(1,leafSpots.length));
+{const M=new THREE.Matrix4(),C=new THREE.Color(),up=new THREE.Vector3(0,1,0);
+ leafSpots.forEach(([pt,fn,rr],i)=>{const tgt=pt.clone().add(fn);const L=new THREE.Object3D();L.position.copy(pt);L.lookAt(tgt);L.rotateZ((rr-.5)*1.4);L.rotateX(.35);
+   const sz=.10+.06*rr;L.scale.set(sz,sz*1.25,sz);L.updateMatrix();ivy.setMatrixAt(i,L.matrix);C.setRGB(0,rr,0);ivy.setColorAt(i,C);});
+ ivy.count=leafSpots.length;ivy.instanceMatrix.needsUpdate=true;if(ivy.instanceColor)ivy.instanceColor.needsUpdate=true;ivy.castShadow=true;scene.add(ivy);}
+BINST.forEach((list,si)=>{if(!list.length)return;const m=new THREE.InstancedMesh(SHAPES[si],boulderNew,list.length);const C=new THREE.Color();
+  list.forEach((b,i)=>{m.setMatrixAt(i,b.M);m.setColorAt(i,b.tint);solids.push([b.x,b.z,b.rw*0.95,1]);});m.instanceMatrix.needsUpdate=true;m.instanceColor.needsUpdate=true;
+  m.castShadow=m.receiveShadow=true;scene.add(m);boulderMeshes.push(m);});
+
+/* ===================== build: the ground ===================== */
+{const SZ=170,SEG=300,g=new THREE.PlaneGeometry(SZ,SZ,SEG,SEG);g.rotateX(-Math.PI/2);g.translate(0,0,-6);
+ const p=g.attributes.position,n=p.count,M=SEG+1,hh=new Float32Array(n),cav=new Float32Array(n),pd=new Float32Array(n),pm=new Float32Array(n),occ=new Float32Array(n),wd=new Float32Array(n),bf=new Float32Array(n);
+ for(let i=0;i<n;i++){const x=p.getX(i),z=p.getZ(i);let h=H(x,z);const d=pathDist(x,z);pd[i]=d;pm[i]=pathMask(x,z);h-=.09*pathMask(x,z);hh[i]=h;const bk=rivBank(x,z);wd[i]=bk.dd<bk.w+bk.run+.3?WL-h:-9;bf[i]=bk.face*(.25+.75*bk.steep);}
+ for(let i=0;i<n;i++){const r=Math.floor(i/M),c=i%M,s=3;const a=hh[r*M+Math.max(0,c-s)],b=hh[r*M+Math.min(M-1,c+s)],e=hh[Math.max(0,r-s)*M+c],f=hh[Math.min(M-1,r+s)*M+c];
+   cav[i]=((a+b+e+f)/4-hh[i])/1.7;p.setY(i,hh[i]);
+   const x=p.getX(i),z=p.getZ(i);let o=0;for(const q of solids){const dd=Math.hypot(x-q[0],z-q[1])-q[2];const R=q[3]?.9+q[2]*.5:2.6;if(dd<R){const v=(1-S(-.3,R,dd))*(q[3]?.9:.85);if(v>o)o=v;}}
+   {const hp=plateauH(z),d=x-(footX(z)-gRun(z));if(hp>.3&&d>-.6&&d<2.2)o=Math.max(o,(1-S(0,2.0,d))*.40*S(.3,1.5,hp));}occ[i]=o;}
+ g.setAttribute('aCav',new THREE.BufferAttribute(cav,1));g.setAttribute('aPd',new THREE.BufferAttribute(pd,1));g.setAttribute('aPm',new THREE.BufferAttribute(pm,1));g.setAttribute('aWd',new THREE.BufferAttribute(wd,1));g.setAttribute('aBf',new THREE.BufferAttribute(bf,1));g.setAttribute('aOcc',new THREE.BufferAttribute(occ,1));g.computeVertexNormals();
+ const m=new THREE.Mesh(g,groundMat);m.receiveShadow=true;scene.add(m);}
+
+/* ===================== 3D grass: tufts of blades on crossed cards, drawn by the shader (no texture) ===================== */
+const grassMat=new THREE.ShaderMaterial({side:THREE.DoubleSide,fog:true,
+  uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uSun:{value:SUN.clone()}}]),
+  vertexShader:`varying vec2 vUv;varying vec3 vC;varying float vSh;uniform vec3 uSun;
+    #include <fog_pars_vertex>
+    void main(){vUv=uv;vC=instanceColor;vec4 wp=modelMatrix*instanceMatrix*vec4(position,1.0);
+      vec3 nrm=normalize(mat3(modelMatrix*instanceMatrix)*vec3(0.0,0.0,1.0));vSh=0.78+0.22*abs(dot(nrm,uSun));
+      vec4 mvPosition=viewMatrix*wp;gl_Position=projectionMatrix*mvPosition;
+      #include <fog_vertex>
+    }`,
+  fragmentShader:`varying vec2 vUv;varying vec3 vC;varying float vSh;
+    #include <fog_pars_fragment>
+    float hs(float x){return fract(sin(x)*4375.7);}
+    void main(){float ty=-1.0;
+      for(int i=0;i<11;i++){float fi=float(i);float r1=hs(vC.z*91.7+fi*13.1),r2=hs(vC.z*17.3+fi*7.7),r3=hs(vC.z*51.9+fi*3.3);
+        float cx=(fi+0.5)/11.0+(r1-0.5)*0.10;float hg=0.55+0.45*r2;if(vUv.y>hg)continue;
+        float y=vUv.y/hg;float x=cx+(r3-0.5)*0.4*y*y;float w=0.052*(1.0-y*0.8)*(0.8+0.5*r1);
+        if(abs(vUv.x-x)<w)ty=max(ty,y);}
+      if(ty<0.0)discard;
+      vec3 col=mix(vec3(0.24,0.44,0.09),vec3(0.62,0.80,0.22),ty)*vC.y*vSh;
+      col=mix(col,col*vec3(1.08,1.0,0.78),vC.x*0.4);
+      gl_FragColor=vec4(col,1.0);
+      #include <fog_fragment>
+    }`});
+const tuftGeo=(()=>{const a=new THREE.PlaneGeometry(1,1);a.translate(0,.5,0);const b=a.clone();b.rotateY(Math.PI/2);
+  const g=new THREE.BufferGeometry(),pa=a.attributes.position.array,pb=b.attributes.position.array,ua=a.attributes.uv.array;
+  g.setAttribute('position',new THREE.Float32BufferAttribute([...pa,...pb],3));g.setAttribute('uv',new THREE.Float32BufferAttribute([...ua,...ua],2));
+  const ia=a.index.array;g.setIndex([...ia,...ia.map(i=>i+4)]);return g;})();
+const tuftSpots=[];/* where tufts go: thick along the cliff foot, then the meadow (thinner with distance, none on the path) */
+for(let z=-47;z<32;z+=.09){const hp=plateauH(z);if(hp<.4)continue;const xf=footX(z),wl=gRun(z);for(let k=0;k<6;k++){const d=-wl*rnd()*rnd()-.45+1.9*Math.pow(rnd(),1.5);tuftSpots.push([xf+d,z,1.5-.3*d]);}}
+for(let i=0;i<90000;i++){const r=2+52*Math.sqrt(rnd()),a=rnd()*6.283,x=1.5+r*Math.cos(a),z=4+r*Math.sin(a);
+  if(rnd()>1.2-r/50)continue;const pmk=pathMask(x,z);if(pmk>0.08){const keep=pmk<0.5?1-pmk*1.7:(pmk<0.85?0.07:0.02);if(rnd()>keep)continue;}const hp=plateauH(z),xf=footX(z),gl=gLev(z),wl=gRun(z);if(hp>.3&&x<xf-wl+.2&&x>xf-wl-LEAN*(hp-gl)-1.6)continue;{const bk=rivBank(x,z);if(bk.dd<bk.w+bk.run+.5&&(bk.y<WL+.07||(bk.face&&bk.steep>.35&&bk.dd<bk.w+bk.run-.2)))continue;}/* (only at the river: in the water, or on a steep earth face) */tuftSpots.push([x,z,(.85+.4*rnd())*(1-.55*pmk)]);}
+/* the banks: a thick fringe of grass behind the stones, and tufts on the stone tops leaning out over the water */
+for(const [st,nx,nz] of bankTops){for(let k=0;k<7;k++){const d=st.rw*(.35+1.4*rnd()),j=(rnd()-.5)*st.rw*2.2;const x=st.x+nx*d-nz*j,z=st.z+nz*d+nx*j;if(rivMask(x,z,.3))continue;tuftSpots.push([x,z,1.0+.5*rnd()]);}
+  if(st.kind!==2&&st.top<WL+.85){for(let k=0;k<5;k++){const j=(rnd()-.5)*st.rw*1.6,d=st.rw*(.7+.25*rnd()),x=st.x+nx*d-nz*j,z=st.z+nz*d+nx*j;const gy=Math.max(H(x,z),st.top-.04);
+    tuftSpots.push([x,z,1.0+.4*rnd(),gy-.03,.75+.35*rnd(),-nx,-nz]);}}}/* (behind the stone, leaning out over its edge) */
+for(const [x,y,z] of cliffFine.geometry.userData.ledges)tuftSpots.push([x,z,.45+.3*rnd(),y-.04]);
+BINST.flat().forEach(b=>{if(b.sc<.3)return;const k=5+Math.floor(b.sc*7);for(let j=0;j<k;j++){const a=rnd()*6.283,d=b.rw*(.85+.5*rnd());tuftSpots.push([b.x+Math.cos(a)*d,b.z+Math.sin(a)*d,.8+.3*rnd()]);}});/* tufts around every boulder's base, overlapping it *//* small tufts and leafy bits on the ledges */
+/* the bank lip: grass right to the edge of the steep banks, drooping over it toward the water (not where a bank stone sits) */
+{const r=mkRng(515),nearStone=(x,z)=>bankSpots.some(b=>Math.hypot(b.x-x,b.z-z)<b.rw+.35);
+ for(let i=0;i<RIV.length-1;i++)for(const side of[-1,1])for(let k=0;k<9;k++){const a=RIV[i],b=RIV[i+1],f=(k+r())/9,cx=a[0]+(b[0]-a[0])*f,cz=a[1]+(b[1]-a[1])*f,tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
+   let d=rivHalf(cz)+1.0,x=cx+nx*d,z=cz+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+bk.run-.12)-bk.dd;x=cx+nx*d;z=cz+nz*d;}/* (find the lip) */
+   const bk=rivBank(x,z);if(bk.steep<.22||nearStone(x,z))continue;const jx=(r()-.5)*.2;tuftSpots.push([x+nx*jx,z+nz*jx,1.0+.6*r(),bk.y-.03,.8+.6*r(),-nx,-nz]);/* (leaning out and down over the lip) */
+   if(r()<.5)tuftSpots.push([x+nx*.25,z+nz*.25,1.0+.4*r()]);}
+ /* reeds: clusters at the waterline in the gaps, some standing in the shallows */
+ for(let c=0;c<34;c++){const i=Math.floor(r()*(RIV.length-2)),side=r()<.5?-1:1,a=RIV[i],b=RIV[i+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
+   let d=rivHalf(a[1]),x=a[0]+nx*d,z=a[1]+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+.15)-bk.dd;x=a[0]+nx*d;z=a[1]+nz*d;}
+   if(nearStone(x,z)||rivBank(x,z).steep>.5)continue;const m=8+Math.floor(r()*12);
+   for(let j=0;j<m;j++){const u=(r()-.5)*1.6,v=(r()-.6)*.7,px=x-nz*u+nx*v,pz=z+nx*u+nz*v;if(H(px,pz)<WL-.35)continue;tuftSpots.push([px,pz,.9+.4*r(),undefined,undefined,undefined,undefined,2.6+1.8*r()]);}}}
+const tufts=new THREE.InstancedMesh(tuftGeo,grassMat,tuftSpots.length);
+{const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Pv=new THREE.Vector3(),Sv=new THREE.Vector3(),C=new THREE.Color();
+ tuftSpots.forEach(([x,z,sc,yl,tilt,tx,tz,hs],i)=>{const h=yl!==undefined?yl:H(x,z)-.03;Pv.set(x,h,z);Q.setFromAxisAngle(new THREE.Vector3(0,1,0),rnd()*6.283);
+   if(tilt){const ax=new THREE.Vector3(tz,0,-tx).normalize();Q.premultiply(new THREE.Quaternion().setFromAxisAngle(ax,tilt));}/* (leaning out over the water) */
+   const w=.40+.22*rnd();Sv.set(w*sc*(hs?.6:1),(.16+.14*rnd())*sc*(hs||1),w*sc*(hs?.6:1));M.compose(Pv,Q,Sv);tufts.setMatrixAt(i,M);C.setRGB(hs?.45+.4*rnd():yl!==undefined?.1:rnd()*.6,hs?.62+.2*rnd():(yl!==undefined?.7:.85)+.3*rnd(),rnd());tufts.setColorAt(i,C);});
+ tufts.instanceMatrix.needsUpdate=true;tufts.instanceColor.needsUpdate=true;scene.add(tufts);}
+
+
+/* ===================== the water: a ribbon along the stream at the water level; a stylized shader =====================
+   - depth from one depth-only pre-pass of the opaque scene (flat material, no grass cards): water thickness along the view ray
+   - colour by depth: light turquoise at the edges and in shallows, deep teal in the middle; see-through where shallow
+   - two scrolling ripple maps (baked once, procedural), soft fresnel to a sky colour, painted light streaks, small sun glints
+   - foam wherever the water meets something (shore, bank stones, rocks): depth difference + noise, clumpy, a broken second line that breathes */
+const NTEX=(()=>{const N=256,d=new Uint8Array(N*N*4),hgt=new Float32Array(N*N),hz=(i,j)=>hgt[((j+N)%N)*N+((i+N)%N)];
+  const W=[[3,1,.0,1],[1,4,1.3,.8],[5,-2,2.1,.5],[-4,3,.7,.45],[7,5,4.1,.25],[-9,6,1.1,.2],[11,-8,2.9,.12],[2,13,.4,.1]];
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){let h=0;const u=i/N*6.2832,v=j/N*6.2832;for(const[a,b,ph,am]of W)h+=am*Math.sin(a*u+b*v+ph+.6*Math.sin(b*u-a*v+ph*2));hgt[j*N+i]=h;}
+  const fz=new Float32Array(N*N);{const G=16,g=[];for(let k=0;k<G*G;k++)g.push(Math.random());const r=mkRng(91);for(let k=0;k<G*G;k++)g[k]=r();
+    for(let j=0;j<N;j++)for(let i=0;i<N;i++){let s=0,a=.5,f=1;for(let o=0;o<4;o++){const x=i/N*G*f,y=j/N*G*f,xi=Math.floor(x),yi=Math.floor(y),u=x-xi,v=y-yi,Gf=G*f,
+      at=(p,q)=>{const P=((p%Gf)+Gf)%Gf,Q=((q%Gf)+Gf)%Gf;return h2(P*31+o*7,Q*17+o*3);},uu=u*u*(3-2*u),vv=v*v*(3-2*v);
+      s+=a*((at(xi,yi)*(1-uu)+at(xi+1,yi)*uu)*(1-vv)+(at(xi,yi+1)*(1-uu)+at(xi+1,yi+1)*uu)*vv);a*=.5;f*=2;}fz[j*N+i]=s/.9375;}}
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){const dx=(hz(i+1,j)-hz(i-1,j))*.5,dy=(hz(i,j+1)-hz(i,j-1))*.5,k=(j*N+i)*4;
+    d[k]=Math.max(0,Math.min(255,128+dx*95));d[k+1]=Math.max(0,Math.min(255,128+dy*95));d[k+2]=Math.round(fz[j*N+i]*255);d[k+3]=Math.max(0,Math.min(255,128+hgt[j*N+i]*50));}
+  const t=new THREE.DataTexture(d,N,N,THREE.RGBAFormat);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.magFilter=THREE.LinearFilter;t.minFilter=THREE.LinearMipmapLinearFilter;t.generateMipmaps=true;t.needsUpdate=true;return t;})();
+const DRT=new THREE.WebGLRenderTarget(4,4);DRT.depthTexture=new THREE.DepthTexture(4,4);DRT.depthTexture.type=THREE.UnsignedIntType;DRT.texture.generateMipmaps=false;
+const depthOnly=new THREE.MeshBasicMaterial({colorWrite:false});
+const WU={uRk:{value:Array.from({length:8},()=>new THREE.Vector4(0,0,0,0))},tDepth:{value:DRT.depthTexture},tN:{value:NTEX},uRes:{value:new THREE.Vector2(1,1)},uNear:{value:.1},uFar:{value:500},uTime:{value:0},
+  uSun:{value:SUN.clone()},uSky:{value:new THREE.Color(0xbfe3f2)},uFogC:{value:new THREE.Color(0xbcdaef)},uFog:{value:new THREE.Vector2(80,200)}};
+const waterMat=new THREE.ShaderMaterial({uniforms:WU,transparent:true,depthWrite:false,side:THREE.DoubleSide,
+  vertexShader:`varying vec3 vWP;varying vec2 vFlow;varying float vSpd;attribute vec2 aFlow;attribute float aSpd;void main(){vFlow=aFlow;vSpd=aSpd;vec4 w=modelMatrix*vec4(position,1.0);vWP=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}`,
+  fragmentShader:`#include <packing>
+  uniform sampler2D tDepth;uniform sampler2D tN;uniform vec4 uRk[8];varying float vSpd;uniform vec2 uRes;uniform float uNear;uniform float uFar;uniform float uTime;uniform vec3 uSun;uniform vec3 uSky;uniform vec3 uFogC;uniform vec2 uFog;
+  varying vec3 vWP;varying vec2 vFlow;
+  void main(){
+    vec2 suv=gl_FragCoord.xy/uRes;float sz=-perspectiveDepthToViewZ(texture2D(tDepth,suv).x,uNear,uFar),mz=-perspectiveDepthToViewZ(gl_FragCoord.z,uNear,uFar);
+    vec3 V=normalize(cameraPosition-vWP);float thick=max(sz-mz,0.0),dv=thick*max(abs(V.y),0.22);/* about the vertical depth of water here */
+    float t=uTime;vec2 X=vWP.xz;vec2 fl=normalize(vFlow+1e-4);
+    /* the flow: textures pushed downstream along the river (two phases, cross-faded, so they never stretch); speed from the river's width */
+    float sp=vSpd;vec2 pr=vec2(-fl.y,fl.x);float ph0=fract(t*0.12),ph1=fract(t*0.12+0.5),kf=abs(2.0*ph0-1.0);
+    vec4 a=mix(texture2D(tN,X*0.085-fl*sp*ph0*0.55),texture2D(tN,X*0.085-fl*sp*ph1*0.55+vec2(0.37,0.11)),kf);
+    vec4 b=mix(texture2D(tN,X*0.21-fl*sp*ph0*1.1+pr*0.05*ph0),texture2D(tN,X*0.21-fl*sp*ph1*1.1+vec2(0.53,0.29)),kf);
+    vec2 sl=(a.xy-0.5)*0.9+(b.xy-0.5)*0.6;vec3 N=normalize(vec3(-sl.x,1.0,-sl.y));
+    /* colour by depth, see-through where shallow */
+    float dvc=mix(dv,thick,0.55);/* (colour from the path through the water: a stone's side seen through water reads deep, not milky) */float dd=smoothstep(0.0,1.3,dvc);vec3 shallow=vec3(0.58,0.94,0.84),mid=vec3(0.22,0.80,0.78),deep=vec3(0.07,0.56,0.62);
+    vec3 col=dd<0.5?mix(shallow,mid,dd*2.0):mix(mid,deep,dd*2.0-1.0);
+    float alpha=mix(0.22,0.88,smoothstep(0.0,1.2,dvc));
+    /* light: soft sun and sky; fresnel to the sky at grazing angles */
+    float ndl=clamp(dot(N,normalize(uSun)),0.0,1.0);col*=0.82+0.30*ndl;
+    float fr=pow(1.0-clamp(dot(N,V),0.0,1.0),4.0);col=mix(col,mix(uSky,vec3(0.75,0.95,0.92),0.4),fr*0.5);alpha=max(alpha,fr*0.8);
+    /* painted streaks: thin light lines riding the ripples */
+    float st=abs(b.w-0.5);float sa=fwidth(b.w)+0.004;float streak=(1.0-smoothstep(0.012,0.012+sa,st))*smoothstep(0.35,0.7,a.z);col=mix(col,vec3(0.86,0.98,0.96),streak*0.45);
+    /* sun glints: little hard sparkles */
+    vec3 Rf=reflect(-normalize(uSun),N);float gl=pow(clamp(dot(Rf,V),0.0,1.0),180.0);col+=vec3(1.0,0.98,0.9)*smoothstep(0.35,0.55,gl)*0.9;
+    /* foam: clumpy where the water is thin (shore, stones, rocks), and a broken second line that breathes */
+    float fn=mix(texture2D(tN,X*0.55-fl*sp*ph0*0.9).z,texture2D(tN,X*0.55-fl*sp*ph1*0.9+vec2(0.21,0.4)).z,kf),fn2=mix(texture2D(tN,X*1.3-fl*sp*ph0*1.6).z,texture2D(tN,X*1.3-fl*sp*ph1*1.6+vec2(0.6,0.15)).z,kf);
+    float fe=1.0-dv/0.09;float fa=fwidth(fe)+0.03;float th=0.25+0.5*smoothstep(0.35,0.75,fn)+0.2*(fn2-0.5);float foam=smoothstep(th-fa,th+fa,fe)*step(0.36,fn2)*smoothstep(0.38,0.46,texture2D(tN,X*0.22+fl*t*0.01).z);/* clumps along the shore, with gaps *//* thin, with gaps */
+    float bub=step(0.66,fn2)*(1.0-smoothstep(0.0,0.22,dv))*step(0.58,texture2D(tN,X*2.6+t*0.04).z);foam=max(foam,bub*0.8);/* loose bubbles drifting off the clumps */
+    float lineD=0.42+0.07*sin(t*1.4+fn*5.0);float ln=abs(dv-lineD);float la=fwidth(dv)+0.006;float line=(1.0-smoothstep(0.015,0.015+la,ln))*step(0.55,fn2)*step(0.4,fn);
+    float edge=1.0-smoothstep(0.0,0.14,dv);col=mix(col,shallow*1.05,edge*0.3);alpha=max(alpha,edge*0.45);/* thin water at the edges reads milky, not see-through to the stones' dark feet */
+    /* rocks in the stream: foam piles up on the upstream side, thins on the sides, trails downstream in short streaks */
+    float upK=1.0,trail=0.0;
+    for(int i=0;i<8;i++){vec4 rk=uRk[i];if(rk.z<=0.0)continue;vec2 d=X-rk.xy;float dl=length(d);if(dl>rk.z*5.0)continue;
+      vec2 fr=vec2(dot(d,fl),dot(d,pr))/rk.z;float near=1.0-smoothstep(1.0,1.9,dl/rk.z);
+      upK=min(upK,mix(1.0,mix(0.12,1.0,smoothstep(0.35,-0.55,fr.x)),near));
+      float lane=step(0.0,fr.x)*(1.0-smoothstep(0.6,1.0,abs(fr.y)))*(1.0-smoothstep(1.0,4.2,fr.x));
+      float sv=mix(texture2D(tN,vec2(fr.y*0.42,fr.x*0.06+ph0*0.9*sp)+rk.xy*0.07).z,texture2D(tN,vec2(fr.y*0.42,fr.x*0.06+ph1*0.9*sp)+rk.xy*0.07+0.5).z,kf);
+      trail=max(trail,lane*smoothstep(0.50,0.58,sv)*(1.0-fr.x/4.2));}
+    foam*=upK;
+    float f=max(max(foam,line*0.85),trail*0.9);col=mix(col,vec3(0.97,1.0,0.99),f);alpha=mix(alpha,0.97,f);
+    /* posterise a touch: painted, not photographic */
+    col=mix(col,floor(col*7.0+0.5)/7.0,0.25);
+    float fogF=smoothstep(uFog.x,uFog.y,length(vWP-cameraPosition));col=mix(col,uFogC,fogF);
+    gl_FragColor=vec4(col,alpha);}`});
+const waterGeo=(()=>{const pos=[],flow=[],spd=[],idx=[],C=25;const pts=RIV.slice();const a0=pts[pts.length-1],a1=pts[pts.length-2];pts.push([a0[0]+(a0[0]-a1[0])*3,a0[1]+(a0[1]-a1[1])*3]);
+  for(let i=0;i<pts.length;i++){const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl,nz=tx/tl;const w=rivHalf(pts[i][1])+2.6;
+    const sp=Math.max(.55,Math.min(1.7,2.8/rivHalf(pts[i][1])));for(let c=0;c<C;c++){const u=(c/(C-1)*2-1)*w;pos.push(pts[i][0]+nx*u,WL,pts[i][1]+nz*u);flow.push(tx/tl,tz/tl);spd.push(sp);}}/* (faster where narrow, slow in the pool) */
+  for(let i=0;i<pts.length-1;i++)for(let c=0;c<C-1;c++){const a=i*C+c,b=a+C;idx.push(a,b,a+1,a+1,b,b+1);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('aFlow',new THREE.Float32BufferAttribute(flow,2));g.setAttribute('aSpd',new THREE.Float32BufferAttribute(spd,1));g.setIndex(idx);return g;})();
+const water=new THREE.Mesh(waterGeo,waterMat);water.renderOrder=5;scene.add(water);
+waterRocks.slice(0,8).forEach((k,i)=>WU.uRk.value[i].set(k.x,k.z,k.rw,0));bankU.uWL.value=WL;
+/* drifting bits: a few leaves and foam flecks carried downstream at the river's speed (positions from the time, so they are deterministic) */
+function rivAt(u){const i=Math.max(0,Math.min(RIV.length-2,Math.floor(u))),f=u-i,a=RIV[i],b=RIV[i+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz);
+  return[a[0]+tx*f,a[1]+tz*f,-tz/tl,tx/tl,tx/tl,tz/tl];}
+const FLOAT=[];{const r=mkRng(3131);for(let i=0;i<34;i++)FLOAT.push({u0:r()*(RIV.length-4),o:(r()-.5)*1.3,v:.35+.3*r(),leaf:i<12,rot:r()*6.28,spin:(r()-.5)*.6,sz:i<12?.09+.05*r():.05+.06*r(),c:r()});}
+const fleckMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,fog:true,uniforms:THREE.UniformsLib.fog,
+  vertexShader:`varying vec2 vUv;
+    #include <fog_pars_vertex>
+    void main(){vUv=uv;vec4 mvPosition=viewMatrix*modelMatrix*instanceMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mvPosition;
+    #include <fog_vertex>
+    }`,
+  fragmentShader:`varying vec2 vUv;
+    #include <fog_pars_fragment>
+    void main(){vec2 q=vUv-0.5;float d=length(q*vec2(1.0,1.6))+0.08*sin(atan(q.y,q.x)*5.0);if(d>0.42)discard;gl_FragColor=vec4(0.97,1.0,0.99,0.85);
+    #include <fog_fragment>
+    }`});
+const leaves=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),ivyMat,12),flecks=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),fleckMat,22);
+leaves.renderOrder=6;flecks.renderOrder=6;scene.add(leaves,flecks);
+{const C=new THREE.Color();FLOAT.filter(f=>f.leaf).forEach((f,i)=>{C.setRGB(0,.55+.45*f.c,0);leaves.setColorAt(i,C);});leaves.instanceColor.needsUpdate=true;for(let i=0;i<22;i++)flecks.setColorAt(i,C.setRGB(1,1,1));flecks.instanceColor.needsUpdate=true;}
+function updFloat(t){const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Y=new THREE.Vector3(0,1,0),P=new THREE.Vector3(),Sv=new THREE.Vector3();let li=0,fi=0;const L=RIV.length-4;
+  for(const f of FLOAT){const w0=rivHalf(RIV[Math.floor(f.u0)][1]),sp=Math.max(.55,Math.min(1.7,2.8/w0));let u=(f.u0+f.v*sp*t)%L;const A=rivAt(u),w=rivHalf(A[1]);
+    let x=A[0]+A[2]*f.o*w,z=A[1]+A[3]*f.o*w;/* (keep off rocks: slip round them) */for(const k of waterRocks){const dx=x-k.x,dz=z-k.z,dl=Math.hypot(dx,dz);if(dl<k.rw*1.25){x=k.x+dx/dl*k.rw*1.25;z=k.z+dz/dl*k.rw*1.25;}}
+    P.set(x,WL+.012,z);Q.setFromAxisAngle(Y,f.rot+f.spin*t);Sv.set(f.sz,1,f.sz*(f.leaf?1.3:1));M.compose(P,Q,Sv);
+    if(f.leaf)leaves.setMatrixAt(li++,M);else flecks.setMatrixAt(fi++,M);}
+  leaves.instanceMatrix.needsUpdate=true;flecks.instanceMatrix.needsUpdate=true;}
+const waterOld=new THREE.Mesh(waterGeo,new THREE.MeshPhongMaterial({side:THREE.DoubleSide,color:0x3f86a8,transparent:true,opacity:.82,shininess:30,flatShading:true}));waterOld.visible=false;scene.add(waterOld);
+/* one frame: a depth-only pre-pass of the opaque scene (no water, no grass cards, no shadow update), then the normal render */
+function renderFrame(){if(water.visible)updFloat(WU.uTime.value);const b=R.getDrawingBufferSize(new THREE.Vector2());if(DRT.width!==b.x||DRT.height!==b.y)DRT.setSize(b.x,b.y);WU.uRes.value.copy(b);
+  WU.uNear.value=camera.near;WU.uFar.value=camera.far;
+  if(water.visible){const tv=tufts.visible;water.visible=false;tufts.visible=false;leaves.visible=false;flecks.visible=false;scene.overrideMaterial=depthOnly;const au=R.shadowMap.autoUpdate;R.shadowMap.autoUpdate=false;
+    R.setRenderTarget(DRT);R.clear();R.render(scene,camera);R.setRenderTarget(null);R.shadowMap.autoUpdate=au;scene.overrideMaterial=null;tufts.visible=tv;water.visible=true;leaves.visible=true;flecks.visible=true;}
+  R.render(scene,camera);}
+const T0=performance.now();
+
+/* ===================== camera: drag to orbit, wheel / pinch to zoom ===================== */
+const cam={yaw:0,pitch:.2,dist:20,t:new THREE.Vector3()};let dirty=true;
+function applyCam(){const cp=Math.cos(cam.pitch);camera.position.set(cam.t.x+Math.sin(cam.yaw)*cp*cam.dist,cam.t.y+Math.sin(cam.pitch)*cam.dist,cam.t.z+Math.cos(cam.yaw)*cp*cam.dist);
+  const g=H(camera.position.x,camera.position.z)+.6;if(camera.position.y<g)camera.position.y=g;camera.lookAt(cam.t);dirty=true;}
+function setView(pos,tgt){cam.t.set(...tgt);const d=new THREE.Vector3(...pos).sub(cam.t);cam.dist=d.length();cam.pitch=Math.asin(d.y/cam.dist);cam.yaw=Math.atan2(d.x,d.z);applyCam();}
+const VIEWS={path:[[1.6,1.7,32],[-.6,1.2,8]],bank:[[1.2,2.0,9.0],[-5.4,2.4,-0.5]],boulders:[[3,2.2,15],[10,.6,3]],over:[[30,22,46],[-6,2,-8]],row:[[-14.95,2.6,51.5],[-14.95,.5,44]],top:[[0.5,16,14.01],[0.5,0,14]],water:[[15,6.5,30],[27,0,8]],shore:[[22,1.8,20],[25.5,0,15]]};
+{const k=waterRocks[2];VIEWS.shore=[[k.x-.6,WL+1.25,k.z+4.6],[k.x+.4,WL+.25,k.z-.4]];}
+const ptrs=new Map();let pinch0=0;
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);if(ptrs.size===2){const[a,b]=[...ptrs.values()];pinch0=Math.hypot(a[0]-b[0],a[1]-b[1]);}});
+canvas.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;const pr=ptrs.get(e.pointerId);
+  if(ptrs.size===1){cam.yaw-=(e.clientX-pr[0])*.005;cam.pitch=Math.max(-.05,Math.min(1.45,cam.pitch+(e.clientY-pr[1])*.005));applyCam();}
+  ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(ptrs.size===2){const[a,b]=[...ptrs.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pinch0){cam.dist=Math.max(2,Math.min(160,cam.dist*pinch0/d));applyCam();}pinch0=d;}});
+const up=e=>{ptrs.delete(e.pointerId);pinch0=0;};canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+canvas.addEventListener('wheel',e=>{e.preventDefault();cam.dist=Math.max(2,Math.min(160,cam.dist*Math.exp(e.deltaY*.001)));applyCam();},{passive:false});
+
+/* ===================== controls ===================== */
+function seg(id,fn){const box=document.getElementById(id);box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;box.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));fn(b.dataset.v);});}
+function setLook(v){const nw=v==='new';U.uNew.value=nw?1:0;U.uHalf.value=nw?.8:1.5;cliffFine.visible=nw;cliffCoarse.visible=!nw;tufts.visible=nw;water.visible=nw;leaves.visible=nw;flecks.visible=nw;waterOld.visible=!nw;bankMeshes.forEach(m=>m.visible=nw);ivy.visible=nw;boulderMeshes.forEach(m=>m.material=nw?boulderNew:boulderOld);dirty=true;}
+function setRock(v){setPal(cliffU,v==='grey'?'grey':'brown');setPal(boulderU,v==='grey'?'grey':'brown');dirty=true;}
+seg('look',setLook);seg('rock',setRock);seg('views',v=>setView(...VIEWS[v]));
+
+function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;R.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();dirty=true;}
+window.addEventListener('resize',resize);resize();setView(...VIEWS.path);
+(function loop(){if(water.visible&&!window.SS_FREEZE){WU.uTime.value=(performance.now()-T0)/1000;dirty=true;}if(dirty){renderFrame();dirty=false;}requestAnimationFrame(loop);})();/* (the water moves, so it renders every frame while it is shown) */
+function mark(id,v){document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x.dataset.v===v));}
+window.SS={view:v=>{mark('views',v);setView(...VIEWS[v]);},look:v=>{mark('look',v);setLook(v);},rock:v=>{mark('rock',v);setRock(v);},render:()=>{renderFrame();},ready:true};
+</script>
