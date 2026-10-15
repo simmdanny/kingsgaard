@@ -22,7 +22,7 @@
 const WG_CFG={res:2,tile:128,regionCell:4000,regionBand:520,regionWarp:650,gladeK:.74,WL:0,hydroCell:96,accDepth:40,accCap:2500,
   streamAcc:5,riverAcc:16,segN:24,maxHalfW:7.5};
 /* the version of the generator: a save keeps it (owSave gv), and a save made by another version gets fresh villages (its villages were other villages) */
-const WG_VER=5;
+const WG_VER=6;
 const WG_T={HIGH:1,PLATEAU:2,GLADE:3};
 const WG={on:false,seed:0,N:null,reg:new Map(),hyd:new Map(),seg:new Map(),lake:new Map(),feat:new Map(),stats:{h0:0}};
 function wgInit(seed){WG.seed=seed|0;WG.N=[];for(let i=0;i<20;i++)WG.N.push(wnSimplex(((seed|0)*7919+i*104729+13)|0));
