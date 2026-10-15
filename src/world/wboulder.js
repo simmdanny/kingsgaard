@@ -41,6 +41,10 @@ function wbldShapes(){if(WBLD.shapes)return;WBLD.shapes=[];WBLD.low=[];for(let i
 /* ---------- places: the boulders of one level-0 tile (t.g: its heights and water) ---------- */
 function wbldPlace(t){wbldShapes();const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng(wnHashI(t.ti,t.tk,WG.seed+701)),list=[],props=[];
   const RW=new Float64Array(4);wgRegions(t.x0+S/2,t.z0+S/2,RW);const grey=Math.min(1,Math.max(0,RW[1]*2+(1-RW[2]-RW[1])*.35));
+  /* (the roads by their points, from the settlements' stamps: the ground's road marks do not reach every road's edge) */
+  const ST=WG.stampsIn?WG.stampsIn(t.x0-12,t.z0-12,t.x0+S+12,t.z0+S+12):null;
+  const road=(x,z,r)=>{if(!ST||!ST.nr)return false;const R2=(2.8+r)*(2.8+r);for(let tz=Math.floor((z-6)/8);tz<=Math.floor((z+6)/8);tz++)for(let tx=Math.floor((x-6)/8);tx<=Math.floor((x+6)/8);tx++){const L=ST.rh[tx+','+tz];if(!L)continue;
+    for(let i=0;i<L.length;i+=2){const rd=ST.roads[L[i]],j=L[i+1],dx=rd.p[j*2]-x,dz=rd.p[j*2+1]-z;if(dx*dx+dz*dz<R2)return true;}}return false;};
   const lat=(x,z)=>{const i=Math.min(n-1,Math.max(0,((x-t.x0)/2)|0)),k=Math.min(n-1,Math.max(0,((z-t.z0)/2)|0));return k*s+i;};
   const free=(x,z,h,sl,scr)=>{if(scr&&sl>1.2)return false;if(x<t.x0||z<t.z0||x>=t.x0+S||z>=t.z0+S)return false;const k=lat(x,z);if(g.wl[k]>h-.2)return false;
     const c=owCell(x,z),gv=grid[c.r]&&grid[c.r][c.c];if(gv!==0&&gv!==2)return false;if(gv===2&&sl<.5)return false;/* (closed but not steep: a building's ground or the keep) */
@@ -50,7 +54,7 @@ function wbldPlace(t){wbldShapes();const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng
     return true;};
   const put=(x,z,seed,fixed,talus,dw)=>{const h=owH(x,z),e=.6,gx=(owH(x+e,z)-owH(x-e,z))/(2*e),gz=(owH(x,z+e)-owH(x,z-e))/(2*e),sl=Math.hypot(gx,gz);if(!free(x,z,h,sl,!!dw))return;
     const r=wnRng(seed),si=Math.floor(r()*WBLD.N),G=WBLD.shapes[si],ud=G.userData,u=r();let sc=fixed||(.22+1.9*Math.pow(u,2.4))*(1+.5*talus*(RW[1]+RW[2]));
-    if(dw){sc=Math.min(sc,(dw-1.2)/ud.rx);if(sc<.2)return;}/* (scree: dw, the face's distance - its edge 1.2 m clear of it) */const hg=(ud.ymax-ud.ymin)*sc;
+    if(dw){sc=Math.min(sc,(dw-1.2)/ud.rx);if(sc<.2)return;}/* (scree: dw, the face's distance - its edge 1.2 m clear of it) */if(road(x,z,ud.rx*sc))return;/* (a road: its edge 2.8 m and more from the road's middle line) */const hg=(ud.ymax-ud.ymin)*sc;
     const f=.45-.20*Math.min(1,Math.max(0,(sc-.3)/1.6)),nrm=new THREE.Vector3(-gx,1,-gz).normalize();/* (sunk 45 % of its height when small, 25 % when big) */
     const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),nrm).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),r()*6.283));
     const M=new THREE.Matrix4().compose(new THREE.Vector3(x,h-f*hg-ud.ymin*sc,z),q,new THREE.Vector3(sc,sc,sc));
