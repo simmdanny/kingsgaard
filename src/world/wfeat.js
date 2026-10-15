@@ -54,7 +54,7 @@ function wfGeo(f,lod){const nA=lod?40:72,nS=lod?6:9,/* (big planes: the ground m
 /* the Great Elder Circle of an elderglade as a landmark: its ring stands on the summit of its mountain, at the height of the ground at its middle */
 function wfGreat(G){const k=wgKey(G.a,G.b);let f=WF.great.get(k);if(f)return f;
   f={kind:'great',a:G.a*7+401,b:G.b*7-401,x:G.x,z:G.z,R:G.R,th:G.th,yaw:G.yaw,tilt:0,sink:G.sink,arc:1,id:G.id,G,y:wgHeightRaw(G.x,G.z)};WF.great.set(k,f);return f;}
-function wfMesh(f){if(f.mesh)return f.mesh;if(f.kind==='great'&&!f.mat)f.mat=wtMaterialSee(f.y,f.R);
+function wfMesh(f){if(f.mesh)return f.mesh;if(f.kind==='great'&&!f.mat)f.mat=wtMaterialSee(f.y,f.R,f.x,f.z);
   if((f.kind==='ring'||f.kind==='great')&&typeof wrMesh==='function'){f.mesh=wrMesh(f);WF.built++;return f.mesh;}/* (the rings of the elderglade, each its own: wring.js) */
   const g0=wfGeo(f,0),g1=wfGeo(f,1),mat=wtMaterial();const lod=new THREE.LOD();
   const m0=new THREE.Mesh(g0,mat),m1=new THREE.Mesh(g1,mat);for(const m of[m0,m1]){m.castShadow=true;m.receiveShadow=true;m.frustumCulled=false;}

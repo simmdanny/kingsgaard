@@ -75,19 +75,19 @@ vec3 wtPerturb(vec3 sp,vec3 sn,float hgt){vec3 dx=dFdx(sp),dy=dFdy(sp);vec3 R1=c
 `;
 function wtMaterial(){return WT.mat||(WT.mat=wtMakeMat(null));}
 /* the same material for a landmark seen from afar (the Great Elder Circle, wfeat.js): its upper part shows faintly through the haze past the end of the
-   air (wdepth.js WD_SEE; y0: the height of its foot, R: its size). One material each (its own uniform), one program for all. */
-function wtMaterialSee(y0,R){return wtMakeMat({y0,R});}
+   air (wdepth.js WD_SEE; y0: the height of its foot, R: its size, x, z: its middle). One material each (its own uniform), one program for all. */
+function wtMaterialSee(y0,R,x,z){return wtMakeMat({y0,R,x,z});}
 /* the Great Elder Circles shown (wfeat.js fills it each frame): x, z, the height of its foot, its size (0: none) - the haze's top over them, wdepth.js */
 WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
 function wtMakeMat(see){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
-  m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(see)m.userData.see=new THREE.Vector2(see.y0,see.R);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
-  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec2 uSee;\n'+sh.fragmentShader;}
+  m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;')
       .replace('#include <begin_vertex>','#include <begin_vertex>\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS)
       .replace('#include <map_fragment>',WT_GLSL_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground9see':'wtground9';return m;}
+  m.customProgramCacheKey=()=>see?'wtground10see':'wtground10';return m;}
 const WT_GLSL_COLOR=`
   /* (four texture reads: two for the green, two for rock where there is rock - every channel of the noise texture is a different scale) */
   vec3 P=vWp;vec3 Nw=normalize(vWn);

@@ -24,9 +24,9 @@
 const WR={vmat:null,ico:[],job:null,budget:3,stats:{n:0,ms:0,max:0}};
 function wrVMat(){return WR.vmat||(WR.vmat=typeof VCMAT!=='undefined'?VCMAT:new THREE.MeshPhongMaterial({vertexColors:true,flatShading:true,shininess:4}));}
 /* the overgrowth of a Great Elder Circle (its trees, bushes, vines, creepers, grass and flowers) shows through the haze as its stone does: the same look
-   as wrVMat with WD_SEE (wdepth.js), sharing the stone's own uSee (f.mat.userData.see: the height of its foot, its size), so both fade alike. One a circle. */
+   as wrVMat with WD_SEE (wdepth.js), sharing the stone's own uSee (f.mat.userData.see: the height of its foot, its size, its middle), so both fade alike. One a circle. */
 function wrVMatSee(f){if(f.vmat)return f.vmat;const m=new THREE.MeshPhongMaterial({vertexColors:true,flatShading:true,shininess:4}),u=f.mat.userData.see;m.defines={WD_SEE:1};
-  m.onBeforeCompile=sh=>{sh.uniforms.uSee={value:u};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec2 uSee;\nuniform vec3 uZen;\n'+sh.fragmentShader;};m.customProgramCacheKey=()=>'wrvcsee2';return f.vmat=m;}
+  m.onBeforeCompile=sh=>{sh.uniforms.uSee={value:u};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uSee;\nuniform vec3 uZen;\n'+sh.fragmentShader;};m.customProgramCacheKey=()=>'wrvcsee3';return f.vmat=m;}
 const _wrC=new THREE.Color();
 
 /* ---------- a ring's character (its cell's own hashes) ---------- */
