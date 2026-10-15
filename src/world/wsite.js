@@ -102,7 +102,9 @@ function* wsRoadJob(key,A,B){const C=WS_CFG,cs=C.gridCs,K=wsKeep(),pa=A.key?[A.x
       const out=[pts[0]],step=1.6;let acc=0,prev=pts[0];for(let i=1;i<pts.length;i++){let a=prev,b=pts[i],l=Math.hypot(b[0]-a[0],b[1]-a[1]);while(acc+l>=step){const t=(step-acc)/l;a=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];out.push(a);l=Math.hypot(b[0]-a[0],b[1]-a[1]);acc=0;}acc+=l;prev=b;}out.push(pts[pts.length-1]);
       /* a road to the keep runs on along its approach to the gate */
       if(B===K)for(let d=0;d<=46;d+=1.6)out.push([K.app.x,K.app.z+d]);
-      road={key,A,B,pts:out};}}
+      /* (world look 3: a road between two hamlets - both tiny or small, not the keep's - is a trail; its seed shapes its width) */
+      const hm=v=>v&&v!==K&&(v.size==='tiny'||v.size==='small');let sd=0;for(let i=0;i<key.length;i++)sd=(sd*31+key.charCodeAt(i))>>>0;
+      road={key,A,B,pts:out,trail:hm(A)&&hm(B),sd:(sd%10007)/10007};}}
   if(road){yield;/* its height profile: the land (with streams and the villages' flat ground) along it, smoothed; above the water where it crosses a stream */
     const p=road.pts,n=p.length,H2=wgHydroIn(x0,z0,x1,z1),hgt=new Float32Array(n),wet=new Uint8Array(n),wo={},o2={};
     for(let i=0;i<n;i++){const x=p[i][0],z=p[i][1];o2.mtn=0;o2.tier=0;o2.isl=0;const h0=wgH0(x,z,o2,c);wgHydroApply(x,z,h0,H2,wo);let h=wo.h;h=wsVillageFlat(x,z,h);hgt[i]=h;if(wo.chan||wo.wl>h-.3){wet[i]=1;hgt[i]=Math.max(h,wo.wl);}if(i%40===39&&performance.now()-T>3){yield;T=performance.now();}}
@@ -121,7 +123,7 @@ WG.stampsIn=function(x0,z0,x1,z1){const C=WS_CFG.cell,vs=[];for(let b=Math.floor
   const K=wsKeep(),kin=Math.abs(K.x-(x0+x1)/2)<(x1-x0)/2+140&&Math.abs(K.z-(z0+z1)/2)<(z1-z0)/2+140;
   const roads=[],ri=new Map(),rh={};let nr=0;
   for(let tz=Math.floor((z0-8)/8);tz<=Math.floor((z1+8)/8);tz++)for(let tx=Math.floor((x0-8)/8);tx<=Math.floor((x1+8)/8);tx++){const key=tx+','+tz,L=WS.rh.get(key);if(!L)continue;const out=new Array(L.length);
-    for(let i=0;i<L.length;i+=2){const r=L[i];let k=ri.get(r);if(k===undefined){k=roads.length;ri.set(r,k);const p=new Float64Array(r.pts.length*2);r.pts.forEach((q,j)=>{p[j*2]=q[0];p[j*2+1]=q[1];});roads.push({p,h:r.h});}out[i]=k;out[i+1]=L[i+1];nr++;}
+    for(let i=0;i<L.length;i+=2){const r=L[i];let k=ri.get(r);if(k===undefined){k=roads.length;ri.set(r,k);const p=new Float64Array(r.pts.length*2);r.pts.forEach((q,j)=>{p[j*2]=q[0];p[j*2+1]=q[1];});roads.push({p,h:r.h,t:r.trail?1:0,sd:r.sd||0});}out[i]=k;out[i+1]=L[i+1];nr++;}
     rh[key]=out;}
   if(!vs.length&&!kin&&!nr)return null;return{vs,keep:kin?[K.x,K.z,K.h,K.gate.x,K.gate.z,K.hApp,WS_CFG.keepR]:null,roads,rh,nr};};
 /* the flat ground of the villages and the keep at a point (what the roads' profiles see) */

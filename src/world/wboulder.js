@@ -44,7 +44,7 @@ function wbldPlace(t){wbldShapes();const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng
   const lat=(x,z)=>{const i=Math.min(n-1,Math.max(0,((x-t.x0)/2)|0)),k=Math.min(n-1,Math.max(0,((z-t.z0)/2)|0));return k*s+i;};
   const free=(x,z,h,sl)=>{if(x<t.x0||z<t.z0||x>=t.x0+S||z>=t.z0+S)return false;const k=lat(x,z);if(g.wl[k]>h-.2)return false;
     const c=owCell(x,z),gv=grid[c.r]&&grid[c.r][c.c];if(gv!==0&&gv!==2)return false;if(gv===2&&sl<.5)return false;/* (closed but not steep: a building's ground or the keep) */
-    if(typeof wtPathAt==='function'&&wtPathAt(x,z)>-.6)return false;/* (a trail, with its margin: world look 3) */
+    if(typeof wtPathAt==='function'&&wtPathAt(x,z)<1.4)return false;/* (a trail, with a margin: world look 3) */
     /* (within reach of a cliff's stones: the ground rising more steeply than 1 in 1 within 4 m, any way) */
     for(let a=0;a<8;a++){const ca=Math.cos(a*.7854),sa=Math.sin(a*.7854);let hp=h,dp=0;for(const d of[1.2,2.5,4]){const hd=owH(x+ca*d,z+sa*d);if((hd-hp)/(d-dp)>1.05)return false;hp=hd;dp=d;}}
     return true;};

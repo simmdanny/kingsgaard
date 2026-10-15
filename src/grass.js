@@ -88,9 +88,12 @@ function grsSite(x0,z0,cs){const keep=OW.keep,G=OW.G,T=G.T;
     /* patches: blades everywhere, thicker in meadows; clover in its own patches and along the paths; the broad-leaved plants where the two meet and at the path edges */
     const nz=Math.sin(x*.13+z*.07+1.1)*Math.sin(x*.05-z*.11+2.3)+.4*Math.sin(x*.41+z*.37),nc=Math.sin(x*.19-z*.15+.7)*Math.sin(x*.07+z*.13+3.1)+.35*Math.sin(x*.53-z*.47);
     const cl=owCell(x,z);if(cl.r<1||cl.c<1||cl.r>=H-1||cl.c>=W-1)return false;const gv=grid[cl.r][cl.c];if(gv===2)return false;
-    const po=pathOut(x,z);if(po<0){/* a few clumps creep a little onto the edge of a path or a street (thinning out within a third of a metre) */if(kind===2||po<-.32||pk>.5*(1+po/.32))return false;}
+    const po=pathOut(x,z),tp=typeof wtPathAt==='function'?wtPathAt(x,z):99;
+    /* (a trail, world look 3: the grass thins through its band - all of it 0.45 m out, a few clumps near the edge inside, fewer in the middle) */
+    if(tp<.45){const keep=tp<0?(tp>-.25?.07:.02):.07+.93*tp/.45;if((pk*7.31)%1>keep)return false;}
+    if(po<0){/* a few clumps creep a little onto the edge of a path or a street (thinning out within a third of a metre) */if(kind===2||po<-.32||pk>.5*(1+po/.32))return false;}
     const edge=po<1.6?1:0,want=kind===0?(.6+.35*nz+.25*edge):kind===1?(.25+.75*Math.max(0,nc)+.4*edge):(.4+.3*(1-Math.abs(nz-nc))+.6*edge);if(pk>want)return false;
-    if(gv!==0&&po>1.2)return false;/* (a marked cell that is no path: the yard of a building, a step) */
+    if(gv!==0&&po>1.2&&tp>1.6)return false;/* (a marked cell that is no path: the yard of a building, a step - a trail's own cells keep their grass) */
     if(Math.hypot(x-keep.x,z-keep.z)<30||onSq(x,z)||prop(x,z))return false;
     const h=owH(x,z);if(owSlope(x,z)>.5||wtWater(x,z)>h-.02)return false;
     for(const q of strm)if((q[0]-x)*(q[0]-x)+(q[1]-z)*(q[1]-z)<3.2)return false;

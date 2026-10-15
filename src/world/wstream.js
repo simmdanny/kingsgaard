@@ -57,14 +57,14 @@ function wstGridFollow(fx,fz){const T=WG_CFG.tile;if(Math.abs(fx-WSTR.cx)<WSTR.s
   WSTR.stats.shifts++;WSTR.stats.shiftMs=performance.now()-T0;}
 /* ---------- roads ---------- */
 /* a road found: into the game's road list and its hash, its cells on the grid (in the filled tiles), its crossings built */
-WS.onRoad=function(r){if(!OW.on)return;const rd={pts:r.pts,kind:r.B===WS.keep?'village':'link',tag:r.key,ws:r};OW.roads.push(rd);r.ow=rd;
+WS.onRoad=function(r){if(!OW.on)return;const rd={pts:r.pts,kind:r.B===WS.keep?'village':'link',tag:r.key,ws:r};OW.roads.push(rd);r.ow=rd;if(typeof wtpAddRoad==='function')wtpAddRoad(r);
   if(!OW.rhash)OW.rhash=new Map();r.pts.forEach(q=>{const k=Math.floor(q[0]/8)+','+Math.floor(q[1]/8);(OW.rhash.get(k)||OW.rhash.set(k,[]).get(k)).push(q);});
   for(const c of r.cross)wstDeck(r,c);
   const T=WG_CFG.tile,bb=r.bb;for(let tk=Math.floor(bb[1]/T);tk<=Math.floor(bb[3]/T);tk++)for(let ti=Math.floor(bb[0]/T);ti<=Math.floor(bb[2]/T);ti++){const t=WT.tiles.get(ti+','+tk);if(t&&WSTR.filled.has(ti+','+tk))wstGridTile(t);}
   /* a road to the keep is drawn at once (the keep is always there); its other half waits for its village */
   if(r.B===WS.keep)wstDrawRoad(r,1);for(const v of OW.villages){if(v.site===r.A)wstDrawRoad(r,0);if(v.site===r.B)wstDrawRoad(r,1);}};
 /* half of a road on the ground (part 0: from A to the middle, 1: from the middle to B), widened and paved as it enters its village */
-function wstDrawRoad(r,part){const key=r.key+':'+part;if(WSTR.drawn.has(key)||!OW.G)return;WSTR.drawn.add(key);const n=r.pts.length,m=Math.floor(n/2);
+function wstDrawRoad(r,part){const key=r.key+':'+part;if(WSTR.drawn.has(key)||!OW.G)return;WSTR.drawn.add(key);if(r.trail)return;/* (a trail is the ground's own mask, wtrail.js: no strip) */const n=r.pts.length,m=Math.floor(n/2);
   let pts=part===0?r.pts.slice(0,m+1):r.pts.slice(m);pts=pts.map(q=>q.slice());const end=part===0?r.A:r.B;const v=OW.villages.find(o=>o.site===end);
   if(v&&v.keepRoadPts&&v.keepRoadKey===r.key){/* the village's own main street: its straightened copy */const kr=v.keepRoadPts;if(part===0)pts=kr.slice(0,m+1).map(q=>q.slice());else pts=kr.slice(0,n-m).map(q=>q.slice()).reverse();}
   const hw=OW_CFG.roadHalf,vs=v&&v.sqr?[v]:[],p=owgMerge(owgGateFit(pts)),pave=[],city=[];let ps=1;
@@ -169,7 +169,7 @@ function wstFrame(){if(!OW.on||!WG.on)return;const f=OW.focus||{x:0,z:0},T0=perf
 /* ---------- the start: the keep's surroundings made at once ---------- */
 function wstStart(seed){const T0=performance.now();wgInit(seed);wsReset();wfReset();wtReset();WSTR.vs={};WSTR.decks=[];WSTR.blk=[];WSTR.drawn.clear();WSTR.filled.clear();WSTR.stats={vb:0,vms:0,shifts:0};
   const K=wsKeep();OW.keep={x:K.x,z:K.z};OW.keepGate=K.gate;OW.keepApproach=K.app;OW.corridor=[];for(let d=0;d<=46+.01;d+=1.6)OW.corridor.push([K.gate.x,K.gate.z-d]);OW.corridor.reverse();
-  OW.villages=[];OW.caves=[];OW.roads=[];OW.streams=[];OW.routes={};OW.rhash=new Map();OW.half=1e9;OW.n=0;OW.hs=null;OW.waterCells=new Set();
+  OW.villages=[];OW.caves=[];OW.roads=[];if(typeof wtpReset==='function')wtpReset();OW.streams=[];OW.routes={};OW.rhash=new Map();OW.half=1e9;OW.n=0;OW.hs=null;OW.waterCells=new Set();
   if(typeof owFogEnd==='function'){const e=owFogEnd();WT.maxD=e*1.06+60;WF.far=Math.min(16000,e+250);}/* (nothing is built past the end of the air) */
   wtInit(OW.group);wfInit(OW.group);WT.onTile=t=>{if(OW.on)wstGridTile(t);};{const el=typeof document!=='undefined'&&document.getElementById('wg-src');wtPoolInit(el?el.textContent:null,seed);}wstGridInit(K.x,K.z);
   wsWant(K.x,K.z,900);wsStep(Infinity);
@@ -192,4 +192,4 @@ function wstRocksDrop(t){const r=t.rocks;t.rocks=undefined;if(!r)return;WBLD.dir
 /* per frame: boulders on the filled tiles near the player, dropped far away */
 function wstRocksView(f){const S=WG_CFG.tile;let made=0;for(const t of WT.tiles.values()){const d=Math.hypot(t.x0+S/2-f.x,t.z0+S/2-f.z);
     if(d<WROCK.R){if(t.rocks===undefined&&made<1&&WSTR.filled.has(t.ti+','+t.tk)){wstRocks(t);made++;}}else if(d>WROCK.R+200&&t.rocks!==undefined)wstRocksDrop(t);}
-  wbldView(f);}
+  wbldView(f);if(typeof wtpUpdate==='function')wtpUpdate(f.x,f.z);}

@@ -22,7 +22,7 @@
 const WG_CFG={res:2,tile:128,regionCell:4000,regionBand:520,regionWarp:650,gladeK:.74,WL:0,hydroCell:96,accDepth:40,accCap:2500,
   streamAcc:5,riverAcc:16,segN:24,maxHalfW:7.5};
 /* the version of the generator: a save keeps it (owSave gv), and a save made by another version gets fresh villages (its villages were other villages) */
-const WG_VER=6;
+const WG_VER=7;/* (7: world look 3 - the trails between hamlets dip 9 cm, wgStampApply) */
 const WG_T={HIGH:1,PLATEAU:2,GLADE:3};
 const WG={on:false,seed:0,ep:0,N:null,reg:new Map(),hyd:new Map(),seg:new Map(),lake:new Map(),feat:new Map(),stats:{h0:0,hydMain:0,hydPre:0}};/* (ep: one more every wgInit - what the workers send back for an older one is dropped) */
 function wgInit(seed){WG.seed=seed|0;WG.N=[];for(let i=0;i<20;i++)WG.N.push(wnSimplex(((seed|0)*7919+i*104729+13)|0));
@@ -540,11 +540,15 @@ function wgHeightAt(x,z){const H=wgHydroIn(x-60,z-60,x+60,z+60),o=_wgO;o.mtn=0;o
    workers alike, so both get the same numbers) ----------
    S = {vs:[x,z,h,VR,...] the villages near, keep:[x,z,h,gateX,gateZ,hApp,keepR] or null, roads:[{p:[x,z,...],h:[...]}], rh:{"tx,tz":[road,point,...]} the road
    points by 8 m cell, in the order the main thread keeps them} */
+/* a trail's half width at point k (fractional) of its road, sd its seed (world look 3; wtrail.js draws the same): 0.8 m, 0.6-1.4 times along it */
+const wgTrailHW=(k,sd)=>.8*(1+.4*(.6*Math.sin(k*.072+sd*6.283)+.4*Math.sin(k*.021+sd*17.1)));
 function wgStampApply(S,x,z,h,ho){const V=S.vs;
   for(let i=0;i<V.length;i+=4){const VR=V[i+3],dx=x-V[i],dz=z-V[i+1],d=Math.sqrt(dx*dx+dz*dz);if(d>=VR*1.3)continue;h+=(V[i+2]-h)*(1-wnS(d,VR*.78,VR*1.3));}
   const K=S.keep;if(K){const dx=x-K[0],dz=z-K[1],d=Math.sqrt(dx*dx+dz*dz);if(d<K[6]+16)h+=(K[2]-h)*(1-wnS(d,K[6],K[6]+16));
     const gz=K[4]-z;if(gz>-4&&gz<52&&Math.abs(x-K[3])<12){const t=wnS(gz/46,0,1),ht=K[2]+(K[5]-K[2])*t,w=1-wnS(Math.abs(x-K[3]),6.5,12);h+=(ht-h)*w;}}
   if(!S.nr||ho.chan)return h;
-  let aT=0,aW=0;for(let tz=Math.floor((z-6)/8);tz<=Math.floor((z+6)/8);tz++)for(let tx=Math.floor((x-6)/8);tx<=Math.floor((x+6)/8);tx++){const L=S.rh[tx+','+tz];if(!L)continue;
-      for(let i=0;i<L.length;i+=2){const r=S.roads[L[i]],k=L[i+1],dx=r.p[k*2]-x,dz=r.p[k*2+1]-z,d=Math.sqrt(dx*dx+dz*dz);if(d>=5.6)continue;const w=1-wnS(d,2.4,5.6);aT+=r.h[k]*w;aW+=w;}}
-  if(aW>0){const W2=Math.min(1,aW);h+=(aT/aW-h)*W2*.92;}return h;}
+  let aT=0,aW=0,tm=0,dN=99;for(let tz=Math.floor((z-6)/8);tz<=Math.floor((z+6)/8);tz++)for(let tx=Math.floor((x-6)/8);tx<=Math.floor((x+6)/8);tx++){const L=S.rh[tx+','+tz];if(!L)continue;
+      for(let i=0;i<L.length;i+=2){const r=S.roads[L[i]],k=L[i+1],dx=r.p[k*2]-x,dz=r.p[k*2+1]-z,d=Math.sqrt(dx*dx+dz*dz);if(d>=5.6)continue;const w=1-wnS(d,2.4,5.6);aT+=r.h[k]*w;aW+=w;if(!r.t&&d<dN)dN=d;
+        /* (a trail: how much of it is here - its segment from this point, its half width, a band of 45 % of the width - for the dip) */
+        if(r.t&&d<3&&k*2+3<r.p.length){const ax=r.p[k*2],az=r.p[k*2+1],ux=r.p[k*2+2]-ax,uz=r.p[k*2+3]-az,l2=ux*ux+uz*uz,tt=l2>0?Math.max(0,Math.min(1,((x-ax)*ux+(z-az)*uz)/l2)):0,ex=x-ax-ux*tt,ez=z-az-uz*tt,hw=wgTrailHW(k+tt,r.sd),m=1-wnS(Math.sqrt(ex*ex+ez*ez),hw*.775,hw*1.225);if(m>tm)tm=m;}}}
+  if(aW>0){const W2=Math.min(1,aW);h+=(aT/aW-h)*W2*.92;}return h-.09*tm*wnS(dN,2,3.5);/* (no dip where a road shares the trail's way: the road is drawn there) */}

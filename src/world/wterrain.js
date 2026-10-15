@@ -126,7 +126,7 @@ function wtMaterialSee(y0,R,x,z){return wtMakeMat({y0,R,x,z});}
 WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
 function wtMakeMat(see,inset){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
   m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(inset)m.defines.WT_INSET=1;if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
-  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;uniform vec3 uClf;\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
       .replace('#include <begin_vertex>','#include <begin_vertex>\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
         'float k=(1.0-smoothstep(0.25,0.35,aA.x))*(1.0-smoothstep(0.40,0.50,aA.z))*uClf.x*(1.0-smoothstep(uClf.y*0.85,uClf.y,length(wp0.xz-cameraPosition.xz)));'+
@@ -134,7 +134,7 @@ function wtMakeMat(see,inset){const tex=wtNoiseTex(),m=new THREE.MeshPhongMateri
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE)
       .replace('#include <map_fragment>',WT_GLSL_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground12see':inset?'wtground12k':'wtground12';return m;}
+  m.customProgramCacheKey=()=>see?'wtground14see':inset?'wtground14k':'wtground14';return m;}
 /* courses of big blocks in a face's plane, anchored to the world (q: along the face, up): x = the distance to the nearest seam (m), y = the block's hash */
 const WT_GLSL_STONE=`
 float wtH1(float n){return fract(sin(n*12.9898+4.1414)*43758.5453);}
@@ -159,6 +159,15 @@ const WT_GLSL_COLOR=`
   grass=mix(grass,grass*1.18+vec3(0.03,0.03,0.0),clamp(-cav*1.4,0.0,1.0)*0.5);grass=mix(grass,grass*vec3(0.62,0.72,0.78),clamp(cav*1.6,0.0,1.0)*0.55);
   vec3 forest=mix(vec3(0.085,0.18,0.07),vec3(0.17,0.29,0.09),smoothstep(0.2,0.8,val));grass=mix(grass,forest,wFo*0.85);
   grass=mix(grass,grass*vec3(1.05,1.07,0.88),wTb*0.55);grass=mix(grass,grass*vec3(0.95,1.04,0.98),wLk*0.4);
+  /* ---- a trail (world look 3, wtrail.js): the distance to its middle and its half width from the window round the camera (tTr); the edge broken by two
+     scales of noise over a band of 45 % of the width - dirt patches out into the grass, grass patches onto the trail, no line anywhere - a muted dusty brown,
+     lighter where it is worn in the middle, darker damp blotches, a few pebbles ---- */
+  if(uTrO.w>0.5){vec2 tu=(P.xz-uTrO.xy)/uTrO.z;if(min(tu.x,tu.y)>0.0&&max(tu.x,tu.y)<1.0){vec4 TR=texture2D(tTr,tu);if(TR.r<0.99){float td=TR.r*3.0,hw=0.48+TR.g*0.64;vec4 TN=texture2D(tWN,P.xz/3.3);
+    float trM=smoothstep(0.35,0.65,1.0-smoothstep(0.55*hw,1.45*hw,td)+0.45*(TN.r-0.5)+0.25*(nt-0.5));
+    float tt=clamp(0.30+0.20*(1.0-smoothstep(0.0,0.8*hw,td))-0.18*smoothstep(0.55,0.75,TN.g)+0.10*(nu-0.5),0.0,1.0);
+    vec3 dirt=tt<0.5?mix(vec3(0.30,0.23,0.17),vec3(0.48,0.39,0.30),tt*2.0):mix(vec3(0.48,0.39,0.30),vec3(0.66,0.56,0.44),tt*2.0-1.0);
+    {vec2 pc=P.xz*5.0,pf=fract(pc)-0.5;float ph=fract(sin(dot(floor(pc),vec2(12.9898,78.233)))*43758.5453);dirt=mix(dirt,vec3(0.60,0.56,0.48),step(0.94,ph)*(1.0-smoothstep(0.16,0.24,length(pf+0.15*(ph-0.97))))*d1*0.7);}/* (a few pebbles) */
+    grass=mix(grass,dirt*0.94,trM);}}}
   /* ---- how rocky ---- */
   float sl=1.0-Nw.y;float rt=mix(0.31,0.17,wTb)-0.04*wSp+(nm-0.5)*0.12+(ns-0.5)*0.07;
   /* (the elderglade's own rock - its knolls, the great mountain's outcrops - is sculpted: smoothly shaded, no per-facet speckle or strata, its edge
