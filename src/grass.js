@@ -24,8 +24,8 @@ function grsKits(){if(GRS.kits)return GRS.kits;
   const blade=(K,a,r0,h,L,wd,seg,cv,o)=>{o=o||[0,0,0];const ca=Math.cos(a),sa=Math.sin(a),at=(t,s)=>{const lean=L*Math.pow(t,1.5),wv=(wd*Math.pow(1-t,.8)+.004)*s;return add(o,[ca*(r0+lean)-sa*wv,h*t*(1-.18*t),sa*(r0+lean)+ca*wv]);};
     const c0=cv[0],c1=cv[1],c2=cv[2],i0=vert(K,at(0,-1),ca,sa,c0),i1=vert(K,at(0,1),ca,sa,c0);
     if(seg){const i2=vert(K,at(.55,-1),ca,sa,c1),i3=vert(K,at(.55,1),ca,sa,c1),i4=vert(K,at(1,0),ca,sa,c2);K.I.push(i0,i1,i3,i0,i3,i2,i2,i3,i4);}else{const i4=vert(K,at(1,0),ca,sa,L3(c1,c2,.5));K.I.push(i0,i1,i4);}};
-  const blades=(n,seg)=>{const B=mk();for(let j=0;j<n;j++){const v=(j%3-1)*.06,cv=[[.24+v*.3,.46+v*.4,.1],[.36+v*.4,.62+v*.4,.13],[.56+v*.5,.8+v*.3,.22]];
-      blade(B,j/n*6.283+.43*(j%3),.01+.15*((j*7)%5)/4,.15+.15*((j*3)%5)/4,.05+.08*((j*2)%3)/2,(.034+.016*(j%2))*(seg?1:1.25),seg,cv);}return geo(B);};
+  const blades=(n,seg,wk)=>{const B=mk();for(let j=0;j<n;j++){const v=(j%3-1)*.06,cv=[[.24+v*.3,.46+v*.4,.1],[.36+v*.4,.62+v*.4,.13],[.56+v*.5,.8+v*.3,.22]];
+      blade(B,j/n*6.283+.43*(j%3),.01+.15*((j*7)%5)/4,.15+.15*((j*3)%5)/4,.05+.08*((j*2)%3)/2,(.034+.016*(j%2))*(seg?1:1.25)*(wk||1),seg,cv);}return geo(B);};
   /* clover: groups of three round leaflets, each a fan from the top of its (hidden) stem; near: two triangles a leaflet, plain: one */
   const clover=(n,near)=>{const K=mk();for(let j=0;j<n;j++){const a=j/n*6.283+.7*(j%2),r=.03+.15*((j*3)%4)/3,h=.06+.1*((j*5)%4)/3,lx=Math.cos(a)*r*.25,lz=Math.sin(a)*r*.25,top=[Math.cos(a)*r+lx,h,Math.sin(a)*r+lz];
       for(let q=0;q<3;q++){const b=a+q*2.094+.3*j,cb=Math.cos(b),sb=Math.sin(b),ls=.062+.022*((j+q)%3)/2,cin=[.3,.56,.12],cmid=[.4,.68,.15],cout=[.5,.78,.2];
@@ -40,18 +40,28 @@ function grsKits(){if(GRS.kits)return GRS.kits;
         K.I.push(i0,a1,m1,i0,m1,b1,a1,a2,m2,a1,m2,m1,m1,m2,b2,m1,b2,b1,a2,tp,m2,m2,tp,b2);}
       else{const a1=vert(K,P(.5,-1,0),ca,sa,L3(cb,ct,.5)),b1=vert(K,P(.5,1,0),ca,sa,L3(cb,ct,.5)),tp=vert(K,P(1,0,0),ca,sa,ct);K.I.push(i0,a1,tp,i0,tp,b1);}}
     for(let j=0;j<2;j++)blade(K,1.3+j*2.6,.02,.42+.12*j,.05,.02,near,[[.2,.4,.09],[.34,.6,.13],[.54,.78,.2]]);return geo(K);};
-  return GRS.kits=[[blades(10,true),blades(7,false)],[clover(8,true),clover(8,false)],[broad(5,true),broad(5,false)]];}
+  return GRS.kits=[[blades(10,true),blades(7,false)],[clover(8,true),clover(8,false)],[broad(5,true),broad(5,false)],[blades(4,false,1.7)]/* (the far grass: four broad blades, a triangle each) */];}
 /* the shading, one program for every kind (each its own material for its height):
    - wind: the higher a vertex, the more it sways, in waves that cross the land;
    - occlusion: darker towards the ground and inside a plant (by the height of the vertex in its kind), the shade of the plants round it;
    - light through the leaves: when the camera looks towards the sun the upper parts glow with its light (computed with the vertex lighting, kept in the sun's shadow);
    - both sides of a leaf lit as its front (the normals point up, so a leaf seen from behind was lit from below and went black). */
-function grsMat(kind){if(!GRS.mats)GRS.mats=[];if(GRS.mats[kind])return GRS.mats[kind];const m=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide,emissive:0x081203}),uKH={value:GRS.KH[kind]};
-  m.onBeforeCompile=sh=>{sh.uniforms.uTime=GRS.time;sh.uniforms.uKH=uKH;
-    sh.vertexShader='uniform float uTime;\nuniform float uKH;\nvarying float vAO;\nvarying vec3 vTrans;\n'+sh.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
+function grsMat(kind,far){if(!GRS.mats)GRS.mats=[];const mk=kind+(far?'f':'');if(GRS.mats[mk])return GRS.mats[mk];const m=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide,emissive:0x081203}),uKH={value:GRS.KH[kind]};
+  if(far)m.defines={GRS_FAR:1,GRS_FAR_GROW:GRS.F.grow.toFixed(2)};
+  m.onBeforeCompile=sh=>{sh.uniforms.uTime=GRS.time;sh.uniforms.uKH=uKH;sh.uniforms.uGF=GRS.F.u;sh.uniforms.uGC=GRS.F.c;
+    sh.vertexShader='uniform float uTime;\nuniform float uKH;\nuniform vec4 uGF;\nuniform vec3 uGC;\nvarying float vAO;\nvarying vec3 vTrans;\n'+sh.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
+    #ifdef GRS_FAR
+    /* (the far grass, grsFarBake: a plant shows where the density wanted at its distance (grsRho) is above its own (instanceColor.z); the others shrink to a point) */
+    {vec3 fp=(modelMatrix*instanceMatrix[3]).xyz;float fd=max(length(fp.xz-uGC.xz),1.0)/* (uGC: the camera - three.js gives a Lambert material no cameraPosition) */,fy=uGF.y;
+     float fr=uGF.x*min(1.0,fy/fd)*smoothstep(fy*.5,fy,fd)*(1.0-smoothstep(uGF.z*.8,uGF.z,fd))*uGF.w;
+     transformed*=(instanceColor.z<fr?1.0:0.0)*(1.0+GRS_FAR_GROW*smoothstep(fy,fy*5.0,fd));}
+    #endif
     float grsH=clamp(position.y/uKH,0.0,1.0);vAO=.38+.62*grsH*grsH*(3.0-2.0*grsH);
     {vec3 ip=(modelMatrix*instanceMatrix[3]).xyz;float k=transformed.y*transformed.y*7.0;float w=sin(uTime*1.7+ip.x*.31+ip.z*.23)+.45*sin(uTime*2.9+ip.x*.83-ip.z*.61);
-     transformed.x+=w*.028*k;transformed.z+=(.6*w+.3*sin(uTime*1.3+ip.z*.4))*.022*k;}`).replace('#include <lights_lambert_vertex>',`#include <lights_lambert_vertex>
+     transformed.x+=w*.028*k;transformed.z+=(.6*w+.3*sin(uTime*1.3+ip.z*.4))*.022*k;}`).replace('#include <color_vertex>',`#include <color_vertex>
+    #ifdef GRS_FAR
+    vColor.xyz=color.xyz*vec3(instanceColor.x*(.95+.1*instanceColor.y),instanceColor.x,instanceColor.x*(1.03-.1*instanceColor.y));/* (its tint: brightness and hue; z is its density) */
+    #endif`).replace('#include <lights_lambert_vertex>',`#include <lights_lambert_vertex>
     vTrans=vec3(0.0);
     #if NUM_DIR_LIGHTS > 0
     {vec3 vd=normalize(-mvPosition.xyz);float bt=max(0.0,dot(vd,-directionalLights[0].direction));vTrans=directionalLights[0].color*(bt*bt*.55+.06)*grsH;}
@@ -59,11 +69,12 @@ function grsMat(kind){if(!GRS.mats)GRS.mats=[];if(GRS.mats[kind])return GRS.mats
     sh.fragmentShader='varying float vAO;\nvarying vec3 vTrans;\n'+sh.fragmentShader.replace('( gl_FrontFacing ) ? vLightFront : vLightBack','vLightFront').replace('( gl_FrontFacing ) ? vIndirectFront : vIndirectBack','vIndirectFront')
       .replace('reflectedLight.directDiffuse *= BRDF_Diffuse_Lambert( diffuseColor.rgb ) * getShadowMask();',
         'float grsSh=getShadowMask();reflectedLight.directDiffuse=(reflectedLight.directDiffuse+vTrans*vec3(1.0,1.04,.62))*BRDF_Diffuse_Lambert( diffuseColor.rgb )*grsSh*vAO;reflectedLight.indirectDiffuse*=mix(vAO,1.0,.2);');};
-  m.customProgramCacheKey=()=>'kkGrass2';return GRS.mats[kind]=m;}
+  m.customProgramCacheKey=()=>far?'kkGrass2far':'kkGrass2';return GRS.mats[mk]=m;}
 const _grsM=new THREE.Matrix4(),_grsQ=new THREE.Quaternion(),_grsV=new THREE.Vector3(),_grsS=new THREE.Vector3(),_grsAx=new THREE.Vector3(0,1,0),_grsC=new THREE.Color();
-/* one cell: candidates from its own seeded stream, kept where grass grows, in a random order, as instanced meshes (a generator: it stops every few hundred candidates) */
-function* grsBake(a,b){const cs=GRS.cs,half=0,x0=-half+a*cs,z0=-half+b*cs,K=grsKits(),c={key:a+','+b,a,b,cx:x0+cs/2,cz:z0+cs/2,meshes:[],sphere:new THREE.Sphere(),lod:-1};
-  const R=mulberry(((OW.seed|0)*2654435+a*92821+b*68917+17)>>>0),keep=OW.keep,G=OW.G,T=G.T;
+/* where grass grows in a square of the land (corner x0,z0, side cs): grsSite gathers what can reach it - the paths and squares of the ground network's tiles, the
+   streams - and returns accept(kind,x,z,pk,o): whether a plant of that kind grows at x,z (pk: its own random number, against what the patches wish there); if so
+   o gets its ground height (h), whether it stands by a path edge (edge) and the patch noise there (nz, nc) */
+function grsSite(x0,z0,cs){const keep=OW.keep,G=OW.G,T=G.T;
   /* the paths and squares that can reach the cell (from the ground network's tiles) */
   const segs=[],sqs=[];{const seen=new Set();for(let tz=Math.floor((z0-4)/T);tz<=Math.floor((z0+cs+4)/T);tz++)for(let tx=Math.floor((x0-4)/T);tx<=Math.floor((x0+cs+4)/T);tx++){const t=G.tiles.get(tx+','+tz);if(!t||!t.segs)continue;
       for(const g of t.segs){if(seen.has(g)||g.x1<x0-1||g.x0>x0+cs+1||g.z1<z0-1||g.z0>z0+cs+1)continue;seen.add(g);segs.push(g);}for(const q of t.sqs)if(!seen.has(q)){seen.add(q);sqs.push(q);}}}
@@ -73,19 +84,25 @@ function* grsBake(a,b){const cs=GRS.cs,half=0,x0=-half+a*cs,z0=-half+b*cs,K=grsK
       const pl=g.pa+(g.pb-g.pa)*tt,w=owgWVis(g.wa+(g.wb-g.wa)*tt,pl,x,z)+(g.sx||0)/* (upgrade 12: not on the sand of a street with a pavement) */,d=Math.sqrt(ex*ex+ez*ez)-w*(pl>.45?1:.9);if(d<o)o=d;}return o;};
   const onSq=(x,z)=>{for(const q of sqs)if(owrSqD(q,x,z)<.4)return true;return false;};
   const prop=(x,z)=>{const L=OW.propGrid&&OW.propGrid.get(Math.floor(x/4)+','+Math.floor(z/4));if(!L)return false;for(const p of L)if(p.alive&&Math.hypot(p.x-x,p.z-z)<(p.r||.5)+.2)return true;return false;};
-  const KN=GRS.D.length,L=GRS.D.map(()=>[]),N=GRS.D.map(d=>Math.round(d*cs*cs));let it=0;
-  for(let kind=0;kind<KN;kind++)for(let i=0;i<N[kind]*1.6&&L[kind].length<N[kind];i++){if((++it&255)===0)yield;const x=x0+R()*cs,z=z0+R()*cs,rot=R()*6.283,sc=.75+R()*.55,sy=.85+R()*.5,tn=R(),pk=R(),hu=R();
+  return (kind,x,z,pk,o)=>{
     /* patches: blades everywhere, thicker in meadows; clover in its own patches and along the paths; the broad-leaved plants where the two meet and at the path edges */
     const nz=Math.sin(x*.13+z*.07+1.1)*Math.sin(x*.05-z*.11+2.3)+.4*Math.sin(x*.41+z*.37),nc=Math.sin(x*.19-z*.15+.7)*Math.sin(x*.07+z*.13+3.1)+.35*Math.sin(x*.53-z*.47);
-    const cl=owCell(x,z);if(cl.r<1||cl.c<1||cl.r>=H-1||cl.c>=W-1)continue;const gv=grid[cl.r][cl.c];if(gv===2)continue;
-    const po=pathOut(x,z);if(po<0){/* a few clumps creep a little onto the edge of a path or a street (thinning out within a third of a metre) */if(kind===2||po<-.32||pk>.5*(1+po/.32))continue;}
-    const edge=po<1.6?1:0,want=kind===0?(.6+.35*nz+.25*edge):kind===1?(.25+.75*Math.max(0,nc)+.4*edge):(.4+.3*(1-Math.abs(nz-nc))+.6*edge);if(pk>want)continue;
-    if(gv!==0&&po>1.2)continue;/* (a marked cell that is no path: the yard of a building, a step) */
-    if(Math.hypot(x-keep.x,z-keep.z)<30||onSq(x,z)||prop(x,z))continue;
-    const h=owH(x,z);if(owSlope(x,z)>.5||wtWater(x,z)>h-.02)continue;
-    let wet=false;for(const q of strm)if((q[0]-x)*(q[0]-x)+(q[1]-z)*(q[1]-z)<3.2){wet=true;break;}if(wet)continue;
+    const cl=owCell(x,z);if(cl.r<1||cl.c<1||cl.r>=H-1||cl.c>=W-1)return false;const gv=grid[cl.r][cl.c];if(gv===2)return false;
+    const po=pathOut(x,z);if(po<0){/* a few clumps creep a little onto the edge of a path or a street (thinning out within a third of a metre) */if(kind===2||po<-.32||pk>.5*(1+po/.32))return false;}
+    const edge=po<1.6?1:0,want=kind===0?(.6+.35*nz+.25*edge):kind===1?(.25+.75*Math.max(0,nc)+.4*edge):(.4+.3*(1-Math.abs(nz-nc))+.6*edge);if(pk>want)return false;
+    if(gv!==0&&po>1.2)return false;/* (a marked cell that is no path: the yard of a building, a step) */
+    if(Math.hypot(x-keep.x,z-keep.z)<30||onSq(x,z)||prop(x,z))return false;
+    const h=owH(x,z);if(owSlope(x,z)>.5||wtWater(x,z)>h-.02)return false;
+    for(const q of strm)if((q[0]-x)*(q[0]-x)+(q[1]-z)*(q[1]-z)<3.2)return false;
+    o.h=h;o.edge=edge;o.nz=nz;o.nc=nc;return true;};}
+/* one cell: candidates from its own seeded stream, kept where grass grows, in a random order, as instanced meshes (a generator: it stops every few hundred candidates) */
+function* grsBake(a,b){const cs=GRS.cs,half=0,x0=-half+a*cs,z0=-half+b*cs,K=grsKits(),c={key:a+','+b,a,b,cx:x0+cs/2,cz:z0+cs/2,meshes:[],sphere:new THREE.Sphere(),lod:-1};
+  const R=mulberry(((OW.seed|0)*2654435+a*92821+b*68917+17)>>>0),acc=grsSite(x0,z0,cs),O={};
+  const KN=GRS.D.length,L=GRS.D.map(()=>[]),N=GRS.D.map(d=>Math.round(d*cs*cs));let it=0;
+  for(let kind=0;kind<KN;kind++)for(let i=0;i<N[kind]*1.6&&L[kind].length<N[kind];i++){if((++it&255)===0)yield;const x=x0+R()*cs,z=z0+R()*cs,rot=R()*6.283,sc=.75+R()*.55,sy=.85+R()*.5,tn=R(),pk=R(),hu=R();
+    if(!acc(kind,x,z,pk,O))continue;
     /* (along a path edge the grass is a little taller and leans over it; in the meadow patches it is a shade darker and lusher) */
-    L[kind].push({x,z,h,rot,sc:sc*(edge?1.08:1),sy:sy*(edge?1.12:1),tn:tn*.8+.1*(1-nz),hu});}
+    L[kind].push({x,z,h:O.h,rot,sc:sc*(O.edge?1.08:1),sy:sy*(O.edge?1.12:1),tn:tn*.8+.1*(1-O.nz),hu});}
   yield;
   for(let kind=0;kind<KN;kind++){const P=L[kind];if(!P.length)continue;const im=new THREE.InstancedMesh(K[kind][1],grsMat(kind),P.length);im.frustumCulled=false;im.castShadow=false;im.receiveShadow=true;
     P.forEach((p,i)=>{_grsQ.setFromAxisAngle(_grsAx,p.rot);_grsV.set(p.x,p.h-.01,p.z);_grsS.set(p.sc,p.sc*p.sy,p.sc);_grsM.compose(_grsV,_grsQ,_grsS);im.setMatrixAt(i,_grsM);
@@ -94,10 +111,68 @@ function* grsBake(a,b){const cs=GRS.cs,half=0,x0=-half+a*cs,z0=-half+b*cs,K=grsK
   let ymin=1e9,ymax=-1e9;for(const P of L)for(const p of P){ymin=Math.min(ymin,p.h);ymax=Math.max(ymax,p.h);}c.sphere.set(new THREE.Vector3(c.cx,ymin<1e9?(ymin+ymax)/2:owH(c.cx,c.cz),c.cz),cs*.72+(ymax>ymin?(ymax-ymin)/2:0)+.6);
   GRS.stats.built++;return c;}
 function grsBuild(a,b){const g=grsBake(a,b);let r;do{r=g.next();}while(!r.done);return r.value;}
+/* ---------- the far grass (the Detail distance setting): the carpet goes on past the near grass, out to GRS.F.R (owDetailApply sets it from the setting; 0, as the
+   game always was, at Standard). Cells of GRS.F.cs metres, one instanced mesh each of a plain tuft (four broad blades, a triangle each; the clover patches are its lighter, yellower plants), from the
+   cell's own seeded stream: the i-th candidate drawn stands for a density of (i+1) per cell area, so the plants wanted at a density are always the same first ones.
+   The density wanted falls off as the distance (grsRho: rho0 at the near grass's edge, where that one has thinned out, half of it at twice that distance...): seen
+   at a slant, a metre of far-off ground is narrow on the screen while a plant on it stands as tall, so a carpet that thins as the distance covers the ground as
+   much far off as near (the plants a little bigger, too); it fades out before R. The
+   shader keeps each plant by its own density against the one wanted where it stands (smooth as the camera moves, no steps between cells), and makes the farther
+   ones a little bigger (GRS.F.grow); each cell draws only the plants its nearest corner could want (InstancedMesh.count). A cell is grown to the density of a
+   distance 30 % nearer than where it is, and grown on (from where its stream stopped) when the camera has come near enough to want more. A village built
+   nearby takes its cells away (wstInvalidate), so they grow again round its streets and houses. Cosmetic only, like the near grass. ---------- */
+GRS.F={cs:64,cells:new Map(),job:null,R:0,rho:1.4,grow:.5,max:320,ms:1.5,step:.6,u:{value:new THREE.Vector4(0,36,0,1)},c:{value:new THREE.Vector3()},stats:{built:0,inst:0}};
+/* the density wanted at a distance (the shader's own formula; u = GRS.F.u: rho0, the near grass's reach, the far reach, the height fade) */
+const grsSm=(a,b,t)=>{t=Math.min(1,Math.max(0,(t-a)/(b-a)));return t*t*(3-2*t);};
+const grsRho=(d,u)=>{const y=u.y;d=Math.max(d,1);return u.x*Math.min(1,y/d)*grsSm(y*.5,y,d)*(1-grsSm(u.z*.8,u.z,d))*u.w;};
+/* the most any point of a cell at distance d (its nearest point) can want: no fades */
+const grsRhoMax=(d,u)=>{const y=u.y,e=Math.max(d,y*.5);return u.x*Math.min(1,y/e)*u.w;};
+/* the far reach for a detail distance D (the Foliage setting scales it with the near grass) */
+function grsFarR(D){if(!(D>200))return 0;const lv=grsLv();return Math.min(GRS.F.max*lv.r/36,lv.r+(D-200)*.3);}
+/* a far cell, empty until it is first grown */
+function grsFarCell(a,b){const cs=GRS.F.cs,x0=a*cs,z0=b*cs;return{key:a+','+b,a,b,x0,z0,cx:x0+cs/2,cz:z0+cs/2,rb:0,i:0,R:null,acc:null,mesh:null,v:null,ymin:1e9,ymax:-1e9,sphere:new THREE.Sphere(new THREE.Vector3(x0+cs/2,0,z0+cs/2),cs*.72)};}
+/* grow a cell to density rb (a generator, a fraction of a millisecond a step - GRS.F.step - since ground in a village is slow to read): it goes on drawing
+   candidates from where it stopped (its own stream, kept), so the plants it has stay the same and only the new ones are worked out; returns the new mesh - the
+   old one's plants copied, the new ones after them - or null when none came (the old mesh stays on screen meanwhile) */
+function* grsFarGrow(c,rb){const F=GRS.F,cs=F.cs,A=cs*cs,K=grsKits(),O={},Q=[],n=Math.ceil(rb*A);
+  if(!c.R){c.R=mulberry(((OW.seed|0)*2654435+c.a*92821+c.b*68917+977)>>>0);c.acc=grsSite(c.x0,c.z0,cs);c.i=0;}
+  const R=c.R,acc=c.acc;let tY=performance.now(),k=0;
+  while(c.i<n){if((++k&15)===0&&performance.now()-tY>F.step){yield;tY=performance.now();}
+    const i=c.i++,x=c.x0+R()*cs,z=c.z0+R()*cs,rot=R()*6.283,sc=.75+R()*.55,sy=.85+R()*.5,tn=R(),pk=R(),hu=R();
+    if(!acc(0,x,z,pk,O))continue;const cl=Math.max(0,O.nc);
+    Q.push(x,z,O.h,rot,sc*(O.edge?1.08:1),sy*(O.edge?1.12:1),(.84+.24*(tn*.8+.1*(1-O.nz)))*(1+.22*cl),Math.min(1,hu+.5*cl),(i+1)/A);}
+  const old=c.mesh,n0=old?c.v.length:0,N=n0+Q.length/9;if(N===n0)return null;
+  yield;
+  const im=new THREE.InstancedMesh(K[3][0],grsMat(0,true),N),v=new Float32Array(N),M=im.instanceMatrix.array;im.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(N*3),3);const C=im.instanceColor.array;
+  im.frustumCulled=false;im.castShadow=false;im.receiveShadow=true;
+  if(old){M.set(old.instanceMatrix.array.subarray(0,n0*16));C.set(old.instanceColor.array.subarray(0,n0*3));v.set(c.v);}
+  for(let j=0;j<Q.length;j+=9){if((j%2304)===2295&&performance.now()-tY>F.step){yield;tY=performance.now();}const q=n0+j/9;
+    _grsQ.setFromAxisAngle(_grsAx,Q[j+3]);_grsV.set(Q[j],Q[j+2]-.01,Q[j+1]);_grsS.set(Q[j+4],Q[j+4]*Q[j+5],Q[j+4]);_grsM.compose(_grsV,_grsQ,_grsS);_grsM.toArray(M,q*16);
+    C[q*3]=Q[j+6];C[q*3+1]=Q[j+7];C[q*3+2]=Q[j+8];v[q]=Q[j+8];c.ymin=Math.min(c.ymin,Q[j+2]);c.ymax=Math.max(c.ymax,Q[j+2]);}
+  im.count=0;im.visible=false;im.userData.v=v;F.stats.inst+=N-n0;F.stats.built++;return im;}
+function grsFarDrop(c){if(c&&c.mesh){GRS.group.remove(c.mesh);c.mesh.dispose();c.mesh=null;}}
+/* the far cells over a box of land given back (a village built or unloaded there: wstream.js wstInvalidate) */
+function grsFarInvalidate(x0,z0,x1,z1){const F=GRS.F,cs=F.cs;for(const[k,c]of F.cells){if(c.x0+cs<x0||c.x0>x1||c.z0+cs<z0||c.z0>z1)continue;grsFarDrop(c);F.cells.delete(k);if(F.job&&F.job.c===c)F.job=null;}}
+/* per frame, after the near grass: the far cells within reach grown (the nearest first, within GRS.F.ms of their own, less
+   while the near grass is still baking), grown on where the camera now wants more of them, dropped beyond reach; each one's count from its nearest point */
+function grsFarView(force,cp,aF,lv){const F=GRS.F,cs=F.cs,u=F.u.value;u.set(F.rho*lv.d,lv.r,F.R,aF);F.c.value.copy(cp);
+  if(!(F.R>lv.r)||aF<=0){for(const c of F.cells.values())grsFarDrop(c);F.cells.clear();F.job=null;return;}
+  const dOf=c=>Math.hypot(Math.max(0,Math.abs(c.cx-cp.x)-cs/2),Math.max(0,Math.abs(c.cz-cp.z)-cs/2)),want=d=>Math.min(u.x,grsRhoMax(d*.7,u));
+  const tl=force?1e9:(GRS.job?.4:F.ms),tS=performance.now();
+  while(force||performance.now()-tS<tl){
+    if(!F.job){let best=null;const a0=Math.floor((cp.x-F.R)/cs),a1=Math.floor((cp.x+F.R)/cs),b0=Math.floor((cp.z-F.R)/cs),b1=Math.floor((cp.z+F.R)/cs);
+      for(let b=b0;b<=b1;b++)for(let a=a0;a<=a1;a++){const cx=(a+.5)*cs,cz=(b+.5)*cs,d=Math.hypot(Math.max(0,Math.abs(cx-cp.x)-cs/2),Math.max(0,Math.abs(cz-cp.z)-cs/2));if(d>=F.R)continue;
+        const c=F.cells.get(a+','+b),need=grsRhoMax(d,u);if(need<=0)continue;if(c&&c.rb>=Math.min(u.x,need)*.999)continue;if(!best||d<best.d)best={a,b,d,c};}
+      if(!best)break;let c=best.c;if(!c){c=grsFarCell(best.a,best.b);F.cells.set(c.key,c);}const rb=want(best.d);F.job={c,rb,it:grsFarGrow(c,rb)};}
+    const j=F.job,r=j.it.next();if(r.done){const c=j.c,m=r.value;if(m){grsFarDrop(c);c.mesh=m;c.v=m.userData.v;GRS.group.add(m);
+        c.sphere.set(new THREE.Vector3(c.cx,c.ymin<1e9?(c.ymin+c.ymax)/2:owH(c.cx,c.cz),c.cz),cs*.72+(c.ymax>c.ymin?(c.ymax-c.ymin)/2:0)+1);}c.rb=j.rb;F.job=null;}}
+  for(const[k,c]of F.cells){const d=dOf(c);if(d>F.R+cs){grsFarDrop(c);F.cells.delete(k);if(F.job&&F.job.c===c)F.job=null;continue;}const m=c.mesh;if(!m)continue;
+    const vis=d<F.R&&_grsF.intersectsSphere(c.sphere);m.visible=vis;if(!vis)continue;
+    /* (the plants this cell can want: their densities rise with their index) */const top=grsRhoMax(d,u);let lo=0,hi=c.v.length;while(lo<hi){const mid=(lo+hi)>>1;if(c.v[mid]<top)lo=mid+1;else hi=mid;}m.count=lo;m.visible=lo>0;}}
 /* per frame (with the ground cover): the cells round the camera baked a few milliseconds a frame, the nearest first; in each the plants drawn ease off with distance, the far ones plain and
    without broad leaves; cells out of view hidden */
 const _grsF=new THREE.Frustum(),_grsPM=new THREE.Matrix4();
-function grsView(force){if(!OW.on||!OW.group||!OW.G)return;if(GRS.owner!==OW.group){GRS.owner=OW.group;GRS.cells=new Map();GRS.job=null;GRS.group=new THREE.Group();GRS.group.userData.keep=1;OW.group.add(GRS.group);GRS.stats={built:0,inst:0};}
+function grsView(force){if(!OW.on||!OW.group||!OW.G)return;if(GRS.owner!==OW.group){GRS.owner=OW.group;GRS.cells=new Map();GRS.job=null;GRS.group=new THREE.Group();GRS.group.userData.keep=1;OW.group.add(GRS.group);GRS.stats={built:0,inst:0};GRS.F.cells=new Map();GRS.F.job=null;GRS.F.stats={built:0,inst:0};}
   GRS.time.value=performance.now()/1000;const lv=grsLv(),cs=GRS.cs,half=0,cp=camera.position,Rr=lv.r,K=grsKits();
   camera.updateMatrixWorld();_grsPM.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);_grsF.setFromProjectionMatrix(_grsPM);
   /* (high above the ground the grass is too small to see) */const alt=cp.y-owH(cp.x,cp.z),aF=1-SMS(alt,18,45);
@@ -110,4 +185,5 @@ function grsView(force){if(!OW.on||!OW.group||!OW.G)return;if(GRS.owner!==OW.gro
   for(const[k,c]of GRS.cells){const d=Math.hypot(Math.max(0,Math.abs(c.cx-cp.x)-cs/2),Math.max(0,Math.abs(c.cz-cp.z)-cs/2));
     if(d>Rr+cs*2){for(const m of c.meshes){GRS.group.remove(m);m.dispose&&m.dispose();}GRS.cells.delete(k);continue;}
     const f=d>=Rr?0:Math.min(1,lv.d/1.3*aF*(1-.88*SMS(d,6,Rr*.75))),vis=f>0&&_grsF.intersectsSphere(c.sphere),lod=d<GRS.NEAR?0:1;
-    for(const m of c.meshes){const kd=m.userData.kind,v=vis&&(kd<2||d<GRS.BROAD);m.visible=v;if(!v)continue;m.count=Math.round(m.userData.n*f);if(c.lod!==lod)m.geometry=K[kd][lod];}c.lod=vis?lod:c.lod;}}
+    for(const m of c.meshes){const kd=m.userData.kind,v=vis&&(kd<2||d<GRS.BROAD);m.visible=v;if(!v)continue;m.count=Math.round(m.userData.n*f);if(c.lod!==lod)m.geometry=K[kd][lod];}c.lod=vis?lod:c.lod;}
+  grsFarView(force,cp,aF,lv);}
