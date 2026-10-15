@@ -84,7 +84,7 @@ function wstDeckY(x,z){for(const dk of WSTR.decks){if(x<dk.x0||x>dk.x1||z<dk.z0|
 /* what was drawn or grown over a rectangle is made again (ground tiles, their stones, the grass, the plants) */
 function wstInvalidate(x0,z0,x1,z1){const G=OW.G;if(G){const T=G.T;for(let tz=Math.floor(z0/T);tz<=Math.floor(z1/T);tz++)for(let tx=Math.floor(x0/T);tx<=Math.floor(x1/T);tx++){const t=G.tiles.get(tx+','+tz);if(!t)continue;
       if(t.mesh){OW.group.remove(t.mesh);t.mesh.geometry.dispose();t.mesh=null;t.gh=null;}if(t.stone){OW.group.remove(t.stone);t.stone.geometry.dispose();t.stone=null;t.sh=null;}t.stoneDone=false;t.city=undefined;t._ix=null;if(typeof OWR!=='undefined'&&OWR.job&&OWR.job.t===t)OWR.job=null;if(t.state>0)t.state=0;}}
-  if(typeof GRS!=='undefined'&&GRS.cells){const cs=GRS.cs;for(const[k,c]of GRS.cells){if(c.cx+cs/2<x0||c.cx-cs/2>x1||c.cz+cs/2<z0||c.cz-cs/2>z1)continue;for(const m of c.meshes){if(m.parent)m.parent.remove(m);m.dispose&&m.dispose();}GRS.cells.delete(k);}if(GRS.job)GRS.job=null;}
+  if(typeof GRS!=='undefined'&&GRS.cells){const cs=GRS.cs;for(const[k,c]of GRS.cells){if(c.cx+cs/2<x0||c.cx-cs/2>x1||c.cz+cs/2<z0||c.cz-cs/2>z1)continue;for(const m of c.meshes){if(m.parent)m.parent.remove(m);m.dispose&&m.dispose();}GRS.cells.delete(k);}if(GRS.job)GRS.job=null;if(GRS.F)grsFarInvalidate(x0,z0,x1,z1);}
   if(FOL.chunks){const cs=FOL.cs;for(const[k,ch]of FOL.chunks){if(ch.cx+cs/2<x0||ch.cx-cs/2>x1||ch.cz+cs/2<z0||ch.cz-cs/2>z1)continue;if(ch.on&&FOL.group)FOL.group.remove(ch.g);ch.g.traverse(o=>{if(o.isInstancedMesh)o.dispose();});FOL.chunks.delete(k);}}}
 /* ---------- villages ---------- */
 /* While a village is built its kit geometry is merged lazily (mergeParts swapped for wstLazyParts): a merged geometry is made the first time anything
@@ -161,7 +161,11 @@ function wstFrame(){if(!OW.on||!WG.on)return;const f=OW.focus||{x:0,z:0},T0=perf
       const d=Math.hypot(s.x-f.x,s.z-f.z);if(d>WSTR.load||OW.villages.some(v=>v.site===s))continue;if(!wsReady(s.x-s.fr,s.z-s.fr,s.x+s.fr,s.z+s.fr))continue;if(!cand||d<cand.d)cand={s,d};}
     if(cand)wstVillage(cand.s);
     for(const v of OW.villages.slice())if(Math.hypot(v.x-f.x,v.z-f.z)>WSTR.unload&&!(OWI.cb&&OWI.cb.v===v))wstUnload(v);}
-  wfUpdate(f,false);wstRocksView(f);wstLazyStep(3);if(typeof owBridgesStep==='function')owBridgesStep();wstBlocksStep(4);}
+  wfUpdate(f,false);wstRocksView(f);wstLazyStep(3);if(typeof owBridgesStep==='function')owBridgesStep();wstBlocksStep(4);
+  /* the hydrology worked out ahead by the workers (wterrain.js WHP), as far as the game asks for it: the sites two cells past the roads' 1.5 km (wsWant), the landmarks
+     to WF.far, and with a long Detail distance the sites out to its rings of cells (owDetailRoads) - and a block more (what a site or a landmark reads round it) */
+  {const C=WS_CFG.cell;let R=Math.max(1500+3*C,WF.far+WF.cell);if(typeof owDd==='function'&&typeof OW_DD!=='undefined'){const D=Math.min(owDd(),Math.max(OW_DD.min,Math.floor(owFogEnd()/50)*50),OW_DD.tiles);if(D>600)R=Math.max(R,(Math.ceil((D+64)/C)+6)*C);}
+    WHP.R=R+800;whpStep(f.x,f.z);}}
 /* ---------- the start: the keep's surroundings made at once ---------- */
 function wstStart(seed){const T0=performance.now();wgInit(seed);wsReset();wfReset();wtReset();WSTR.vs={};WSTR.decks=[];WSTR.blk=[];WSTR.drawn.clear();WSTR.filled.clear();WSTR.stats={vb:0,vms:0,shifts:0};
   const K=wsKeep();OW.keep={x:K.x,z:K.z};OW.keepGate=K.gate;OW.keepApproach=K.app;OW.corridor=[];for(let d=0;d<=46+.01;d+=1.6)OW.corridor.push([K.gate.x,K.gate.z-d]);OW.corridor.reverse();

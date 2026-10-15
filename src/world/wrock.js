@@ -15,27 +15,32 @@
    - Light falls off on each stone as it would: its lower part, where it meets the ground, its sides set back between its neighbours (the wall's crevices)
      and what faces down are darker (wrkOcc, baked per vertex into aB.y, which the ground material reads as its cavity); each stone has its own tint and
      brightness (aB.z), and aB.w = 1 marks a block for the material. So a wall is many stones, not one pattern.
-   - Stones of 80 facets; tiles within WRK.near cast shadows, farther ones (out to WRK.R) keep only the blocks of tall cliffs; at most WRK.cap blocks a tile. A tile is built
+   - Stones of 80 facets; tiles within WRK.near cast shadows, farther ones (out to WRK.R) keep only the blocks of tall cliffs - past WRK.full, which the Detail
+     distance pushes out (all of a cliff's blocks out to it); at most WRK.cap blocks a tile. A tile is built
      a few milliseconds a frame (wrkGen is a generator), the nearest first.
    ===================================================================================================== */
-const WRK={on:false,group:null,R:200,near:90,cap:[340,110],far:[],farR:0,fcap:600,fm:new Map(),fjob:null,ff:0,TH:.4,ms:3,tiles:new Map(),job:null,N:null,ico:{},tpl:null,stats:{built:0,ms:0,blocks:0,tris:0}};
+const WRK={on:false,group:null,R:200,near:90,full:90,cap:[340,110],far:[],farR:0,fcap:600,fm:new Map(),fjob:null,ff:0,TH:.4,ms:3,tiles:new Map(),job:null,N:null,ico:{},tpl:null,stats:{built:0,ms:0,blocks:0,tris:0}};
 function wrkInit(group){WRK.group=group;WRK.on=true;if(!WRK.N)WRK.N=wnSimplex(424242);}
 function wrkReset(){for(const r of WRK.tiles.values())wrkDrop(r);WRK.tiles.clear();WRK.job=null;for(const e of WRK.fm.values())wrkDrop(e);WRK.fm.clear();WRK.fjob=null;WRK.on=false;}
 function wrkDrop(r){if(r.mesh){if(r.mesh.parent)r.mesh.parent.remove(r.mesh);r.mesh.geometry.dispose();r.mesh=null;}}
 const wrkIco=d=>WRK.ico[d]||(WRK.ico[d]=(d<0?new THREE.BoxGeometry(1.4,1.4,1.4).toNonIndexed():new THREE.IcosahedronGeometry(1,d)).attributes.position.array);/* (-1: a box, the far levels': 1.4 brings it within 5 % of the 20-facet stone's size) */
+/* a template's corners: its faces share them, so a stone works each one out once - for every vertex which corner it is (map) and the first vertex of each
+   corner (first), found once per template (by the rounded position, as each stone used to find them) */
+function wrkIcoU(d){const c=WRK.icoU||(WRK.icoU={});if(c[d])return c[d];const src=wrkIco(d),n=src.length/3,map=new Int32Array(n),first=[],seen=new Map();
+  for(let j=0;j<n;j++){const i=j*3,k=Math.round(src[i]*1e4)+','+Math.round(src[i+1]*1e4)+','+Math.round(src[i+2]*1e4);let u=seen.get(k);if(u===undefined){u=first.length;first.push(j);seen.set(k,u);}map[j]=u;}
+  return c[d]={map,first:Int32Array.from(first)};}
 
 /* one stone in its own frame (x along the slope, y up, z out of it), non-indexed: squared towards a block by o.box (0 round .. 1 a block with soft
    corners), roughened, stretched to w x h x d, chiselled by o.cuts planes (o.up of them take off the top edges, the rest are upright faces round the
    sides), a flat top at o.top and a flat bottom. R: the stone's own stream. */
-function wrkShape(R,w,h,d,o){const src=wrkIco(o.det||0),out=new Float32Array(src.length),seen=new Map(),ph=R()*100,P=[],pw=1-(o.box||0)*.68,N=WRK.N,
+function wrkShape(R,w,h,d,o){const src=wrkIco(o.det||0),U=wrkIcoU(o.det||0),out=new Float32Array(src.length),V=new Float64Array(U.first.length*3),ph=R()*100,P=[],pw=1-(o.box||0)*.68,N=WRK.N,
     sq=t=>Math.sign(t)*Math.pow(Math.abs(t),pw),nu=o.up==null?1:o.up;
   for(let k=0;k<o.cuts;k++){const a=R()*6.2832,up=k<nu?.55+R()*.3:(R()-.5)*.3,c=Math.sqrt(1-up*up);P.push([Math.cos(a)*c,up,Math.sin(a)*c,(k<nu?.9:.78)+R()*(k<nu?.09:.17)]);}
   if(o.top!=null)P.push([0,1,0,o.top]);P.push([0,-1,0,.55]);
-  for(let i=0;i<src.length;i+=3){const k=Math.round(src[i]*1e4)+','+Math.round(src[i+1]*1e4)+','+Math.round(src[i+2]*1e4);let v=seen.get(k);
-    if(!v){let x=sq(src[i]),y=sq(src[i+1]),z=sq(src[i+2]);const r=1+(o.rough||0)*(wnN(N,x*1.6+ph,y*1.6+z*1.2)+.5*wnN(N,x*3.4-ph,z*3.2+y*2));x*=r;y*=r;z*=r;
-      for(const q of P){const e=x*q[0]+y*q[1]+z*q[2]-q[3];if(e>0){x-=e*q[0];y-=e*q[1];z-=e*q[2];}}
-      v=[x*w/2,y*h/2,z*d/2];seen.set(k,v);}
-    out[i]=v[0];out[i+1]=v[1];out[i+2]=v[2];}
+  for(let u=0;u<U.first.length;u++){const i=U.first[u]*3;let x=sq(src[i]),y=sq(src[i+1]),z=sq(src[i+2]);const r=1+(o.rough||0)*(wnN(N,x*1.6+ph,y*1.6+z*1.2)+.5*wnN(N,x*3.4-ph,z*3.2+y*2));x*=r;y*=r;z*=r;
+    for(const q of P){const e=x*q[0]+y*q[1]+z*q[2]-q[3];if(e>0){x-=e*q[0];y-=e*q[1];z-=e*q[2];}}
+    V[u*3]=x*w/2;V[u*3+1]=y*h/2;V[u*3+2]=z*d/2;}
+  for(let j=0,M=U.map;j<M.length;j++){const u=M[j]*3;out[j*3]=V[u];out[j*3+1]=V[u+1];out[j*3+2]=V[u+2];}
   return out;}
 
 /* the boulders' templates (wstream.js wstRocks keeps its places and its draws; only the shapes are these): six chiselled stones, a little squared */
@@ -50,25 +55,27 @@ function wrkBoulderTpl(){if(WRK.tpl)return WRK.tpl;if(!WRK.N)WRK.N=wnSimplex(424
   return WRK.tpl=out;}
 
 /* ---------- the dressing of one level-0 tile (a generator: it yields when its time is up; the result is in out) ---------- */
-function* wrkGen(t,lod,out){const g=t.g,n=g.n,s=n+1,res=WG_CFG.res,TH=WRK.TH,det=lod>=3?-1:lod>=2?0:1,/* (the far levels, WRK.far: a few pixels across there) */hh=g.h,H=(x,z)=>wtHt(t,x,z),N=WRK.N,seed=WG.seed|0,RW=new Float64Array(4);
+function* wrkGen(t,lod,out){const fl=lod?(lod-1)>>1:0,tallOnly=lod>0&&((lod-1)&1)===1,/* (wrkLod: the facet level and whether only the tall cliffs keep their blocks) */g=t.g,n=g.n,s=n+1,res=WG_CFG.res,TH=WRK.TH,det=fl>=2?-1:fl>=1?0:1,/* (the far levels, WRK.far: a few pixels across there) */hh=g.h,H=(x,z)=>wtHt(t,x,z),N=WRK.N,seed=WG.seed|0,RW=new Float64Array(4);
   const pos=out.pos,aA=out.aA,aB=out.aB,kept=new Map(),Nv=[0,0,0];let tY=performance.now();
   const nrmAt=(x,z,o)=>{const e=1,hx=H(x+e,z)-H(x-e,z),hz=H(x,z+e)-H(x,z-e),l=Math.hypot(hx,2*e,hz);o[0]=-hx/l;o[1]=2*e/l;o[2]=-hz/l;return o;};
-  const taken=(k,x,z,r)=>{const cx=Math.floor(x/4),cz=Math.floor(z/4),m=Math.ceil(r/4);for(let a=-m;a<=m;a++)for(let b=-m;b<=m;b++){const L=kept.get(k+':'+(cx+a)+','+(cz+b));if(L)for(const q of L)if((q[0]-x)**2+(q[1]-z)**2<r*r)return true;}return false;};
+  /* (the blocks kept so far, by step size and level (K) and by 4 m cell within the tile - number keys: a dense cliff asks this thousands of times) */
+  const kx0=Math.floor(t.x0/4)-64,kz0=Math.floor(t.z0/4)-64,cellK=(x,z)=>(Math.floor(x/4)-kx0)*256+Math.floor(z/4)-kz0;
+  const taken=(K,x,z,r)=>{if(!K)return false;const c0=cellK(x,z),m=Math.ceil(r/4);for(let a=-m;a<=m;a++)for(let b=-m;b<=m;b++){const L=K.get(c0+a*256+b);if(L)for(const q of L)if((q[0]-x)**2+(q[1]-z)**2<r*r)return true;}return false;};
   const OC=[],G=(x,z)=>H(x+t.x0,z+t.z0);
   const tag=(nv,w,tint)=>{const a0=Math.round(w[0]*255),a1=Math.round(w[1]*255),a2=Math.round(w[2]*255),tz=Math.round(tint*255),o0=OC.length-nv;for(let v=0;v<nv;v++){aA.push(a0,a1,a2,0);aB.push(0,Math.round(128+127*OC[o0+v]),tz,255);}};
   /* candidates: two per lattice cell each way (1 m), only in cells whose corners say steep (a tile keeps only its heights and its water) */
-  for(let k=0;k<n;k++){for(let i=0;i<n&&out.nb<WRK.cap[lod?1:0];i++){const q=k*s+i,a=hh[q],b=hh[q+1],c=hh[q+s],e=hh[q+s+1];
+  for(let k=0;k<n;k++){for(let i=0;i<n&&out.nb<WRK.cap[tallOnly?1:0];i++){const q=k*s+i,a=hh[q],b=hh[q+1],c=hh[q+s],e=hh[q+s+1];
       if(Math.max(Math.abs(b-a),Math.abs(c-a),Math.abs(e-b),Math.abs(e-c))<.6*res)continue;
       const cx0=t.x0+(i+.5)*res,cz0=t.z0+(k+.5)*res;wgRegions(cx0,cz0,RW);const W=[RW[1],RW[2],RW[3]];if(W[0]>.3||W[2]>.45)continue;/* (nor in the elderglade: its rock is sculpted, rounded knolls - stacked blocks read as raw cuts there) *//* (not on the spires: their horn peaks are steep cones under snow, blocks on them read as rubble; the ground's chiselled rock is their stone) */
       for(let sk=0;sk<2;sk++)for(let si=0;si<2;si++){const x=t.x0+(i+.25+si*.5)*res,z=t.z0+(k+.25+sk*.5)*res;nrmAt(x,z,Nv);if(1-Nv[1]<TH)continue;/* (cliff faces only: a steep flank is the ground's own chiselled rock, a carpet of blocks over it reads as rubble) */
         const l=Math.hypot(Nv[0],Nv[2])||1,ox=Nv[0]/l,oz=Nv[2]/l,gh=H(x,z);
         /* the step follows the height of the cliff: what the ground does over 10 m up and down the slope */
         const rel=H(x-ox*10,z-oz*10)-H(x+ox*10,z+oz*10),sc=rel<22?1:rel<52?2:3,STEP=3.2*sc;
-        if(lod&&sc<2)continue;/* (far off only the tall cliffs keep their blocks) */
+        if(tallOnly&&sc<2)continue;/* (far off - past WRK.full - only the tall cliffs keep their blocks) */
         const wb=1.1*sc*wnN(N,x*.04/sc+2,z*.04/sc-5)+.35*sc*wnN(N,x*.13/sc,z*.13/sc+9),lvK=Math.floor((gh+wb)/STEP);
         if(Math.floor((H(x-ox*.9*sc,z-oz*.9*sc)+wb)/STEP)<=lvK)continue;           /* (here the slope crosses the level above) */
-        const ks=sc+':'+lvK;if(taken(ks,x,z,3.1*sc))continue;{const key=ks+':'+Math.floor(x/4)+','+Math.floor(z/4);let L=kept.get(key);if(!L)kept.set(key,L=[]);L.push([x,z]);}
-        const Rp=wnRng(wnHashI(Math.round(x*16),Math.round(z*16),seed+4242)),r=[Rp(),Rp(),Rp(),Rp(),Rp(),Rp(),Rp(),Rp()];if(lod>=4&&(wnHashI(Math.round(x*16),Math.round(z*16),seed+4243)>>>0)%100>=50)continue;/* (the farthest level: half of them, evenly - the place stays taken) */
+        const ks=sc*1e6+lvK;let K=kept.get(ks);if(taken(K,x,z,3.1*sc))continue;{if(!K)kept.set(ks,K=new Map());const key=cellK(x,z);let L=K.get(key);if(!L)K.set(key,L=[]);L.push([x,z]);}
+        const Rp=wnRng(wnHashI(Math.round(x*16),Math.round(z*16),seed+4242)),r=[Rp(),Rp(),Rp(),Rp(),Rp(),Rp(),Rp(),Rp()];if(fl>=3&&(wnHashI(Math.round(x*16),Math.round(z*16),seed+4243)>>>0)%100>=50)continue;/* (the farthest level: half of them, evenly - the place stays taken) */
         /* how far down the slope this step reaches: to the level below, or to the foot of the steep ground (the block's face stands there) */
         const lv=(lvK+1)*STEP-wb,dt=.4*sc;let run=.6,fh=gh,ph=gh;
         for(let tt=dt;tt<=5*sc;tt+=dt){fh=H(x+ox*tt,z+oz*tt);run=tt;if(fh<lv-STEP+.35||ph-fh<dt*.3)break;ph=fh;}
@@ -80,15 +87,15 @@ function* wrkGen(t,lod,out){const g=t.g,n=g.n,s=n+1,res=WG_CFG.res,TH=WRK.TH,det
         const n0=pos.length;
         wrkPut(pos,Rp,[x-ox*off-t.x0,top-TOP*hgt/2,z-oz*off-t.z0],ox,oz,lean,yaw,w,hgt,d,{det,cuts:[6,7,5][kind]+Math.floor(r[2]*3),up:[2,1,0][kind],rough:[.04,.06,.05][kind],box:[.9,.78,.82][kind],top:TOP},OC,G);
         tag((pos.length-n0)/3,W,Rp());out.nb++;
-        if(r[5]<.3&&!crag&&lod===0){const ps=(.4+r[0]*.7)*sc,ex=x-ox*(.2+ps*.4),ez=z-oz*(.2+ps*.4),n1=pos.length;
+        if(r[5]<.3&&!crag&&!tallOnly&&fl===0){const ps=(.4+r[0]*.7)*sc,ex=x-ox*(.2+ps*.4),ez=z-oz*(.2+ps*.4),n1=pos.length;
           wrkPut(pos,Rp,[ex-t.x0,top+ps*.12,ez-t.z0],ox,oz,0,r[3]*6.28,ps*1.4,ps,ps*1.15,{det:0,cuts:6,up:1,rough:.06,box:.7},OC,G);tag((pos.length-n1)/3,W,Rp());}}
       if(performance.now()-tY>WRK.ms){yield;tY=performance.now();}/* (the time is looked at after every cell: a row of a dense cliff takes tens of milliseconds) */}}}
 /* the mesh of a finished tile */
 function wrkMesh(t,lod,out){if(!out.pos.length)return null;const geo=new THREE.BufferGeometry(),nv=out.pos.length/3;geo.setAttribute('position',new THREE.Float32BufferAttribute(out.pos,3));geo.computeVertexNormals();
   geo.setAttribute('aA',new THREE.BufferAttribute(Uint8Array.from(out.aA),4,true));geo.setAttribute('aB',new THREE.BufferAttribute(Uint8Array.from(out.aB),4,true));
-  geo.setAttribute('aW',new THREE.BufferAttribute(new Float32Array(nv).fill(-1e4),1));geo.computeBoundingSphere();if(lod>=2)for(const k in geo.attributes)geo.attributes[k].onUpload(wrkFree);
+  geo.setAttribute('aW',new THREE.BufferAttribute(new Float32Array(nv).fill(-1e4),1));geo.computeBoundingSphere();if(lod>=3)/* (facet level 1 and up, wrkLod) */for(const k in geo.attributes)geo.attributes[k].onUpload(wrkFree);
   const m=new THREE.Mesh(geo,wtMaterial());m.position.set(t.x0,0,t.z0);m.castShadow=lod===0;m.receiveShadow=true;m.matrixAutoUpdate=false;m.updateMatrix();m.userData.keep=1;
-  if(lod>=2){const bs=geo.boundingSphere;m.userData.sp=new THREE.Sphere(new THREE.Vector3(bs.center.x+t.x0,bs.center.y,bs.center.z+t.z0),bs.radius);m.frustumCulled=false;m.onAfterRender=wrkSeen;}return m;}
+  if(lod>=3){const bs=geo.boundingSphere;m.userData.sp=new THREE.Sphere(new THREE.Vector3(bs.center.x+t.x0,bs.center.y,bs.center.z+t.z0),bs.radius);m.frustumCulled=false;m.onAfterRender=wrkSeen;}return m;}
 /* put one stone: p (its middle, in the tile's frame), (ox,oz) out of the slope, lean (its face leaning back), yaw (turned about the vertical) */
 function wrkPut(pos,R,p,ox,oz,lean,yaw,w,h,d,o,occ,G){const sh=wrkShape(R,w,h,d,o),cy=Math.cos(yaw),sy=Math.sin(yaw),fx=ox*cy-oz*sy,fz=ox*sy+oz*cy,ct=Math.cos(lean),st=Math.sin(lean);
   const F=[fx*ct,st,fz*ct],U=[-fx*st,ct,-fz*st],Rt=[fz,0,-fx],p0=pos.length;
@@ -107,13 +114,18 @@ function wrkOcc(pos,p0,sh,h,d,o,occ,G){const y0=-.55*h/2,y1=(o.top!=null?o.top:1
       occ.push(Math.min(1,1-(1-low)*(1-touch)*(1-back)*(1-under)));}}}
 /* per frame: the tiles round the camera dressed (near ones in full, far ones plainer), the nearest unfinished one built a few ms a frame; dropped beyond reach.
    force: build everything in reach at once (a start, a teleport, the lab) */
-/* the far levels (WRK.far, [] unless the Detail distance setting - kingsgaard.html owDetailApply - sets it): past far[0] lod 2, past far[1] lod 3, past far[2]
-   lod 4. A tile keeps its level for 40 m past an edge, so walking along one does not rebuild it back and forth. Their vertices stay only on the graphics card:
+/* a tile's level (wrkLod): 0 within WRK.near (shadows); beyond it 1 + 2 x the facet level + 1 where only the tall cliffs keep their blocks (past WRK.full).
+   The facet levels (WRK.far, [] unless the Detail distance setting - kingsgaard.html owDetailApply - sets it): the 80-facet stones, past far[0] the 20-facet
+   ball, past far[1] a 12-facet box, past far[2] half of those. WRK.full (the Detail distance sets it; WRK.near, 90 m, as the game always was): out to it every
+   block of every cliff, the low ones and the broken pieces on the ledges too - a far cliff as rich as a near one; past it only the tall cliffs' blocks.
+   So 1 is a full tile of 80-facet stones without shadows, 2 the old far tile (tall cliffs), 3/4 the same in 20 facets, 5/6 in boxes, 7/8 half the boxes.
+   A tile keeps its level for 40 m past an edge, so walking along one does not rebuild it back and forth. Their vertices stay only on the graphics card:
    a far mesh is drawn once wherever it is (not culled until then, wrkSeen), and its arrays are let go once sent (wrkFree). Then wrkCull hides it outside the view
    each frame - by the terrain's frustum, which has no far plane: three.js's own culling would drop everything past the camera's 2.1 km far plane, though the
    depth compression (wdepth.js) draws it. So such a mesh must never be raycast
    (Mesh.raycast reads position.array) nor sent again (a lost WebGL context could not restore it) */
-function wrkBand(d,r){const F=WRK.far;let L=1;while(L-1<F.length&&d>=F[L-1])L++;if(r&&r.lod>=1&&r.lod!==L){const e=F[Math.min(r.lod,L)-1];if(e!==undefined&&Math.abs(d-e)<40)return r.lod;}return L;}
+function wrkLod(d,r){const F=WRK.far,full=WRK.full,lv=x=>{let f=0;while(f<F.length&&x>=F[f])f++;return 1+2*f+(x<full?0:1);},L=lv(d);
+  if(r&&r.lod>=1&&r.lod!==L&&(lv(d-40)===r.lod||lv(d+40)===r.lod))return r.lod;return L;}
 function wrkFree(){this.array=null;}
 function wrkSeen(){this.userData.seen=1;this.onAfterRender=wrkNone;}
 /* every frame: the far meshes outside the view hidden (the terrain's frustum without its far plane, _wtFr, wterrain.js wtUpdate - it runs first); the far
@@ -125,7 +137,7 @@ function wrkView(cam,force){if(!WRK.on||!WRK.group)return;wrkCull();const T0=per
 /* the dressing of the level-0 tiles; true when it used this frame's time */
 function wrkNear(cam,force,T0){const S=WG_CFG.tile;
   const want=(t)=>{const d=Math.hypot(Math.max(0,Math.abs(t.x0+S/2-cam.x)-S/2),Math.max(0,Math.abs(t.z0+S/2-cam.z)-S/2)),r=WRK.tiles.get(t.ti+','+t.tk);
-    return{d,lod:d<WRK.near?0:(r&&r.lod===0&&d<WRK.near+40?0:wrkBand(d,r))};};
+    return{d,lod:d<WRK.near?0:(r&&r.lod===0&&d<WRK.near+40?0:wrkLod(d,r))};};
   for(const[key,r]of WRK.tiles){const t=WT.tiles.get(key);if(!t||t!==r.t){wrkDrop(r);WRK.tiles.delete(key);continue;}if(want(t).d>WRK.R+60){wrkDrop(r);WRK.tiles.delete(key);}}
   if(WRK.job){const j=WRK.job,w=WT.tiles.get(j.key)===j.t?want(j.t):null;if(!w||w.d>WRK.R+60||w.lod!==j.lod)WRK.job=null;}
   for(let guard=0;guard<(force?1e6:1);guard++){
