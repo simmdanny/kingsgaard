@@ -126,15 +126,15 @@ function wtMaterialSee(y0,R,x,z){return wtMakeMat({y0,R,x,z});}
 WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
 function wtMakeMat(see,inset){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
   m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(inset)m.defines.WT_INSET=1;if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
-  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uSunD=WCM.sun;sh.uniforms.tGS={value:wtStrokeTex()};if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\nuniform vec3 uSunD;\nuniform sampler2D tGS;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
-    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;uniform vec3 uClf;\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
-      .replace('#include <begin_vertex>','#include <begin_vertex>\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uSunD=WCM.sun;sh.uniforms.tGS={value:wtStrokeTex()};if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='varying float vIk;\nuniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\nuniform vec3 uSunD;\nuniform sampler2D tGS;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;varying float vIk;uniform vec3 uClf;\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvIk=0.0;\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
         'float k=(1.0-smoothstep(0.25,0.35,aA.x))*(1.0-smoothstep(0.40,0.50,aA.z))*uClf.x*(1.0-smoothstep(uClf.y*0.85,uClf.y,length(wp0.xz-cameraPosition.xz)));'+
-        'transformed.xz+=aPu*k*uClf.z;}\n#endif\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
+        'transformed.xz+=aPu*k*uClf.z;vIk=k*min(1.0,length(aPu)*4.0);}\n#endif\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE+WT_GLSL_MEADOW)
       .replace('#include <map_fragment>',WT_GLSL_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground16see':inset?'wtground16k':'wtground16';return m;}
+  m.customProgramCacheKey=()=>see?'wtground17see':inset?'wtground17k':'wtground17';return m;}
 /* the meadow (world look 4: the mockup's MEADOW, grassRamp, meadowT, meadowStrokes, gStrokes) - a painted green of several shades: broad patches,
    darker clover clumps (the noise texture's channels: r broad, a fine), and two sizes of painted blade strokes leaning along a slowly turning direction
    (wtStrokeTex: a pointed stroke a cell). The ground's grass and the cliffs' (wcliffmat.js) are painted by the same functions: no seam where they meet */
@@ -171,6 +171,8 @@ vec2 wtStoneQ(vec2 q){float Hr=2.8;q.y+=0.9*sin(q.x*0.19)+0.5*sin(q.x*0.53+1.7);
 const WT_GLSL_COLOR=`
   /* (four texture reads: two for the green, two for rock where there is rock - every channel of the noise texture is a different scale) */
   vec3 P=vWp;vec3 Nw=normalize(vWn);
+  /* (a face pushed into the rock, WT_INSET, is steeper than its vertices' normal: how steep it really is - the triangle's own normal - for the rock below) */
+  float slIk=(1.0-abs(normalize(cross(dFdx(vWp),dFdy(vWp))).y))*smoothstep(0.0,0.3,vIk);
   float fp=length(fwidth(P));float d1=1.0-smoothstep(0.09,0.35,fp),d2=1.0-smoothstep(0.35,1.6,fp),d3=1.0-smoothstep(1.6,7.0,fp);
   float wSp=vA.x,wTb=vA.y,wLk=vA.z,wFo=vA.w,wPl=max(0.0,1.0-wSp-wTb-wLk);
   /* (vB.x: the snow of the spires where there are spires, elsewhere the Great Elder Circle's pedestal - its mountain - whose rock is the ring's stone) */
@@ -199,7 +201,7 @@ const WT_GLSL_COLOR=`
     {vec2 pc=P.xz*5.0,pf=fract(pc)-0.5;float ph=fract(sin(dot(floor(pc),vec2(12.9898,78.233)))*43758.5453);dirt=mix(dirt,vec3(0.60,0.56,0.48),step(0.94,ph)*(1.0-smoothstep(0.16,0.24,length(pf+0.15*(ph-0.97))))*d1*0.7);}/* (a few pebbles) */
     grass=mix(grass,dirt*0.94,trM);}}}
   /* ---- how rocky ---- */
-  float sl=1.0-Nw.y;float rt=mix(0.31,0.17,wTb)-0.04*wSp+(nm-0.5)*0.12+(ns-0.5)*0.07;
+  float sl=max(1.0-Nw.y,slIk);float rt=mix(0.31,0.17,wTb)-0.04*wSp+(nm-0.5)*0.12+(ns-0.5)*0.07;
   /* (the elderglade's own rock - its knolls, the great mountain's outcrops - is sculpted: smoothly shaded, no per-facet speckle or strata, its edge
      against the grass soft (the lattice's rock floor counts little there); a ring's stone keeps its chiselled facets) */
   float gRk=wLk*(1.0-step(0.97,vB.w))*(1.0-ped);/* (the pedestal's rock is chiselled, as the ring's stone) */
