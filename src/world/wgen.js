@@ -24,9 +24,9 @@ const WG_CFG={res:2,tile:128,regionCell:4000,regionBand:520,regionWarp:650,glade
 /* the version of the generator: a save keeps it (owSave gv), and a save made by another version gets fresh villages (its villages were other villages) */
 const WG_VER=5;
 const WG_T={HIGH:1,PLATEAU:2,GLADE:3};
-const WG={on:false,seed:0,N:null,reg:new Map(),hyd:new Map(),seg:new Map(),lake:new Map(),feat:new Map(),stats:{h0:0}};
+const WG={on:false,seed:0,ep:0,N:null,reg:new Map(),hyd:new Map(),seg:new Map(),lake:new Map(),feat:new Map(),stats:{h0:0,hydMain:0,hydPre:0}};/* (ep: one more every wgInit - what the workers send back for an older one is dropped) */
 function wgInit(seed){WG.seed=seed|0;WG.N=[];for(let i=0;i<20;i++)WG.N.push(wnSimplex(((seed|0)*7919+i*104729+13)|0));
-  WG.par=null;WG_LB.m.clear();WG.reg.clear();WG.hyd.clear();WG.seg.clear();WG.lake.clear();WG.feat.clear();WG.on=true;}
+  WG.ep++;WG.par=null;WG_LB.m.clear();WG.reg.clear();WG.hyd.clear();WG.seg.clear();WG.lake.clear();WG.feat.clear();WG.on=true;}
 const wgKey=(i,j)=>(i+32768)*65536+(j+32768);
 const wgHyp=(a,b,c)=>c===undefined?Math.sqrt(a*a+b*b):Math.sqrt(a*a+b*b+c*c);
 
@@ -247,8 +247,31 @@ function wgH0At(x,z,o){return wgH0(x,z,o,wgCtx(x-1,z-1,x+1,z+1,0));}
 /* ---------- 3. hydrology ---------- */
 /* a lattice point: its place (jittered in its cell) and the height of the land there */
 function wgHyd(i,j){const k=wgKey(i,j);let p=WG.hyd.get(k);if(p)return p;wgHydBlock(Math.floor(i/8),Math.floor(j/8));return WG.hyd.get(k);}
-function wgHydBlock(bi,bj){const HC=WG_CFG.hydroCell,s=WG.seed,c=wgCtx(bi*8*HC,bj*8*HC,(bi+1)*8*HC,(bj+1)*8*HC,0);
+function wgHydBlock(bi,bj){const HC=WG_CFG.hydroCell,s=WG.seed,c=wgCtx(bi*8*HC,bj*8*HC,(bi+1)*8*HC,(bj+1)*8*HC,0);WG.stats.hydMain++;
   for(let j=bj*8;j<bj*8+8;j++)for(let i=bi*8;i<bi*8+8;i++){const x=(i+.22+.56*wnHash(i,j,s+201))*HC,z=(j+.22+.56*wnHash(i,j,s+202))*HC;WG.hyd.set(wgKey(i,j),{i,j,x,z,h:wgH0(x,z,null,c),dn:-2,acc:-1,lake:null,seg:undefined});}}
+/* a block of the lattice worked out in full by a worker (wworker.js) and taken in whole by the main thread (wgHydPut): per point its height, where it drains, how much
+   drains through it (wgAcc's walk upstream reaches kilometres away: the main thread would have worked out every block on the way), its pit's lake and its stream - from
+   the very functions here, so the main thread gets the numbers it would have worked out itself (the lake and the stream as plain numbers, their objects made again).
+   Per point WG_HS numbers: h, dn, acc | lr? x z lev R dep id | lake? | seg? n hw hwQ dep fb acc cut vw x0 x1 z0 z1 band end ax az bx bz cl2 cap, pts (2(n+1)), wl (n+1) */
+const WG_HS=12+20+(WG_CFG.segN+1)*3,WG_LF=['x','z','lev','R','dep','id'],WG_SF=['n','hw','hwQ','dep','fb','acc','cut','vw','x0','x1','z0','z1','band','end','ax','az','bx','bz','cl2','cap'];
+function wgHydPack(bi,bj){const F=new Float64Array(64*WG_HS),n1=WG_CFG.segN+1;let q=0;
+  for(let j=bj*8;j<bj*8+8;j++)for(let i=bi*8;i<bi*8+8;i++,q+=WG_HS){const p=wgHyd(i,j);F[q]=p.h;F[q+1]=wgDown(p);F[q+2]=wgAcc(p);
+    const L=wgLake(p),r=p.lr;if(r){F[q+3]=1;for(let k=0;k<6;k++)F[q+4+k]=r[WG_LF[k]];}F[q+10]=L?1:0;
+    const s=wgSeg(p);if(s){F[q+11]=1;for(let k=0;k<20;k++)F[q+12+k]=s[WG_SF[k]];F.set(s.pts,q+32);for(let k=0;k<n1;k++)F[q+32+n1*2+k]=s.wl[k];}}
+  return F;}
+/* takes in a block a worker worked out (nothing if the main thread has it already); true if taken */
+function wgHydPut(bi,bj,F){if(WG.hyd.has(wgKey(bi*8,bj*8)))return false;const HC=WG_CFG.hydroCell,s=WG.seed,n1=WG_CFG.segN+1;let q=0;
+  for(let j=bj*8;j<bj*8+8;j++)for(let i=bi*8;i<bi*8+8;i++,q+=WG_HS){const x=(i+.22+.56*wnHash(i,j,s+201))*HC,z=(j+.22+.56*wnHash(i,j,s+202))*HC,dn=F[q+1];
+    const p={i,j,x,z,h:F[q],dn,acc:F[q+2],lake:false,seg:null};
+    if(F[q+3]){const r={};for(let k=0;k<6;k++)r[WG_LF[k]]=F[q+4+k];p.lr=r;if(F[q+10])p.lake=r;}else p.lr=null;
+    if(F[q+11]){const o={p,q:null};for(let k=0;k<20;k++)o[WG_SF[k]]=F[q+12+k];o.pts=F.slice(q+32,q+32+n1*2);o.wl=new Float32Array(F.subarray(q+32+n1*2,q+32+n1*3));
+      /* (q: the point it drains into - in the block next door, maybe not here yet) */const qp=WG.hyd.get(dn);if(qp)o.q=qp;else Object.defineProperty(o,'q',{get(){return wgHyd(Math.floor(dn/65536)-32768,dn%65536-32768);},enumerable:true});
+      p.seg=o;}
+    WG.hyd.set(wgKey(i,j),p);}
+  WG.stats.hydPre++;return true;}
+/* whether the main thread has every block a rectangle's streams and lakes need (wgHydroIn reads the points three cells round it) */
+function wgHydHas(x0,z0,x1,z1){const HC=WG_CFG.hydroCell,b0=Math.floor((Math.floor(x0/HC)-3)/8),b1=Math.floor((Math.floor(x1/HC)+3)/8),c0=Math.floor((Math.floor(z0/HC)-3)/8),c1=Math.floor((Math.floor(z1/HC)+3)/8);
+  for(let bj=c0;bj<=c1;bj++)for(let bi=b0;bi<=b1;bi++)if(!WG.hyd.has(wgKey(bi*8,bj*8)))return false;return true;}
 /* where a point drains: its lowest neighbour lower than itself (-1: none, a pit) */
 function wgDown(p){if(p.dn!==-2)return p.dn;let best=-1,bh=p.h;for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){if(!di&&!dj)continue;const q=wgHyd(p.i+di,p.j+dj);
     const hh=q.h+(di&&dj?.0:0);if(hh<bh-.01){bh=hh;best=wgKey(q.i,q.j);}}p.dn=best;return best;}

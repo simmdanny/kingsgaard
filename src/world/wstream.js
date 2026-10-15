@@ -161,7 +161,11 @@ function wstFrame(){if(!OW.on||!WG.on)return;const f=OW.focus||{x:0,z:0},T0=perf
       const d=Math.hypot(s.x-f.x,s.z-f.z);if(d>WSTR.load||OW.villages.some(v=>v.site===s))continue;if(!wsReady(s.x-s.fr,s.z-s.fr,s.x+s.fr,s.z+s.fr))continue;if(!cand||d<cand.d)cand={s,d};}
     if(cand)wstVillage(cand.s);
     for(const v of OW.villages.slice())if(Math.hypot(v.x-f.x,v.z-f.z)>WSTR.unload&&!(OWI.cb&&OWI.cb.v===v))wstUnload(v);}
-  wfUpdate(f,false);wstRocksView(f);wstLazyStep(3);if(typeof owBridgesStep==='function')owBridgesStep();wstBlocksStep(4);}
+  wfUpdate(f,false);wstRocksView(f);wstLazyStep(3);if(typeof owBridgesStep==='function')owBridgesStep();wstBlocksStep(4);
+  /* the hydrology worked out ahead by the workers (wterrain.js WHP), as far as the game asks for it: the sites two cells past the roads' 1.5 km (wsWant), the landmarks
+     to WF.far, and with a long Detail distance the sites out to its rings of cells (owDetailRoads) - and a block more (what a site or a landmark reads round it) */
+  {const C=WS_CFG.cell;let R=Math.max(1500+3*C,WF.far+WF.cell);if(typeof owDd==='function'&&typeof OW_DD!=='undefined'){const D=Math.min(owDd(),Math.max(OW_DD.min,Math.floor(owFogEnd()/50)*50),OW_DD.tiles);if(D>600)R=Math.max(R,(Math.ceil((D+64)/C)+6)*C);}
+    WHP.R=R+800;whpStep(f.x,f.z);}}
 /* ---------- the start: the keep's surroundings made at once ---------- */
 function wstStart(seed){const T0=performance.now();wgInit(seed);wsReset();wfReset();wtReset();WSTR.vs={};WSTR.decks=[];WSTR.blk=[];WSTR.drawn.clear();WSTR.filled.clear();WSTR.stats={vb:0,vms:0,shifts:0};
   const K=wsKeep();OW.keep={x:K.x,z:K.z};OW.keepGate=K.gate;OW.keepApproach=K.app;OW.corridor=[];for(let d=0;d<=46+.01;d+=1.6)OW.corridor.push([K.gate.x,K.gate.z-d]);OW.corridor.reverse();

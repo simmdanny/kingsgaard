@@ -9358,7 +9358,8 @@ function owDetailSlim(){const S=WG_CFG.tile,cx=heroU.x,cz=heroU.z;for(const t of
    neighbours: two cells further. A road is the same whenever it is made (the land and the two villages only) */
 function owDetailRoads(D){if(typeof wsWant!=='function'||!heroU)return;const C=WS_CFG.cell,a0=Math.floor(heroU.x/C),b0=Math.floor(heroU.z/C),m=Math.ceil((D+64)/C)+1,need=m+4;let o=OW._ddS;
   if(!o||o.a0!==a0||o.b0!==b0)o=OW._ddS={a0,b0,ring:0,t:0};const T0=performance.now(),odd=(OW._ddF||0)&1;
-  for(let full=true;o.ring<need&&full;){const g=o.ring;for(let b=-g;b<=g&&full;b++)for(let a=-g;a<=g;a+=(b===-g||b===g)?1:2*g){if(!WS.sites.has(wgKey(a0+a,b0+b))){if(odd||performance.now()-T0>3){full=false;break;}wsSite(a0+a,b0+b);}if(!g)break;}if(full)o.ring++;}
+  for(let full=true;o.ring<need&&full;){const g=o.ring;for(let b=-g;b<=g&&full;b++)for(let a=-g;a<=g;a+=(b===-g||b===g)?1:2*g){if(!WS.sites.has(wgKey(a0+a,b0+b))){if(odd||performance.now()-T0>3){full=false;break;}
+    /* (its hydrology first: the workers work it out, wtHydReady - the landmarks near it too) */const x0=(a0+a)*C-700,z0=(b0+b)*C-700;if(typeof wtHydReady==='function'&&!wtHydReady(x0,z0,x0+C+1400,z0+C+1400)){full=false;break;}wsSite(a0+a,b0+b);}if(!g)break;}if(full)o.ring++;}
   if(T0-o.t>500){o.t=T0;const r=Math.min((m+1)*C,(o.ring-3)*C)-1;if(r>1500)wsWant(heroU.x,heroU.z,r);}if(WS.jobs.length)wsStep(2);}
 /* the level-0 tiles within the detail distance that are not there yet, nearest first (OW._ddM, every 10 frames; once none is missing it looks again only when the hero
    has gone 32 m or the distance changed, OW._ddT). They are asked for one at a time and only while the workers have fewer than two jobs in hand (owDetailAsk: the same

@@ -24,12 +24,52 @@ function wtPoolInit(src,seed){wtPoolStop();WT.seed=seed;if(!src||typeof Worker==
   try{url=URL.createObjectURL(new Blob([src],{type:'text/javascript'}));}catch(e){return 0;}
   for(let i=0;i<n;i++){try{const w=new Worker(url);w.busy=0;w.onmessage=wtOnMsg;w.onerror=e=>{console.warn('world worker:',e.message);w.dead=true;};w.postMessage({init:1,seed});WT.pool.push(w);}catch(e){console.warn('no world worker',e);break;}}
   return WT.pool.length;}
-function wtPoolStop(){for(const w of WT.pool)w.terminate();WT.pool=[];WT.reqs.clear();WT.asked.clear();WT.ready.clear();}
-function wtOnMsg(e){const m=e.data,r=WT.reqs.get(m.id);this.busy=Math.max(0,this.busy-1);if(!r)return;WT.reqs.delete(m.id);WT.stats.wk++;WT.stats.wms+=m.g.ms||0;r.cb(m.g);}
+function wtPoolStop(){for(const w of WT.pool)w.terminate();WT.pool=[];WT.reqs.clear();WT.asked.clear();WT.ready.clear();whpReset();}
+function wtOnMsg(e){const m=e.data;if(m.hyd){whpOnMsg(this,m);return;}const r=WT.reqs.get(m.id);this.busy=Math.max(0,this.busy-1);if(!r)return;WT.reqs.delete(m.id);WT.stats.wk++;WT.stats.wms+=m.g.ms||0;r.cb(m.g);}
 /* a grid of the world from the least busy worker (cb gets it); false if none is free */
-function wtAsk(key,x0,z0,step,n,lite,cb){let w=null;for(const p of WT.pool)if(!p.dead&&(!w||p.busy<w.busy))w=p;if(!w||w.busy>=2)return false;
+function wtAsk(key,x0,z0,step,n,lite,cb){let w=null;for(const p of WT.pool)if(!p.dead&&(!w||p.busy+(p.hjob?.5:0)<w.busy+(w.hjob?.5:0)))w=p;if(!w||w.busy>=2)return false;/* (a worker working out hydrology, WHP, is passed over while another is as free) */
   const st=lite>=1?null:(WG.stampsIn?WG.stampsIn(x0-step,z0-step,x0+(n+1)*step,z0+(n+1)*step):null);
   const id=++WT.reqId;WT.reqs.set(id,{key,cb});w.busy++;w.postMessage({grid:1,id,x0,z0,step,n,lite,st});return true;}
+/* ---------- the hydrology ahead of the game (v54) ----------
+   The first time a place is touched its hydrology (wgen.js: the heights of the 96 m lattice, where each point drains, how much drains through it - counted up
+   to 40 steps upstream, kilometres off - its lakes and streams) cost the main thread 50-160 ms: the far villages' sites, the landmarks, the roads and the trees
+   ask for it. The workers work it out ahead: the blocks of 8 x 8 points round the player out to WHP.R (set by wstFrame: as far as the game asks), nearest
+   first, one block a job, on a worker with at most one chunk of ground in hand (the chunks of ground come first; a block something waits for may go behind
+   two); the main thread takes in each block whole
+   (wgHydPut: the numbers it would have worked out itself). What can wait (the far sites, landmarks and trees) asks wtHydReady first: false while its blocks are on
+   their way (they are asked for first); a block asked for over WHP.wait ms ago and still not given to a worker is left to the main thread (one a worker has in hand
+   is waited for up to WHP.cap ms): only a worker lost should come to that - a block the main thread works out itself pulls in every block upstream of it (wgAcc). */
+const WHP={R:0,cx:1e9,cz:1e9,vx:0,vz:0,px:null,pz:null,pt:0,plan:[],pi:0,pri:[],asked:new Map(),req:new Map(),ep:-1,id:0,wait:30000,cap:30000,max:2,look:16,stats:{jobs:0,got:0,dup:0,ms:0,pri:0,late:0}};
+/* (each worker keeps to its own squares of 4 x 4 blocks, 3 km: a block's neighbours and what drains into it are mostly its own already - three workers over the same
+   ground would each work all of it out; at most WHP.max workers at it at once, so the main thread keeps a core) */
+const whpOwner=(bi,bj,n)=>wnHashI(Math.floor(bi/4),Math.floor(bj/4),977)%n;
+const whpHas=(bi,bj)=>WG.hyd.has(wgKey(bi*8,bj*8));
+function whpReset(){WHP.plan=[];WHP.pi=0;WHP.pri=[];WHP.asked.clear();WHP.req.clear();WHP.cx=WHP.cz=1e9;WHP.px=null;for(const w of WT.pool)w.hjob=0;}
+const whpOn=()=>WT.pool.length>0&&WT.seed===WG.seed&&WG.on;
+/* the blocks within R of the focus (a square: the sites are asked for ring by ring of cells), nearest to where it is heading first */
+function whpPlan(cx,cz,R){const B=WG_CFG.hydroCell*8,b0=Math.floor((cx-R)/B),b1=Math.floor((cx+R)/B),c0=Math.floor((cz-R)/B),c1=Math.floor((cz+R)/B),L=Math.min(R/3,Math.hypot(WHP.vx,WHP.vz)*4),
+    sp=Math.hypot(WHP.vx,WHP.vz)||1,ax=cx+WHP.vx/sp*L,az=cz+WHP.vz/sp*L,out=[];
+  for(let bj=c0;bj<=c1;bj++)for(let bi=b0;bi<=b1;bi++){if(whpHas(bi,bj))continue;out.push([Math.hypot((bi+.5)*B-ax,(bj+.5)*B-az),bi,bj]);}
+  out.sort((p,q)=>p[0]-q[0]);WHP.plan=out;WHP.pi=0;WHP.cx=cx;WHP.cz=cz;WHP.pR=R;}
+/* per frame (wstFrame, after the ground's chunks were asked for): jobs to the workers that have no block in hand, at most WHP.max of them at once */
+function whpStep(cx,cz){if(!whpOn())return;if(WHP.ep!==WG.ep){whpReset();WHP.ep=WG.ep;}const now=performance.now();
+  if(WHP.px!==null&&now-WHP.pt>500){const dt=(now-WHP.pt)/1000;WHP.vx=WHP.vx*.5+.5*(cx-WHP.px)/dt;WHP.vz=WHP.vz*.5+.5*(cz-WHP.pz)/dt;WHP.px=cx;WHP.pz=cz;WHP.pt=now;}else if(WHP.px===null){WHP.px=cx;WHP.pz=cz;WHP.pt=now;}
+  if(WHP.R>0&&(Math.hypot(cx-WHP.cx,cz-WHP.cz)>256||Math.abs(WHP.R-WHP.pR)>100||(WHP.pi>=WHP.plan.length&&WT.frame%60===0)))whpPlan(cx,cz,WHP.R);
+  const P=WT.pool,n=P.length;let on=0;for(const w of P)if(w.hjob)on++;
+  for(let wi=0;wi<n&&on<Math.min(WHP.max,n);wi++){const w=P[wi];if(w.dead||w.hjob)continue;
+    let b=null;/* (what is waited for first - on any worker -, then the plan - of the next few, the first in its own squares - on a worker with at most one chunk in hand) */
+    while(WHP.pri.length&&w.busy<=2){const c=WHP.pri.shift();if(!whpHas(c[0],c[1])&&!WHP.asked.has(wgKey(c[0],c[1]))){b=c;WHP.stats.pri++;break;}}
+    if(!b&&w.busy<=1){while(WHP.pi<WHP.plan.length){const c=WHP.plan[WHP.pi];if(whpHas(c[1],c[2])||WHP.asked.has(wgKey(c[1],c[2])))WHP.pi++;else break;}
+      let pick=-1;for(let k=WHP.pi;k<Math.min(WHP.plan.length,WHP.pi+WHP.look);k++){const c=WHP.plan[k];if(c[3])continue;if(pick<0&&!whpHas(c[1],c[2])&&!WHP.asked.has(wgKey(c[1],c[2])))pick=k;if(whpOwner(c[1],c[2],n)===wi&&!whpHas(c[1],c[2])&&!WHP.asked.has(wgKey(c[1],c[2]))){pick=k;break;}}
+      if(pick>=0){const c=WHP.plan[pick];c[3]=1;b=[c[1],c[2]];if(pick===WHP.pi)WHP.pi++;}}
+    if(!b)continue;on++;const id=++WHP.id;w.hjob=1;WHP.asked.set(wgKey(b[0],b[1]),now);WHP.stats.jobs++;w.postMessage({hyd:1,id,ep:WG.ep,seed:WG.seed,bi:b[0],bj:b[1]});}}
+function whpOnMsg(w,m){w.hjob=0;const k=wgKey(m.bi,m.bj);WHP.asked.delete(k);WHP.req.delete(k);if(!m.F||m.ep!==WG.ep||m.seed!==WG.seed||!WG.on)return;WHP.stats.ms+=m.ms;
+  if(wgHydPut(m.bi,m.bj,m.F))WHP.stats.got++;else WHP.stats.dup++;}
+/* whether the hydrology of a rectangle is here (wgHydHas); if not, its blocks are asked for first and false is returned - true with no workers, or once a block has
+   been waited for over WHP.wait ms (the main thread works it out then) */
+function wtHydReady(x0,z0,x1,z1){if(!whpOn())return true;const HC=WG_CFG.hydroCell,b0=Math.floor((Math.floor(x0/HC)-3)/8),b1=Math.floor((Math.floor(x1/HC)+3)/8),c0=Math.floor((Math.floor(z0/HC)-3)/8),c1=Math.floor((Math.floor(z1/HC)+3)/8),now=performance.now();
+  let ok=true;for(let bj=c0;bj<=c1;bj++)for(let bi=b0;bi<=b1;bi++){if(whpHas(bi,bj))continue;const k=wgKey(bi,bj),t=WHP.req.get(k);if(t===undefined){WHP.req.set(k,now);WHP.pri.push([bi,bj]);ok=false;}else if(now-t<(WHP.asked.has(k)?WHP.cap:WHP.wait))ok=false;else if(t>0){WHP.stats.late++;WHP.req.set(k,-1e15);}}
+  return ok;}
 function wtTileEvict(){const arr=[...WT.tiles.values()].sort((a,b)=>a.use-b.use),drop=arr.length-Math.floor(WT.tileCap*.85);for(let i=0;i<drop;i++){if(arr[i].pin)continue;WT.tiles.delete(arr[i].ti+','+arr[i].tk);}}
 const wtHasTile=(x,z)=>WT.tiles.has(Math.floor(x/WG_CFG.tile)+','+Math.floor(z/WG_CFG.tile));
 /* the height of the ground at a point, from the triangles of its level-0 tile (the tile is made if it does not exist yet) */
@@ -264,5 +304,5 @@ function wtUpdate(camera,force){if(!WT.on)return;WT.frame++;const cp=camera.posi
   /* chunks unused for a while go */
   if(WT.chunks.size>320&&WT.frame%30===0){const arr=[...WT.chunks.values()].filter(c=>!show.has(c)).sort((a,b)=>a.use-b.use);for(let j=0;j<arr.length&&WT.chunks.size>260;j++){wtDispose(arr[j]);WT.chunks.delete(wtKey(arr[j].L,arr[j].i,arr[j].k));}}}
 function wtInit(group){WT.group=group;WT.on=true;wtMaterial();wtWaterMat();wtIndex();if(typeof wrvInit==='function')wrvInit(group);}
-function wtReset(){if(typeof wrvReset==='function')wrvReset();for(const ch of WT.chunks.values())wtDispose(ch);WT.chunks.clear();WT.tiles.clear();WT.want=null;WT.on=false;WT.asked.clear();WT.ready.clear();WT.reqs.clear();for(const w of WT.pool)w.busy=0;}
+function wtReset(){if(typeof wrvReset==='function')wrvReset();for(const ch of WT.chunks.values())wtDispose(ch);WT.chunks.clear();WT.tiles.clear();WT.want=null;WT.on=false;WT.asked.clear();WT.ready.clear();WT.reqs.clear();for(const w of WT.pool)w.busy=0;whpReset();}
 

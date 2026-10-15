@@ -340,11 +340,16 @@ function trwView(force){if(!OW.on||!OW.group||!WG.on)return;if(TRW.off){if(TRW.g
   /* the work: the nearest first, a few milliseconds a frame (at least one step) */
   const lim=force?400:3.2;let steps=0;
   let site=false;const fo=OW.focus||cp;
-  while(TRW.q.length&&(steps===0||performance.now()-t0<lim)){const T=TRW.q[0];if(!TRW.tiles.has(T.key)||T.d>Rmax){TRW.q.shift();continue;}
-    /* the villages round it first (one a frame), then - near the player - the roads round it (the tile waits; the next scan brings it back) */
-    if(!T.a||T.recheck||!T.lod){const ms=trwSiteMissing(T);if(ms){if(site)break;wsSite(ms[0],ms[1]);site=true;steps++;continue;}
+  /* (the time counts for every tile looked at - a tile looked at again with nothing changed too: when roads are added every tile is, two thousand at 3 km -
+     but for the first step of a frame, which may go over it up to three times) */
+  while(TRW.q.length&&(performance.now()-t0<lim||steps===0&&performance.now()-t0<lim*3)){const T=TRW.q[0];if(!TRW.tiles.has(T.key)||T.d>Rmax){TRW.q.shift();continue;}
+    /* the villages round it first (one a frame), then - near the player - the roads round it (the tile waits; the next scan brings it back); far off, the land of a
+       village and of the tile waits for its hydrology from the workers (wtHydReady, src/world/wterrain.js: the next scan brings it back) */
+    const hw=T.d>600&&typeof wtHydReady==='function';
+    if(!T.a||T.recheck||!T.lod){const ms=trwSiteMissing(T);if(ms){if(site)break;if(hw){const C=WS_CFG.cell,x0=ms[0]*C-700,z0=ms[1]*C-700;if(!wtHydReady(x0,z0,x0+C+1400,z0+C+1400)){TRW.q.shift();continue;}}
+        wsSite(ms[0],ms[1]);site=true;steps++;continue;}
       const rk=trwRoadsKnown(T);if(!rk&&trwDist(T,fo.x,fo.z)<TRW.RR){T.wait=true;TRW.q.shift();continue;}T.wait=false;if(rk&&T.rf===false)TRW.near.dirty=true;T.rf=rk;}
-    if(!T.a){const p=trwPlace(T.ti,T.tk);T.a=p.a;T.n=p.n;T.tint=p.tint;T.out=null;T.prov=trwExclude(T);T.recheck=false;steps++;if(!force&&performance.now()-t0>lim)break;}
+    if(!T.a){if(hw){const S=WG_CFG.tile;if(!wtHydReady(T.ti*S,T.tk*S,T.ti*S+S,T.tk*S+S)){TRW.q.shift();continue;}}const p=trwPlace(T.ti,T.tk);T.a=p.a;T.n=p.n;T.tint=p.tint;T.out=null;T.prov=trwExclude(T);T.recheck=false;steps++;if(!force&&performance.now()-t0>lim)break;}
     if(T.recheck){const s0=T.sum;T.prov=trwExclude(T);T.recheck=false;if(s0===T.sum&&T.lod===T.wl&&(T.wl!==2||T.cls===T.wc)&&T.fol===(meta&&meta.fol)&&!(T.wl!==2&&!T.ex&&WT.tiles.has(T.key))){TRW.q.shift();continue;}
       if(s0!==T.sum)TRW.near.dirty=true;}
     trwDrop(T);T.lod=T.wl;T.cls=T.wc;T.fol=meta&&meta.fol;T.mesh=trwMesh(T,T.wl,T.wc);if(T.mesh){TRW.group.add(T.mesh);TRW.live.add(T);}if(T.lod===1)TRW.near.dirty=true;TRW.q.shift();steps++;}
