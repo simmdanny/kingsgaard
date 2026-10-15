@@ -10,8 +10,9 @@
       far is negative selects it: near = the end. A positive far is the old linear fog.
       A landmark's material may define WD_SEE (uniform uSee = the height of its foot, its size): its upper part shows faintly through the haze out to
       2.6 times the end (at most a third of it, more the higher up), so the Great Elder Circle can be found from afar. The ground's material defines
-      WD_PED: the Great Elder Circle's pedestal (its 'ped' weight, wterrain.js) shows through the haze alike, most near the ring, so the ring never stands
-      clear over a mountain lost in the fog.
+      WD_PED: the Great Elder Circle's pedestal (its 'ped' weight, wterrain.js) shows through the haze alike, most near the ring - a long, slow curve,
+      half way at about the upper third of the mountain, fading into the fog over its middle - so the ring never stands clear over a mountain lost in
+      the fog.
    ===================================================================================================== */
 const WD={R0:900,SPAN:1150,SCALE:5200,S:.58,on:false};
 function wdPatch(){if(WD.on)return;WD.on=true;const C=THREE.ShaderChunk;
@@ -33,7 +34,7 @@ function wdPatch(){if(WD.on)return;WD.on=true;const C=THREE.ShaderChunk;
 			{ float wdS = smoothstep( uSee.x + 0.15 * uSee.y, uSee.x + 1.3 * uSee.y, cameraPosition.y + vFogV.y ) * ( 1.0 - smoothstep( fogNear * 1.6, fogNear * 2.6, wdD ) ); fogFactor = min( fogFactor, 1.0 - 0.36 * wdS ); }
 			#endif
 			#ifdef WD_PED
-			{ float wdP = smoothstep( 0.68, 0.95, ped ) * ( 1.0 - smoothstep( fogNear * 1.6, fogNear * 2.6, wdD ) ); fogFactor = min( fogFactor, 1.0 - 0.36 * wdP ); }
+			{ float wdP = pow( clamp( ( ped - 0.45 ) / 0.55, 0.0, 1.0 ), 2.8 ) * ( 1.0 - smoothstep( fogNear * 1.6, fogNear * 2.6, wdD ) ); fogFactor = min( fogFactor, 1.0 - 0.36 * wdP ); }
 			#endif
 		} else {
 			fogFactor = smoothstep( fogNear, fogFar, fogDepth );
