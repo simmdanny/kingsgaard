@@ -134,7 +134,7 @@ function wtMakeMat(see,inset){const tex=wtNoiseTex(),m=new THREE.MeshPhongMateri
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE)
       .replace('#include <map_fragment>',WT_GLSL_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground11see':inset?'wtground11k':'wtground11';return m;}
+  m.customProgramCacheKey=()=>see?'wtground12see':inset?'wtground12k':'wtground12';return m;}
 /* courses of big blocks in a face's plane, anchored to the world (q: along the face, up): x = the distance to the nearest seam (m), y = the block's hash */
 const WT_GLSL_STONE=`
 float wtH1(float n){return fract(sin(n*12.9898+4.1414)*43758.5453);}
@@ -197,7 +197,7 @@ const WT_GLSL_COLOR=`
        far cliffs past the sheets and the faces round them read as the same carved rock; the facets light softly (the look is paint, not facets).
        Not a ring's or a boulder's block (aB.w = 1): those keep their chiselled stone */
     if(vB.w<0.97){float gry=clamp(wSp*2.0+(1.0-wTb-wSp)*0.35+ped,0.0,1.0),stp=smoothstep(0.42,0.62,sl);
-      vec2 sq=abs(Nf.x)>abs(Nf.z)?wtStoneQ(vec2(P.z,P.y)):wtStoneQ(vec2(P.x+17.3,P.y));float fq=fwidth(sq.x);
+      vec2 sq=abs(Nf.x)>abs(Nf.z)?wtStoneQ(vec2(P.z,P.y)):wtStoneQ(vec2(P.x+17.3,P.y));float fq=fwidth(sq.x);stp*=smoothstep(60.0,140.0,length(P-cameraPosition));/* (the courses are the far cliffs': near, the sheets are the rock) */
       float upv=clamp(Nw.y*0.5+0.5,0.0,1.0),t=0.52+0.30*(upv-0.5)+0.14*(sq.y-0.5)*stp*(1.0-smoothstep(0.3,1.2,fq))+0.12*(nm-0.5)+0.08*(ns-0.5)+0.05*(nL-0.5);
       float q4=t*4.0;t=mix(t,(floor(q4)+smoothstep(0.3,0.7,fract(q4)))/4.0,0.8);vec3 rn=wcStone(t,gry);
       float seam=(1.0-smoothstep(0.09-fq,0.09+fq+0.002,sq.x))*stp*(1.0-smoothstep(0.12,0.45,fq));rn*=mix(1.0,0.70,seam);rn=mix(rn,rn*vec3(1.0,0.88,0.78),seam*0.5);

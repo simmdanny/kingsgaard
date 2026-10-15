@@ -180,37 +180,16 @@ function wstVillagesNear(x,z){const C=WS_CFG.cell;for(let b=Math.floor((z-WSTR.l
 function wstSave(){const vs=Object.assign({},WSTR.vs);for(const v of OW.villages)vs[v.key]=wstState(v);return vs;}
 function wstLoad(vs){WSTR.vs=vs||{};for(const v of OW.villages){const sv=WSTR.vs[v.key];if(sv)wstApply(v,sv);}}
 
-/* ---------- boulders: a merged mesh per level-0 tile, the same rock as the cliffs (moss where they face up) ----------
-   More where the ground is steep (the talus under cliffs and on the mountain flanks), on the shores of the lake region and in the spires and the
-   tablelands, now and then one in a meadow; never on a road, in a village or in the water. Places from a hash of the tile, never the world's stream. */
-const WROCK={tpl:null,R:420,mat:null};
-function wstRockTpl(){if(WROCK.tpl)return WROCK.tpl;if(typeof wrkBoulderTpl==='function')return WROCK.tpl=wrkBoulderTpl();/* (chiselled stones, src/world/wrock.js) */const out=[],N=WG.N;
-  for(let v=0;v<6;v++){const g=new THREE.IcosahedronGeometry(1,3),p=g.attributes.position,sx=.8+.5*((v*37)%10)/10,sy=.55+.35*((v*53)%10)/10,sz=.8+.5*((v*71)%10)/10;
-    for(let i=0;i<p.count;i++){const x=p.getX(i),y=p.getY(i),z=p.getZ(i),r=1+.28*(wnRidged(N[18],x*1.4+v*7.1,z*1.4+y*.9,3,2.1,.5,1,2)-.45)+.08*wnN(N[19],x*4.1+y*3.3+v,z*4.1-y*2.7);
-      let X=x*r*sx,Y=y*r*sy,Z=z*r*sz;if(Y<-.25)Y=-.25+(Y+.25)*.35;p.setXYZ(i,X,Y,Z);}
-    const ng=g.index?g.toNonIndexed():g;ng.computeVertexNormals();out.push(ng);}
-  return WROCK.tpl=out;}
-function wstRocks(t){if(t.rocks!==undefined||!OW.group)return;t.rocks=null;const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng(wnHashI(t.ti,t.tk,WG.seed+701)),TP=wstRockTpl(),pos=[],nrm=[],aA=[],occ=[],props=[];
-  const lat=(x,z)=>{const fx=(x-t.x0)/2,fz=(z-t.z0)/2,i=Math.min(n-1,fx|0),k=Math.min(n-1,fz|0);return k*s+i;};
-  const RW=new Float64Array(4);wgRegions(t.x0+S/2,t.z0+S/2,RW);
-  const tries=6+Math.round(10*(RW[1]+RW[2])+4*RW[3]);
-  for(let q=0;q<tries;q++){const x=t.x0+R()*S,z=t.z0+R()*S,sz0=R(),rot=R()*6.283,tv=Math.floor(R()*TP.length),pk=R();const k=lat(x,z),h=owH(x,z);
-    if(g.wl[k]>h-.2)continue;const c=owCell(x,z),gv=grid[c.r]&&grid[c.r][c.c];if(gv!==0&&gv!==2)continue;
-    const e=1.5,sl=Math.hypot(owH(x+e,z)-owH(x-e,z),owH(x,z+e)-owH(x,z-e))/(2*e),talus=wnS(sl,.3,.75),shore=g.wl[k]>-1e8?1-wnS(h-g.wl[k],.5,4):0;
-    const want=.12+talus*.85+shore*.6*RW[3]+.25*(RW[1]+RW[2]);if(pk>want)continue;
-    if(gv===2&&sl<.5)continue;/* (closed but not steep: a building's ground or the keep) */
-    const sc=(.5+1.6*Math.pow(sz0,2.2))*(1+1.2*talus*(RW[1]+RW[2]));const ca=Math.cos(rot),sa=Math.sin(rot),G=TP[tv],P=G.attributes.position,Nn=G.attributes.normal,y0=h-.28*sc*(.55+.35*((tv*53)%10)/10);
-    const OC=G.attributes.occ;/* (how little light reaches each corner: wrock.js wrkBoulderTpl) */
-    for(let i=0;i<P.count;i++){const px=P.getX(i)*sc,py=P.getY(i)*sc,pz=P.getZ(i)*sc;pos.push(x+px*ca+pz*sa-t.x0,y0+py,z-px*sa+pz*ca-t.z0);const nx=Nn.getX(i),ny=Nn.getY(i),nz=Nn.getZ(i);nrm.push(nx*ca+nz*sa,ny,-nx*sa+nz*ca);aA.push(RW[1],RW[2],RW[3],0);occ.push(OC?OC.getX(i):0);}
-    props.push({type:'rock',x,z,r:sc*.85,alive:true});}
-  if(!pos.length)return;
-  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.setAttribute('normal',new THREE.Float32BufferAttribute(nrm,3));
-  const nv=pos.length/3,B=new Uint8Array(nv*4);for(let i=0;i<nv;i++){B[i*4+1]=Math.round(128+127*occ[i]);B[i*4+3]=225;}/* (aB.y: the cavity - darker low down and underneath) */geo.setAttribute('aA',new THREE.BufferAttribute(new Uint8Array(aA.map(v=>Math.round(v*255))),4,true));geo.setAttribute('aB',new THREE.BufferAttribute(B,4,true));geo.setAttribute('aW',new THREE.BufferAttribute(new Float32Array(nv).fill(-1e4),1));geo.computeBoundingSphere();
-  const m=new THREE.Mesh(geo,wtMaterial());m.position.set(t.x0,0,t.z0);m.castShadow=true;m.receiveShadow=true;m.userData.keep=1;OW.group.add(m);
-  for(const p of props){p.mesh=m;OW.props.push(p);const key=Math.floor(p.x/4)+','+Math.floor(p.z/4);(OW.propGrid.get(key)||OW.propGrid.set(key,[]).get(key)).push(p);}
-  t.rocks={m,props};}
-function wstRocksDrop(t){const r=t.rocks;t.rocks=undefined;if(!r)return;if(r.m.parent)r.m.parent.remove(r.m);r.m.geometry.dispose();const P=new Set(r.props);OW.props=OW.props.filter(p=>!P.has(p));
+/* ---------- boulders (world look 2: src/world/wboulder.js - seeded chunky stones, instanced, the cliffs' stone) ----------
+   Here only which tiles have theirs: the filled tiles within WROCK.R (the Detail distance sets it, 420 m to 1.2 km), one made a frame; their props (the
+   bigger ones block the hero) in OW.props; dropped 200 m further out. */
+const WROCK={R:420};
+function wstRocks(t){if(t.rocks!==undefined||!OW.group)return;t.rocks=null;const r=wbldPlace(t);
+  for(const p of r.props){OW.props.push(p);const key=Math.floor(p.x/4)+','+Math.floor(p.z/4);(OW.propGrid.get(key)||OW.propGrid.set(key,[]).get(key)).push(p);}
+  t.rocks=r;WBLD.dirty=true;}
+function wstRocksDrop(t){const r=t.rocks;t.rocks=undefined;if(!r)return;WBLD.dirty=true;const P=new Set(r.props);OW.props=OW.props.filter(p=>!P.has(p));
   for(const p of r.props){const key=Math.floor(p.x/4)+','+Math.floor(p.z/4),L=OW.propGrid.get(key);if(L){const L2=L.filter(q=>q!==p);if(L2.length)OW.propGrid.set(key,L2);else OW.propGrid.delete(key);}}}
 /* per frame: boulders on the filled tiles near the player, dropped far away */
 function wstRocksView(f){const S=WG_CFG.tile;let made=0;for(const t of WT.tiles.values()){const d=Math.hypot(t.x0+S/2-f.x,t.z0+S/2-f.z);
-    if(d<WROCK.R){if(t.rocks===undefined&&made<1&&WSTR.filled.has(t.ti+','+t.tk)){wstRocks(t);made++;}}else if(d>WROCK.R+200&&t.rocks!==undefined)wstRocksDrop(t);}}
+    if(d<WROCK.R){if(t.rocks===undefined&&made<1&&WSTR.filled.has(t.ti+','+t.tk)){wstRocks(t);made++;}}else if(d>WROCK.R+200&&t.rocks!==undefined)wstRocksDrop(t);}
+  wbldView(f);}

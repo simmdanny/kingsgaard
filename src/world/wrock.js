@@ -2,13 +2,13 @@
    CHISELLED STONE (src/world/wrock.js): the cliffs near the player, and the chiselled stones others use.
    - World look 1: a cliff is one continuous rock surface made with the terrain (src/world/wcliff.js, its material src/world/wcliffmat.js) - no
      longer walls of separate blocks. Here: which level-0 tiles get a sheet and at which level (the grid 0.8 / 1.6 / 3.2 m by distance, WRK.lodD),
-     out to WRK.clR (200 m; the Detail distance setting pushes it to 320 m), made by the world workers (wterrain.js's pool) or, forced or without
+     out to WRK.clR (300 m; the Detail distance setting pushes it to 450 m), made by the world workers (wterrain.js's pool) or, forced or without
      workers, here a slice a frame; dropped beyond reach. Past the sheets the ground's own stone (wterrain.js: the cliff's palette and courses of blocks)
      is the cliff. The ground's lattice stands back from the faces under the sheets (WT.clf, wterrain.js WT_INSET) out to WRK.clR + 40 m.
    - wrkShape: a stone in its own frame - an icosphere squared towards a block, roughened, chiselled by flat planes (the elderglade rings' rubble,
-     wring.js, and the boulders' templates, wrkBoulderTpl, use it).
+     wring.js, uses it; the boulders are src/world/wboulder.js).
    ===================================================================================================== */
-const WRK={pend:new Map(),lodD:[40,100],on:false,group:null,clR:200,ms:3,tiles:new Map(),job:null,N:null,ico:{},tpl:null,stats:{built:0,ms:0,blocks:0,tris:0}};
+const WRK={pend:new Map(),lodD:[40,100],on:false,group:null,clR:300,ms:3,tiles:new Map(),job:null,N:null,ico:{},stats:{built:0,ms:0,blocks:0,tris:0}};
 function wrkInit(group){WRK.group=group;WRK.on=true;if(!WRK.N)WRK.N=wnSimplex(424242);}
 function wrkReset(){for(const r of WRK.tiles.values())wrkDrop(r);WRK.tiles.clear();WRK.job=null;WRK.pend.clear();WRK.on=false;}
 function wrkDrop(r){if(r.mesh){if(r.mesh.parent)r.mesh.parent.remove(r.mesh);r.mesh.geometry.dispose();if(r.mesh.userData.cliff&&typeof wcmDrop==='function')wcmDrop(r.mesh);r.mesh=null;}}
@@ -32,16 +32,6 @@ function wrkShape(R,w,h,d,o){const src=wrkIco(o.det||0),U=wrkIcoU(o.det||0),out=
   for(let j=0,M=U.map;j<M.length;j++){const u=M[j]*3;out[j*3]=V[u];out[j*3+1]=V[u+1];out[j*3+2]=V[u+2];}
   return out;}
 
-/* the boulders' templates (wstream.js wstRocks keeps its places and its draws; only the shapes are these): six chiselled stones, a little squared */
-function wrkBoulderTpl(){if(WRK.tpl)return WRK.tpl;if(!WRK.N)WRK.N=wnSimplex(424242);const out=[];
-  for(let v=0;v<6;v++){const R=wnRng(9001+v*77),sx=.8+.5*((v*37)%10)/10,sy=.55+.35*((v*53)%10)/10,sz=.8+.5*((v*71)%10)/10;
-    const p=wrkShape(R,2*sx,2*sy,2*sz,{det:1,cuts:5+(v%3),up:1,rough:.08,box:.45+.08*(v%4)}),g=new THREE.BufferGeometry();
-    for(let i=1;i<p.length;i+=3)if(p[i]<-.25)p[i]=-.25+(p[i]+.25)*.35;/* (a flatter underside, as before) */
-    g.setAttribute('position',new THREE.BufferAttribute(p,3));g.computeVertexNormals();
-    {const oc=new Float32Array(p.length/3),nr=g.attributes.normal.array,ylo=-.25*sy*1.1,yhi=sy;for(let i=0;i<oc.length;i++){const hf=Math.min(1,Math.max(0,(p[i*3+1]-ylo)/(yhi-ylo)));
-      oc[i]=Math.min(1,1-(1-.55*Math.pow(1-hf,1.8))*(1-.35*wnS(nr[i*3+1],-.1,-.6)));}g.setAttribute('occ',new THREE.BufferAttribute(oc,1));}/* (how little light reaches it: low down and underneath) */
-    out.push(g);}
-  return WRK.tpl=out;}
 
 /* per frame: the sheets round the camera (force: every one in reach at once - a start, a teleport, the lab) */
 function wrkView(cam,force){if(!WRK.on||!WRK.group)return;if(typeof wcmFrame==='function')wcmFrame();if(WT.clf)WT.clf.value.y=WRK.clR+40;wrkNear(cam,force,performance.now());}
