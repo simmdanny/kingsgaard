@@ -13,7 +13,7 @@
    One program for every tile; each tile its own material for its own stone table (a float texture, 4 texels a stone, positions from the tile's
    corner, uOrg).
    ===================================================================================================== */
-const WCM={mats:new Set(),sun:{value:null},time:0};
+const WCM={mats:new Set(),sun:{value:new THREE.Vector3(.4,.85,.3)},time:0};
 const WCM_PAL=`
 const vec3 PB0=vec3(0.30,0.22,0.16),PB1=vec3(0.48,0.39,0.29),PB2=vec3(0.66,0.56,0.43),PB3=vec3(0.82,0.73,0.58);
 const vec3 PG0=vec3(0.14,0.15,0.18),PG1=vec3(0.27,0.28,0.30),PG2=vec3(0.42,0.42,0.42),PG3=vec3(0.60,0.60,0.57);
@@ -23,15 +23,15 @@ vec3 wcStone(float t,float grey){return mix(wcRamp4(t,PB0,PB1,PB2,PB3),wcRamp4(t
 /* the stone table of a tile as a float texture: WCL_SN (24) floats a stone = 6 RGBA texels, as wclStones lays them out (x, z from the tile's corner) */
 function wcmTex(A,x0,z0){const S=WCL_SN,n=Math.max(1,A.length/S),d=new Float32Array(n*S);d.set(A);for(let k=0;k<A.length/S;k++){d[k*S]-=x0;d[k*S+2]-=z0;}
   const t=new THREE.DataTexture(d,S/4,n,THREE.RGBAFormat,THREE.FloatType);t.magFilter=t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;t.needsUpdate=true;return t;}
-function wcmMat(tex,x0,z0){const tWN=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,shininess:6,specular:0x101010}),U={uBlk:{value:tex},uOrg:{value:new THREE.Vector3(x0,0,z0)},tWN:{value:tWN},uSunD:WCM.sun};
+function wcmMat(tex,x0,z0){const tWN=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,shininess:6,specular:0x101010}),U={uBlk:{value:tex},uOrg:{value:new THREE.Vector3(x0,0,z0)},tWN:{value:tWN},tGS:{value:wtStrokeTex()},uSunD:WCM.sun};
   m.onBeforeCompile=sh=>{Object.assign(sh.uniforms,U);
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aBlk;attribute vec4 aBlk2;flat varying vec4 vBlk;flat varying vec4 vBlk2;attribute float aCrev;attribute float aRk;attribute vec3 aPal;varying vec3 vWp;varying vec3 vN0;varying float vCrev;varying float vRk;varying float vPal;varying float vSn;varying float vGr;')
       .replace('#include <begin_vertex>','#include <begin_vertex>\nvWp=(modelMatrix*vec4(transformed,1.0)).xyz;vN0=normalize(mat3(modelMatrix)*objectNormal);vCrev=aCrev;vRk=aRk;vPal=aPal.x;vSn=aPal.y;vGr=aPal.z;vBlk=aBlk;vBlk2=aBlk2;');
-    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D uBlk;uniform vec3 uOrg;uniform sampler2D tWN;uniform vec3 uSunD;varying vec3 vWp;varying vec3 vN0;varying float vCrev;varying float vRk;varying float vPal;varying float vSn;varying float vGr;flat varying vec4 vBlk;flat varying vec4 vBlk2;vec3 wcN;'+WCM_PAL+WCM_FUNCS)
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D uBlk;uniform vec3 uOrg;uniform sampler2D tWN;uniform sampler2D tGS;uniform vec3 uSunD;varying vec3 vWp;varying vec3 vN0;varying float vCrev;varying float vRk;varying float vPal;varying float vSn;varying float vGr;flat varying vec4 vBlk;flat varying vec4 vBlk2;vec3 wcN;'+WCM_PAL+WCM_FUNCS+WT_GLSL_MEADOW)
       .replace('#include <map_fragment>','#include <map_fragment>\n'+WCM_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\nnormal=normalize((viewMatrix*vec4(wcN,0.0)).xyz);')
       .replace('#include <lights_fragment_begin>',wcmLights());};
-  m.customProgramCacheKey=()=>'wcliff9';m.userData.U=U;WCM.mats.add(m);return m;}
+  m.customProgramCacheKey=()=>'wcliff11';m.userData.U=U;WCM.mats.add(m);return m;}
 const WCM_FUNCS=`
 /* a stone at P (from the tile's corner): x = relief, y = score (-1 outside it), z = cap (1 well inside, 0 at its rim); g = the relief's slope along the
    face (per metre, along u0 and up) - from the edge that is nearest (a block's straight bevels: the slope of one plane at a time) and the front's tilt */
@@ -83,8 +83,9 @@ const WCM_COLOR=`
   col*=mix(1.0,0.70,smoothstep(0.15,0.9,crev));col=mix(col,col*vec3(1.0,0.88,0.78),smoothstep(0.4,1.0,crev)*0.5);/* darkest 70 % of the base, warm */
   col=mix(col,col*cool*0.9,clamp((1.0-up)*0.35,0.0,1.0));
   col*=1.0-0.07*smoothstep(0.58,0.74,NS.a);
-  vec4 NG=wcTex3(vWp,n0,11.0);float gv=NG.g,gb=texture2D(tWN,vWp.xz/393.0).r;
-  vec3 gcol=mix(vec3(0.115,0.245,0.085),vec3(0.215,0.395,0.105),smoothstep(0.2,0.7,gv*0.7+gb*0.3));gcol=mix(gcol,vec3(0.39,0.545,0.14),smoothstep(0.62,0.9,gv)*0.4);
+  vec4 NG=wcTex3(vWp,n0,11.0);/* (the cliff's grass is the meadow's: WT_GLSL_MEADOW) */
+  float clC;vec3 gcol=wtGrassRamp(wtMeadowT(vWp.xz,1.0-smoothstep(28.0,80.0,dc),clC)+0.14*(clamp(dot(Nn,normalize(uSunD)),0.0,1.0)-0.65));
+  gcol=wtMeadowStrokes(gcol,vWp.xz,1.0-smoothstep(14.0,42.0,dc));
   /* snow on the upper spires (vSn, as the ground's): on the tops of the stones and the ledges */
   float snA=vSn>0.002?smoothstep(0.25,0.5,vSn+0.35*(NG.a-0.5)+0.2*(nb-0.5)):0.0;vec3 snC=vec3(0.88,0.91,0.97)*(0.92+0.08*nm);
   gcol=mix(gcol,snC,snA);/* (the soil is snowed over where the ground is) */if(snA>0.0)col=mix(col,snC,snA*smoothstep(0.5,0.8,Nn.y+0.1*cap));

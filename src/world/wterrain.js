@@ -126,15 +126,41 @@ function wtMaterialSee(y0,R,x,z){return wtMakeMat({y0,R,x,z});}
 WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
 function wtMakeMat(see,inset){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
   m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(inset)m.defines.WT_INSET=1;if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
-  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uSunD=WCM.sun;sh.uniforms.tGS={value:wtStrokeTex()};if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='uniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\nuniform vec3 uSunD;\nuniform sampler2D tGS;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;uniform vec3 uClf;\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
       .replace('#include <begin_vertex>','#include <begin_vertex>\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
         'float k=(1.0-smoothstep(0.25,0.35,aA.x))*(1.0-smoothstep(0.40,0.50,aA.z))*uClf.x*(1.0-smoothstep(uClf.y*0.85,uClf.y,length(wp0.xz-cameraPosition.xz)));'+
         'transformed.xz+=aPu*k*uClf.z;}\n#endif\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
-    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE)
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE+WT_GLSL_MEADOW)
       .replace('#include <map_fragment>',WT_GLSL_COLOR)
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground14see':inset?'wtground14k':'wtground14';return m;}
+  m.customProgramCacheKey=()=>see?'wtground16see':inset?'wtground16k':'wtground16';return m;}
+/* the meadow (world look 4: the mockup's MEADOW, grassRamp, meadowT, meadowStrokes, gStrokes) - a painted green of several shades: broad patches,
+   darker clover clumps (the noise texture's channels: r broad, a fine), and two sizes of painted blade strokes leaning along a slowly turning direction
+   (wtStrokeTex: a pointed stroke a cell). The ground's grass and the cliffs' (wcliffmat.js) are painted by the same functions: no seam where they meet */
+const WT_GLSL_MEADOW=`
+float wtH31(vec3 p){p=fract(p*0.3183099+vec3(0.71,0.113,0.419));p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+vec3 wtCell2(vec2 p){vec2 i=floor(p),f=fract(p);vec2 c=vec2(wtH31(vec3(i,2.1)),wtH31(vec3(i,5.7)))*0.7+0.15;return vec3(wtH31(vec3(i,1.3)),length(f-c),wtH31(vec3(i,9.9)));}
+vec3 wtGrassRamp(float t){t=clamp(t,0.0,1.0)*4.0;vec3 a=vec3(0.11,0.24,0.07),b=vec3(0.21,0.39,0.09),c=vec3(0.34,0.54,0.12),d=vec3(0.49,0.66,0.16),e=vec3(0.65,0.75,0.25);
+  return t<1.0?mix(a,b,t):t<2.0?mix(b,c,t-1.0):t<3.0?mix(c,d,t-2.0):mix(d,e,t-3.0);}
+float wtMeadowT(vec2 X,float fd,out float clump){float big=texture2D(tWN,X/114.0).r,mid=texture2D(tWN,X/28.6+vec2(0.37,0.71)).r,fine=texture2D(tWN,X/10.0+vec2(0.13,0.29)).a;
+  float t=0.55+0.34*(big-0.5)+0.30*(mid-0.5)+0.06*(fine-0.5)*fd;
+  clump=smoothstep(0.58,0.74,texture2D(tWN,X/21.0+vec2(0.61,0.43)).a+0.10*(texture2D(tWN,X/5.3).a-0.5))*(0.15+0.85*fd);return t-0.10*clump;}
+vec3 wtMeadowStrokes(vec3 col,vec2 X,float fd){float k=smoothstep(0.35,0.95,0.5+1.6*(texture2D(tWN,X/50.0+vec2(0.2,0.6)).g-0.5));
+  vec4 A=texture2D(tGS,X*(2.6/8.0)),B=texture2D(tGS,X*(6.5/8.0)+vec2(0.37,0.11));vec2 s1=mix(A.rg,A.ba,k)*fd,s2=mix(B.rg,B.ba,k)*fd*fd;
+  col=mix(col,col*vec3(1.16,1.10,0.78)+vec3(0.035,0.035,0.0),max(s1.x*0.75,s2.x*0.6));return mix(col,col*vec3(0.70,0.80,0.86),max(s1.y*0.6,s2.y*0.5));}
+`;
+/* the meadow's strokes, painted once into a tileable texture (8 x 8 cells a tile, one pointed stroke a cell as the mockup's gStrokes, light in r and b, dark
+   in g and a, leaning 0.25 rad in r/g and 1.05 rad in b/a): one mipmapped read a scale instead of nine cells' hashes a pixel */
+function wtStrokeTex(){if(WT.gs)return WT.gs;const S=256,C=8,cs=S/C,d=new Uint8Array(S*S*4),R=wnRng(4242),cells=[];
+  for(let j=0;j<C;j++)for(let i=0;i<C;i++)cells.push([R(),R(),R(),R(),R()]);
+  for(const[ch,ang]of[[0,.25],[2,1.05]])for(let y=0;y<S;y++)for(let x=0;x<S;x++){const px=x/cs,py=y/cs,ix=Math.floor(px),iy=Math.floor(py);let L=0,D=0;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const cx=ix+dx,cy=iy+dy,c=cells[((cy%C+C)%C)*C+((cx%C+C)%C)],a=ang+(c[2]-.5)*.9,ex=px-cx-c[0],ey=py-cy-c[1];
+      const lx=ex*Math.cos(a)+ey*Math.sin(a),ly=-ex*Math.sin(a)+ey*Math.cos(a),u=lx/(.7+.5*c[3]),w=.19*Math.max(1-u*u,0)*(1-.4*u),m=Math.abs(u)<=1?1-wnS(Math.abs(ly),w-.03,w+.03):0;
+      if(c[4]<.58)L=Math.max(L,m);else D=Math.max(D,m);}
+    const q=(y*S+x)*4+ch;d[q]=Math.round(L*255);d[q+1]=Math.round(D*255);}
+  const t=new THREE.DataTexture(d,S,S,THREE.RGBAFormat);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.magFilter=THREE.LinearFilter;t.minFilter=THREE.LinearMipmapLinearFilter;t.generateMipmaps=true;t.anisotropy=4;t.needsUpdate=true;
+  return WT.gs=t;}
 /* courses of big blocks in a face's plane, anchored to the world (q: along the face, up): x = the distance to the nearest seam (m), y = the block's hash */
 const WT_GLSL_STONE=`
 float wtH1(float n){return fract(sin(n*12.9898+4.1414)*43758.5453);}
@@ -151,12 +177,16 @@ const WT_GLSL_COLOR=`
   float cav=vB.y*2.0-1.0,hiP=step(0.002,wSp),snowP=vB.x*hiP,ped=vB.x*(1.0-hiP),wet=vB.z;
   vec4 T1=texture2D(tWN,P.xz/393.0),T2=texture2D(tWN,P.xz/23.0);
   float nL=T1.r,hue=T1.g,nm=T1.a,ns=mix(0.5,T2.g,d3),nt=mix(0.5,T2.r,d2),nu=mix(0.5,T2.a,d1);
-  /* ---- grass ---- */
-  vec3 gShade=vec3(0.115,0.245,0.085),gBase=vec3(0.215,0.395,0.105),gSun=vec3(0.39,0.545,0.14),gDry=vec3(0.47,0.50,0.21);
-  float val=0.5+(nL-0.5)*0.32+(nm-0.5)*0.45+(ns-0.5)*0.55+(nt-0.5)*0.32+(nu-0.5)*0.16;
-  vec3 grass=mix(gShade,gBase,smoothstep(0.12,0.55,val));grass=mix(grass,gSun,smoothstep(0.58,0.95,val)*0.62);
-  grass=mix(grass,gDry,smoothstep(0.6,0.88,hue)*0.32*(1.0-wFo));grass=mix(grass,grass*vec3(0.86,0.98,1.12),smoothstep(0.42,0.12,hue)*0.35);
-  grass=mix(grass,grass*1.18+vec3(0.03,0.03,0.0),clamp(-cav*1.4,0.0,1.0)*0.5);grass=mix(grass,grass*vec3(0.62,0.72,0.78),clamp(cav*1.6,0.0,1.0)*0.55);
+  /* ---- grass: the meadow (world look 4, WT_GLSL_MEADOW) - its painted shades and strokes (gone by 42 m), lighter on crests and deeper in hollows, darker on
+     banks, warmer where it faces the sun, dry yellow patches on sunny flat ground, the shade and the clumps a little bluer, a few tiny flowers ---- */
+  float dcam=length(P-cameraPosition),fdF=1.0-smoothstep(28.0,80.0,dcam),fdS=1.0-smoothstep(14.0,42.0,dcam),slp=1.0-Nw.y,clump;
+  float mt=wtMeadowT(P.xz,fdF,clump)+0.20*clamp(-cav*2.5,0.0,1.0)-0.34*clamp(cav*2.5,0.0,1.0)-0.50*smoothstep(0.18,0.6,slp);
+  float sunG=clamp(dot(Nw,normalize(uSunD)),0.0,1.0);mt+=0.14*(sunG-0.65);float val=mt;
+  vec3 grass=wtGrassRamp(mt);grass=wtMeadowStrokes(grass,P.xz,fdS);
+  float dry=smoothstep(0.6,0.8,texture2D(tWN,P.xz/67.0+vec2(0.31,0.17)).r)*(0.4+0.6*sunG)*(1.0-smoothstep(0.1,0.4,slp))*(1.0-wFo);
+  grass=mix(grass,grass*vec3(1.12,1.05,0.68)+vec3(0.05,0.03,0.0),dry*0.55);grass=mix(grass,grass*vec3(0.84,0.95,1.10),clamp(max(cav,0.0)*2.0+clump*0.5,0.0,1.0)*0.5);
+  if(fdF>0.001){vec3 cl=wtCell2(P.xz*2.2);float fl=step(0.968,cl.x)*(1.0-smoothstep(0.05,0.1,cl.y))*smoothstep(0.35,0.65,texture2D(tWN,P.xz/28.6+vec2(0.5,0.2)).r)*(1.0-smoothstep(0.1,0.3,slp))*fdF*(1.0-wFo);
+    grass=mix(grass,cl.z<0.45?vec3(0.96,0.96,0.92):cl.z<0.75?vec3(0.95,0.66,0.78):vec3(0.98,0.86,0.33),fl);}
   vec3 forest=mix(vec3(0.085,0.18,0.07),vec3(0.17,0.29,0.09),smoothstep(0.2,0.8,val));grass=mix(grass,forest,wFo*0.85);
   grass=mix(grass,grass*vec3(1.05,1.07,0.88),wTb*0.55);grass=mix(grass,grass*vec3(0.95,1.04,0.98),wLk*0.4);
   /* ---- a trail (world look 3, wtrail.js): the distance to its middle and its half width from the window round the camera (tTr); the edge broken by two
