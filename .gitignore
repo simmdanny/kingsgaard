@@ -2,3 +2,8 @@
 dist/
 __pycache__/
 *.pyc
+# river look parity lab: downloaded tools and generated renders (attach to the PR, not committed)
+tools/mockups/river/vendor/
+tools/mockups/river/parity/
+tools/mockups/river/parity-gamelight/
+tools/mockups/river/compare/

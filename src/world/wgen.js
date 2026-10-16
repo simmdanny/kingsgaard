@@ -22,7 +22,7 @@
 const WG_CFG={res:2,tile:128,regionCell:4000,regionBand:520,regionWarp:650,gladeK:.74,WL:0,hydroCell:96,accDepth:40,accCap:2500,
   streamAcc:5,riverAcc:16,segN:24,maxHalfW:7.5};
 /* the version of the generator: a save keeps it (owSave gv), and a save made by another version gets fresh villages (its villages were other villages) */
-const WG_VER=7;/* (7: world look 3 - the trails between hamlets dip 9 cm, wgStampApply) */
+const WG_VER=8;/* (8: the river look - a stream carves rivBank's channel and banks, wrbank.js; 7: world look 3 - the trails between hamlets dip 9 cm, wgStampApply) */
 const WG_T={HIGH:1,PLATEAU:2,GLADE:3};
 const WG={on:false,seed:0,ep:0,N:null,reg:new Map(),hyd:new Map(),seg:new Map(),lake:new Map(),feat:new Map(),stats:{h0:0,hydMain:0,hydPre:0}};/* (ep: one more every wgInit - what the workers send back for an older one is dropped) */
 function wgInit(seed){WG.seed=seed|0;WG.N=[];for(let i=0;i<20;i++)WG.N.push(wnSimplex(((seed|0)*7919+i*104729+13)|0));
@@ -484,37 +484,54 @@ function wgHydroApply(x,z,h,H,out){let wl=-1e9,fx=0,fz=0,hc=h;const N17=WG.N[17]
       R=l.R*(1+.22*wnN(N17,Math.cos(an)*1.3+l.id,Math.sin(an)*1.3)+.08*wnN(N17,Math.cos(an)*3.7-l.id,Math.sin(an)*3.7));
     if(r0<R){const b=l.lev-l.dep*(1-Math.pow(r0/R,1.6))-.4;if(b<hc)hc=b;}else if(r0<R+30){const rim=l.lev+.3+(r0-R)*.18;if(hc<rim)hc+=(rim-hc)*(1-wnS(r0,R+14,R+30));}
     if(r0<R+12&&l.lev>wl){wl=l.lev;fx=0;fz=0;}}
-  const inLake=wl>-1e8;let chan=1e9,bank=null,near=1e9,vc=1e9;
+  const inLake=wl>-1e8;let chan=1e9,bank=null,near=1e9,vc=1e9,vcA=1e9,nR=0;const RS=_wgRS;
   for(const s of H.segs){if(x<s.x0||x>s.x1||z<s.z0||z>s.z1)continue;{const t=Math.max(0,Math.min(1,((x-s.ax)*(s.bx-s.ax)+(z-s.az)*(s.bz-s.az))/s.cl2)),ex=s.ax+(s.bx-s.ax)*t-x,ez=s.az+(s.bz-s.az)*t-z;if(ex*ex+ez*ez>s.cap*s.cap)continue;}
-    const o=wgSegNear(s,x,z,_wgSN),hw=o.hw,bw=Math.max(6,hw*1.6+4),cw=hw+WG_MG;if(o.d>cw+bw+s.vw)continue;const W=o.w;
+    const o=wgSegNear(s,x,z,_wgSN),hw=o.hw,bw=Math.max(6,hw*1.6+4),cw=hw+WG_MG,rr=wrbReach(hw);if(o.d>cw+bw+s.vw&&o.d>rr)continue;const W=o.w;
     if(o.d<cw){const bed=o.d<hw?W-.12-(s.dep-.12)*(1-(o.d/hw)*(o.d/hw)):W-.12;if(bed<chan)chan=bed;}
     else{if(o.d<=cw+bw){const rel=(o.d-cw)/bw;if(rel<near){near=rel;bank={W,d:o.d,hw:cw,bw,rel};}}
       if(s.vw>0){const cv=W+.25+Math.min(o.d-cw,bw)*.32+Math.max(0,o.d-cw-bw)*WG_VS;if(cv<vc)vc=cv;}}
+    /* (the river look: the valley for the land rivBank shapes - everywhere, the channel too - and the streams it may reach) */
+    if(s.vw>0){const dc=Math.max(0,o.d-cw),cv=W+.25+Math.min(dc,bw)*.32+Math.max(0,dc-bw)*WG_VS;if(cv<vcA)vcA=cv;}
+    if(o.d<=rr&&nR<RS.length)wrbFrom(s,o,x,z,RS[nR++]);
     if(o.d<cw&&W>wl){wl=W;const fl=wgHyp(o.fx,o.fz)||1;fx=o.fx/fl;fz=o.fz/fl;}}/* (a stream's water just over its channel: its ribbon draws it, wriver.js; the banks stay dry ground) */
+  const h1=hc;/* (the land after the lakes: rivBank's land is it with the valley) */
   if(chan<1e9)hc=Math.min(hc,chan);
   else{if(vc<hc+4)hc=wnSmin(hc,vc,4);/* (the valley first: the bank below then keeps above the water) */}
   if(chan>=1e9&&bank&&!inLake){const B=bank,t=wnS(B.d,B.hw,B.hw+B.bw),tgt=B.W+.25+(B.d-B.hw)*.32;let hb=tgt+(hc-tgt)*t;
     const lo=B.W+.2-Math.max(0,(B.rel-.6)/.4)*Math.max(0,B.W+.2-hc);if(hb<lo)hb=lo;hc=hb;}
+  /* the river look (wrbank.js, HANDOFF 3.3): where a stream is near and its water is nearly level, the ground is rivBank's - the shore's wobble, a
+     gentle muddy shore or a cut earth bank, the levee, the bed - over the land with its valley; of several streams the lowest wins. Where the water
+     falls fast (rapids, falls: not this look) the old channel stays, the two blended between. Not in a lake's basin or by the world's water (rivBank's
+     levee would stand in the water there) */
+  out.rvW=-1e9;out.rvB=0;let chanR=chan<1e9;
+  if(nR&&!inLake){let hL=h1;if(vcA<hL+4)hL=wnSmin(hL,vcA,4);let bb=null,bi=-1;
+    for(let i=0;i<nR;i++){const r=RS[i],bk=WRB.bankCore(x,z,hL,r.rn,wrbHalf(r.hw,r.s),r.W,r.s);if(!bb||bk.y<bb.y){bb=bk;bi=i;}}
+    const r=RS[bi],k=wrbGentle(r.g);let y=bb.y;if(hL<WG_CFG.WL+.5)y=Math.min(y,hL);/* (by the world's water: carve only) */
+    if(k>0){hc=hc+(y-hc)*k;
+      if(k>.5){chanR=bb.dd<bb.w;if(bb.dd<bb.w+bb.run+.3){out.rvW=r.W;out.rvB=bb.face*(.25+.75*bb.steep);}/* (the ground's river values, riverAttrs: aWd = WL - h of the final ground, set by wgGrid) */
+        if(bb.dd<bb.w+bb.run&&r.W>wl){wl=r.W;fx=r.fx;fz=r.fz;}}}}
   if(WG_CFG.WL>wl&&hc<WG_CFG.WL+3){wl=WG_CFG.WL;fx=0;fz=0;}
-  out.h=hc;out.wl=wl;out.fx=fx;out.fz=fz;out.chan=chan<1e9;return out;}
+  out.h=hc;out.wl=wl;out.fx=fx;out.fz=fz;out.chan=chanR;return out;}
+/* (the streams rivBank may reach at a point: their nearest points, wrbFrom) */
+const _wgRS=Array.from({length:8},()=>({rn:[0,0,1],W:0,hw:0,s:0,g:0,fx:0,fz:0}));
 
 /* ---------- sampling a grid of the world ----------
    wgGrid samples (n+1)^2 points from (x0,z0) at a spacing, with an apron of one sample all round (so normals and the cavity of points on an edge are the
    same as those of the neighbouring grid: chunks meet without seams). Out: height, water level, flow, normal, and the attributes the ground shader
    needs: A = (spires, tablelands, lakes, forest) weights, B = (snow - or, off the spires, a Great Elder Circle's pedestal -, cavity, wetness, cliff band). lite: no streams and lakes (far chunks). */
 const _wgO={},_wgHo={h:0,wl:0,fx:0,fz:0};
-function wgGrid(x0,z0,step,n,lite,st){const m=n+3,M=m*m,hh=new Float32Array(M),wl=new Float32Array(M),fw=new Float32Array(M*2),A=new Float32Array(M*4),Bt=new Float32Array(M*2);
+function wgGrid(x0,z0,step,n,lite,st){const m=n+3,M=m*m,hh=new Float32Array(M),wl=new Float32Array(M),fw=new Float32Array(M*2),A=new Float32Array(M*4),Bt=new Float32Array(M*2),RV=new Float32Array(M*2);
   const pad=60,H=lite>=2?{segs:[],lakes:[]}:lite===1?{segs:[],lakes:wgHydroIn(x0-pad,z0-pad,x0+n*step+pad,z0+n*step+pad).lakes}:wgHydroIn(x0-pad,z0-pad,x0+n*step+pad,z0+n*step+pad);
   const c=wgCtx(x0-step*2,z0-step*2,x0+(n+2)*step,z0+(n+2)*step,step>=8?step*2:0),ST=lite>=1?null:st!==undefined?st:WG.stampsIn?WG.stampsIn(x0-step,z0-step,x0+(n+1)*step,z0+(n+1)*step):null;
   for(let k=0;k<m;k++)for(let i=0;i<m;i++){const x=x0+(i-1)*step,z=z0+(k-1)*step,q=k*m+i,o=_wgO;o.mtn=0;o.tier=0;o.isl=0;o.sink=null;o.ped=0;
     const h0=wgH0(x,z,o,c);wgHydroApply(x,z,h0,H,_wgHo);let h=_wgHo.h;if(ST)h=wgStampApply(ST,x,z,h,_wgHo);
     if(o.sink&&o.w2>.95&&o.sink>_wgHo.wl){_wgHo.wl=o.sink;_wgHo.fx=0;_wgHo.fz=0;}/* (a sinkhole's pool) */
-    hh[q]=h;wl[q]=_wgHo.wl;fw[q*2]=_wgHo.fx;fw[q*2+1]=_wgHo.fz;A[q*4]=o.w1;A[q*4+1]=o.w2;A[q*4+2]=o.w3;A[q*4+3]=o.F;
+    hh[q]=h;wl[q]=_wgHo.wl;fw[q*2]=_wgHo.fx;fw[q*2+1]=_wgHo.fz;RV[q*2]=_wgHo.rvW>-1e8?_wgHo.rvW-h:-9;RV[q*2+1]=_wgHo.rvB;/* (river look: aWd, aBf - riverAttrs) */A[q*4]=o.w1;A[q*4+1]=o.w2;A[q*4+2]=o.w3;A[q*4+3]=o.F;
     Bt[q*2]=o.w1>0?o.w1*wnS(o.mtn,70,190):o.ped*o.w3;/* (snow on the spires; elsewhere a Great Elder Circle's pedestal, whose rock is the ring's stone) */Bt[q*2+1]=o.w2>0?o.w2*(o.tier-Math.floor(o.tier)):0;}
-  const n1=n+1,N1=n1*n1,out={x0,z0,step,n,h:new Float32Array(N1),wl:new Float32Array(N1),fw:new Float32Array(N1*2),nrm:new Float32Array(N1*3),A:new Float32Array(N1*4),B:new Float32Array(N1*4),pu:new Float32Array(N1*2)};
+  const n1=n+1,N1=n1*n1,out={x0,z0,step,n,h:new Float32Array(N1),wl:new Float32Array(N1),fw:new Float32Array(N1*2),nrm:new Float32Array(N1*3),A:new Float32Array(N1*4),B:new Float32Array(N1*4),pu:new Float32Array(N1*2),rv:new Float32Array(N1*2)};
   for(let k=0;k<n1;k++)for(let i=0;i<n1;i++){const q=(k+1)*m+i+1,o=k*n1+i,h=hh[q];out.h[o]=h;out.wl[o]=wl[q];out.fw[o*2]=fw[q*2];out.fw[o*2+1]=fw[q*2+1];
     let nx=hh[q-1]-hh[q+1],nz=hh[q-m]-hh[q+m],ny=2*step;const l=wgHyp(nx,ny,nz);out.nrm[o*3]=nx/l;out.nrm[o*3+1]=ny/l;out.nrm[o*3+2]=nz/l;
-    for(let c=0;c<4;c++)out.A[o*4+c]=A[q*4+c];
+    for(let c=0;c<4;c++)out.A[o*4+c]=A[q*4+c];out.rv[o*2]=RV[q*2];out.rv[o*2+1]=RV[q*2+1];
     const cav=(hh[q-1]+hh[q+1]+hh[q-m]+hh[q+m])*.25-h;/* + in hollows, - on crests (per metre of spacing it is a curvature) */
     const wet=wl[q]>-1e8?wnS(h-wl[q],2.8,.15):0;
     out.B[o*4]=Bt[q*2];out.B[o*4+1]=Math.max(-1,Math.min(1,cav/(step*.6)));out.B[o*4+2]=wet;
