@@ -84,3 +84,11 @@ const wrbReach=hw=>hw*1.62+3.05+4+1.25+.5;
    how fast the water falls, the way it flows - without a second search */
 function wrbFrom(s,o,x,z,r){const P=s.pts,n=s.n,k=Math.min(n-1,Math.floor(o.u)),t=o.u-k,ax=P[k*2],az=P[k*2+1],dx=P[k*2+2]-ax,dz=P[k*2+3]-az,ex=x-ax-dx*t,ez=z-az-dz*t,c=wrbCum(s),L=Math.hypot(dx,dz)||1e-9;
   r.rn[0]=o.d;r.rn[1]=o.u;r.rn[2]=Math.sign(dx*ez-dz*ex)||1;r.W=o.w;r.hw=o.hw;r.s=wrbS0(s.p)+c[k]+(c[k+1]-c[k])*t;r.g=Math.abs(s.wl[k+1]-s.wl[k])/L;r.fx=dx/L;r.fz=dz/L;return r;}
+/* the river ground in detail (wrdetail.js), the worker's side: a tile's blocks (bl: block index bk*16+bi of its 8 m blocks) at 0.5 m with a 2 m ring - the
+   same grid code as the tiles (wgGrid) - packed per vertex: height, normal, aWd, aBf, water level, region weights, snow (B.x), wet (B.z) */
+const WRD_N=24,WRD_V=(WRD_N+1)*(WRD_N+1),WRD_F=WRD_V*13;
+function wrdWork(x0,z0,bl,st){const F=new Float32Array(bl.length*WRD_F);
+  for(let b=0;b<bl.length;b++){const bi=bl[b]&15,bk=bl[b]>>4,g=wgGrid(x0+bi*8-2,z0+bk*8-2,.5,WRD_N,0,st),o=b*WRD_F;
+    for(let q=0;q<WRD_V;q++){const p=o+q*13;F[p]=g.h[q];F[p+1]=g.nrm[q*3];F[p+2]=g.nrm[q*3+1];F[p+3]=g.nrm[q*3+2];F[p+4]=g.rv[q*2];F[p+5]=g.rv[q*2+1];F[p+6]=g.wl[q];
+      F[p+7]=g.A[q*4];F[p+8]=g.A[q*4+1];F[p+9]=g.A[q*4+2];F[p+10]=g.A[q*4+3];F[p+11]=g.B[q*4];F[p+12]=g.B[q*4+2];}}
+  return F;}

@@ -74,7 +74,7 @@ function wtTileEvict(){const arr=[...WT.tiles.values()].sort((a,b)=>a.use-b.use)
 const wtHasTile=(x,z)=>WT.tiles.has(Math.floor(x/WG_CFG.tile)+','+Math.floor(z/WG_CFG.tile));
 /* the height of the ground at a point, from the triangles of its level-0 tile (the tile is made if it does not exist yet) */
 function wtH(x,z){const S=WG_CFG.tile;return wtHt(wtTile(Math.floor(x/S),Math.floor(z/S)),x,z);}
-function wtHt(t,x,z){const res=WG_CFG.res,g=t.g,n=g.n;
+function wtHt(t,x,z){if(t.rd){const hd=wrdHt(t,x,z);if(hd!==null)return hd;}/* (the river ground in detail, wrdetail.js) */const res=WG_CFG.res,g=t.g,n=g.n;
   let fx=(x-t.x0)/res,fz=(z-t.z0)/res;if(fx>n-1e-6)fx=n-1e-6;if(fz>n-1e-6)fz=n-1e-6;if(fx<0)fx=0;if(fz<0)fz=0;
   const i=fx|0,k=fz|0,u=fx-i,v=fz-k,s=n+1,h=g.h,q=k*s+i,a=h[q],b=h[q+1],d=h[q+s],e=h[q+s+1];
   if(((i+k)&1)===0)return u+v<=1?a+(b-a)*u+(d-a)*v:e+(b-e)*(1-v)+(d-e)*(1-u);
@@ -119,22 +119,24 @@ function wtMaterial(){return WT.mat||(WT.mat=wtMakeMat(null));}
    where the sheet can be (not on the spires, in the elderglade or by water, steeper than the sheet's own rock) */
 WT.clf={value:new THREE.Vector3(1,260,1.85)};
 function wtGroundMat(){return WT.gmat||(WT.gmat=wtMakeMat(null,true));}
+/* the same, the lattice lowered 0.6 m where the river ground is drawn in detail (wrdetail.js: aRd, a level-0 chunk takes it while its detail is shown) */
+function wtGroundMatRd(){return WT.gmatRd||(WT.gmatRd=wtMakeMat(null,true,true));}
 /* the same material for a landmark seen from afar (the Great Elder Circle, wfeat.js): its upper part shows faintly through the haze past the end of the
    air (wdepth.js WD_SEE; y0: the height of its foot, R: its size, x, z: its middle). One material each (its own uniform), one program for all. */
 function wtMaterialSee(y0,R,x,z){return wtMakeMat({y0,R,x,z});}
 /* the Great Elder Circles shown (wfeat.js fills it each frame): x, z, the height of its foot, its size (0: none) - the haze's top over them, wdepth.js */
 WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
-function wtMakeMat(see,inset){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
-  m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(inset)m.defines.WT_INSET=1;if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
+function wtMakeMat(see,inset,rdl){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
+  m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(inset)m.defines.WT_INSET=1;if(rdl)m.defines.WT_RD=1;if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
   m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uSunD=WCM.sun;sh.uniforms.tGS={value:wtStrokeTex()};if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='varying float vIk;\nvarying vec2 vRv;\nuniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\nuniform vec3 uSunD;\nuniform sampler2D tGS;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
-    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;varying float vIk;attribute vec2 aRv;varying vec2 vRv;uniform vec3 uClf;\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
-      .replace('#include <begin_vertex>','#include <begin_vertex>\nvIk=0.0;vRv=aRv;\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;varying float vIk;attribute vec2 aRv;varying vec2 vRv;uniform vec3 uClf;\n#ifdef WT_RD\nattribute float aRd;\n#endif\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvIk=0.0;vRv=aRv;\n#ifdef WT_RD\ntransformed.y-=aRd*0.6;\n#endif\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
         'float k=(1.0-smoothstep(0.25,0.35,aA.x))*(1.0-smoothstep(0.40,0.50,aA.z))*uClf.x*(1.0-smoothstep(uClf.y*0.85,uClf.y,length(wp0.xz-cameraPosition.xz)));'+
         'transformed.xz+=aPu*k*uClf.z;vIk=k*min(1.0,length(aPu)*4.0);}\n#endif\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE+WT_GLSL_MEADOW+WRL.GLSL_NOISE)
       .replace('#include <map_fragment>',WT_GLSL_COLOR.replace('/*@WRL_RIVER@*/',WRL.GLSL_GROUND_RIVER))
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground18see':inset?'wtground18k':'wtground18';return m;}
+  m.customProgramCacheKey=()=>see?'wtground18see':inset?(rdl?'wtground18kr':'wtground18k'):'wtground18';return m;}
 /* the meadow (world look 4: the mockup's MEADOW, grassRamp, meadowT, meadowStrokes, gStrokes) - a painted green of several shades: broad patches,
    darker clover clumps (the noise texture's channels: r broad, a fine), and two sizes of painted blade strokes leaning along a slowly turning direction
    (wtStrokeTex: a pointed stroke a cell). The ground's grass and the cliffs' (wcliffmat.js) are painted by the same functions: no seam where they meet */
@@ -322,16 +324,17 @@ function wtIndex(){if(WT.idx)return WT.idx;const n=WT.N,m=n+1,ix=[];
 /* the ground and the water of one chunk */
 function wtBuild(L,i,k,gIn){const T0=performance.now(),N=WT.N,S=WG_CFG.tile<<L,step=S/N,x0=i*S,z0=k*S;let g=gIn,tile=null;
   if(!g){if(L===0){tile=wtTile(i,k);g=tile.g.nrm?tile.g:wgGrid(x0,z0,step,N,0);}else g=wgGrid(x0,z0,step,N,wtLite(L));}
-  const m=N+1,nv=m*m,tot=nv+4*m,pos=new Float32Array(tot*3),nr=new Int8Array(tot*3),aA=new Uint8Array(tot*4),aB=new Uint8Array(tot*4),aW=new Float32Array(tot),aP=new Int8Array(tot*2),aR=new Float32Array(tot*2),drop=1.5+step*1.4;
+  const m=N+1,nv=m*m,tot=nv+4*m,pos=new Float32Array(tot*3),nr=new Int8Array(tot*3),aA=new Uint8Array(tot*4),aB=new Uint8Array(tot*4),aW=new Float32Array(tot),aP=new Int8Array(tot*2),aR=new Float32Array(tot*2),aD=new Uint8Array(tot),drop=1.5+step*1.4;
+  const rdm=L===0&&tile&&typeof wrdMask==='function'?wrdMask(g):null;if(tile)tile.rdm=rdm;/* (river look: the blocks drawn in detail, wrdetail.js) */
   let ymin=1e9,ymax=-1e9;
   for(let q=0;q<nv;q++){const ii=q%m,kk=(q/m)|0,h=g.h[q];pos[q*3]=ii*step;pos[q*3+1]=h;pos[q*3+2]=kk*step;if(h<ymin)ymin=h;if(h>ymax)ymax=h;
     nr[q*3]=Math.round(g.nrm[q*3]*127);nr[q*3+1]=Math.round(g.nrm[q*3+1]*127);nr[q*3+2]=Math.round(g.nrm[q*3+2]*127);
     for(let c=0;c<4;c++)aA[q*4+c]=Math.round(Math.max(0,Math.min(1,g.A[q*4+c]))*255);
-    aB[q*4]=Math.round(Math.max(0,Math.min(1,g.B[q*4]))*255);aB[q*4+1]=Math.round((g.B[q*4+1]*.5+.5)*255);aB[q*4+2]=Math.round(g.B[q*4+2]*255);aB[q*4+3]=Math.round(Math.max(0,Math.min(1,g.B[q*4+3]))*255);aW[q]=g.wl[q]>-1e8?g.wl[q]:-1e4;if(g.rv){aR[q*2]=g.rv[q*2];aR[q*2+1]=g.rv[q*2+1];}else aR[q*2]=-9;if(g.pu){aP[q*2]=Math.round(Math.max(-1,Math.min(1,g.pu[q*2]))*127);aP[q*2+1]=Math.round(Math.max(-1,Math.min(1,g.pu[q*2+1]))*127);}}
+    aB[q*4]=Math.round(Math.max(0,Math.min(1,g.B[q*4]))*255);aB[q*4+1]=Math.round((g.B[q*4+1]*.5+.5)*255);aB[q*4+2]=Math.round(g.B[q*4+2]*255);aB[q*4+3]=Math.round(Math.max(0,Math.min(1,g.B[q*4+3]))*255);aW[q]=g.wl[q]>-1e8?g.wl[q]:-1e4;if(g.rv){aR[q*2]=g.rv[q*2];aR[q*2+1]=g.rv[q*2+1];}else aR[q*2]=-9;if(rdm)aD[q]=rdm.low[q];if(g.pu){aP[q*2]=Math.round(Math.max(-1,Math.min(1,g.pu[q*2]))*127);aP[q*2+1]=Math.round(Math.max(-1,Math.min(1,g.pu[q*2+1]))*127);}}
   const edges=[[...Array(m).keys()],[...Array(m).keys()].map(t=>N*m+t),[...Array(m).keys()].map(t=>t*m),[...Array(m).keys()].map(t=>t*m+N)];
-  edges.forEach((E,ei)=>E.forEach((v,j)=>{const r=nv+ei*m+j;pos[r*3]=pos[v*3];pos[r*3+1]=pos[v*3+1]-drop;pos[r*3+2]=pos[v*3+2];for(let c=0;c<3;c++)nr[r*3+c]=nr[v*3+c];for(let c=0;c<4;c++){aA[r*4+c]=aA[v*4+c];aB[r*4+c]=aB[v*4+c];}aW[r]=aW[v];aP[r*2]=aP[v*2];aP[r*2+1]=aP[v*2+1];aR[r*2]=aR[v*2];aR[r*2+1]=aR[v*2+1];}));
+  edges.forEach((E,ei)=>E.forEach((v,j)=>{const r=nv+ei*m+j;pos[r*3]=pos[v*3];pos[r*3+1]=pos[v*3+1]-drop;pos[r*3+2]=pos[v*3+2];for(let c=0;c<3;c++)nr[r*3+c]=nr[v*3+c];for(let c=0;c<4;c++){aA[r*4+c]=aA[v*4+c];aB[r*4+c]=aB[v*4+c];}aW[r]=aW[v];aP[r*2]=aP[v*2];aP[r*2+1]=aP[v*2+1];aR[r*2]=aR[v*2];aR[r*2+1]=aR[v*2+1];aD[r]=aD[v];}));
   const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('normal',new THREE.BufferAttribute(nr,3,true));
-  geo.setAttribute('aA',new THREE.BufferAttribute(aA,4,true));geo.setAttribute('aB',new THREE.BufferAttribute(aB,4,true));geo.setAttribute('aW',new THREE.BufferAttribute(aW,1));geo.setAttribute('aPu',new THREE.BufferAttribute(aP,2,true));geo.setAttribute('aRv',new THREE.BufferAttribute(aR,2));geo.setIndex(wtIndex());
+  geo.setAttribute('aA',new THREE.BufferAttribute(aA,4,true));geo.setAttribute('aB',new THREE.BufferAttribute(aB,4,true));geo.setAttribute('aW',new THREE.BufferAttribute(aW,1));geo.setAttribute('aPu',new THREE.BufferAttribute(aP,2,true));geo.setAttribute('aRv',new THREE.BufferAttribute(aR,2));if(rdm)geo.setAttribute('aRd',new THREE.BufferAttribute(aD,1));geo.setIndex(wtIndex());
   geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(S/2,(ymin+ymax)/2,S/2),Math.hypot(S/2,S/2,(ymax-ymin)/2+drop));
   const mesh=new THREE.Mesh(geo,wtGroundMat());mesh.position.set(x0,0,z0);mesh.frustumCulled=false;mesh.receiveShadow=true;mesh.castShadow=false;mesh.matrixAutoUpdate=false;mesh.updateMatrix();
   /* water */
@@ -347,7 +350,7 @@ function wtBuild(L,i,k,gIn){const T0=performance.now(),N=WT.N,S=WG_CFG.tile<<L,s
     if(wi.length){const wg=new THREE.BufferGeometry();wg.setAttribute('position',new THREE.Float32BufferAttribute(wp,3));wg.setAttribute('aD',new THREE.Float32BufferAttribute(wa,3));wg.setIndex(wi);wg.computeVertexNormals();wg.computeBoundingSphere();
       water=new THREE.Mesh(wg,wtWaterMat());water.position.set(x0,0,z0);water.frustumCulled=false;water.receiveShadow=true;water.renderOrder=2;water.matrixAutoUpdate=false;water.updateMatrix();}}
   if(tile&&tile.g===g){/* (the tile keeps only what the game reads: heights and water) */g.nrm=null;g.A=null;g.B=null;g.fw=null;g.pu=null;g.rv=null;}
-  const ch={L,i,k,x0,z0,S,mesh,water,ymin,ymax,use:WT.frame,on:false};WT.stats.built++;WT.stats.ms+=performance.now()-T0;return ch;}
+  const ch={L,i,k,x0,z0,S,mesh,water,ymin,ymax,use:WT.frame,on:false,rdl:!!(rdm&&rdm.nl)};WT.stats.built++;WT.stats.ms+=performance.now()-T0;return ch;}
 const wtLite=L=>L>=3?2:L>=2?1:0;
 function wtDispose(ch){if(ch.on)wtShow(ch,false);ch.mesh.geometry.dispose();if(ch.water)ch.water.geometry.dispose();}
 function wtShow(ch,on){if(ch.on===on)return;ch.on=on;if(on){WT.group.add(ch.mesh);if(ch.water)WT.group.add(ch.water);}else{WT.group.remove(ch.mesh);if(ch.water)WT.group.remove(ch.water);}}
@@ -362,6 +365,7 @@ function wtWant(cx,cy,cz){const out=[],LM=WT.LMAX,S=WG_CFG.tile<<LM,K=WT.K,gy=WT
    are not ready yet (a coarse chunk stays until all four of its children are built, and fine ones stay until the coarse one replacing them is built) */
 function wtUpdate(camera,force){if(!WT.on)return;WT.frame++;const cp=camera.position;WT.cam.x=cp.x;WT.cam.y=cp.y;WT.cam.z=cp.z;WT.time.value=performance.now()/1000;
   if(typeof wrvUpdate==='function')wrvUpdate(cp,force);/* (the streams' ribbons, wriver.js) */
+  if(typeof wrdUpdate==='function')wrdUpdate(cp);/* (the river ground in detail near the camera, wrdetail.js) */
   if(WT.frame%2===0||force){WT.gy=wtHasTile(cp.x,cp.z)?wtH(cp.x,cp.z):WT.gy||0;WT.want=wtWant(cp.x,cp.y,cp.z);}
   const want=WT.want||[];const T0=performance.now(),lim=force?1e9:WT.budget;
   const missing=want.filter(w=>!WT.chunks.has(w.key)).sort((a,b)=>a.d-b.d);
@@ -387,5 +391,5 @@ function wtUpdate(camera,force){if(!WT.on)return;WT.frame++;const cp=camera.posi
   /* chunks unused for a while go */
   if(WT.chunks.size>320&&WT.frame%30===0){const arr=[...WT.chunks.values()].filter(c=>!show.has(c)).sort((a,b)=>a.use-b.use);for(let j=0;j<arr.length&&WT.chunks.size>260;j++){wtDispose(arr[j]);WT.chunks.delete(wtKey(arr[j].L,arr[j].i,arr[j].k));}}}
 function wtInit(group){WT.group=group;WT.on=true;wtMaterial();wtWaterMat();wtIndex();if(typeof wrvInit==='function')wrvInit(group);}
-function wtReset(){if(typeof wrvReset==='function')wrvReset();for(const ch of WT.chunks.values())wtDispose(ch);WT.chunks.clear();WT.tiles.clear();WT.want=null;WT.on=false;WT.asked.clear();WT.ready.clear();WT.reqs.clear();for(const w of WT.pool)w.busy=0;whpReset();}
+function wtReset(){if(typeof wrvReset==='function')wrvReset();if(typeof wrdReset==='function')wrdReset();for(const ch of WT.chunks.values())wtDispose(ch);WT.chunks.clear();WT.tiles.clear();WT.want=null;WT.on=false;WT.asked.clear();WT.ready.clear();WT.reqs.clear();for(const w of WT.pool)w.busy=0;whpReset();}
 

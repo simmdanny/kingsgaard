@@ -20,6 +20,7 @@ these modules; everything not yet ported stays the mockup's own code byte for by
 | D5 | Game only: where a stream's water falls faster than 2-5 cm a metre (rapids, falls) the old channel (`wgHydroApply`) stays, blended by `1 - S(.02,.05,slope)` | HANDOFF: waterfalls are out of scope | game only |
 | D6 | Game only: rivBank's land `h` is the game's land after its lakes and with its valley (the soft minimum that keeps a river through a hill in a sloping valley); no river look inside a lake's basin, and by the world's water rivBank only carves (its levee would stand in the sea) | the mockup's land has no lakes, valleys or sea | game only |
 | D7 | Game only: the ground's `vOcc` in the river block is 0 until the rocks in the water exist (step 3) | not ported yet | game only |
+| D8 | Game only: near the camera (150 m) the ground along a stream is drawn again at 0.5 m (`wrdetail.js`) - the mockup's ground is 0.57 m, the game's lattice 2 m; same function, same material; the lattice lowered under it; its hollows/crests and rock floor measured over 2 m as the lattice's | plumbing: meshes, LOD (R1) | game only |
 
 ## Parity log
 
