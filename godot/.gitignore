@@ -1,0 +1,7 @@
+.godot/
+*.tmp
+/shots/
+
+# the female model has no license, so she stays out of the public GitHub repo (see assets/characters/girl01/SOURCE.md)
+assets/characters/girl01/*.fbx
+assets/characters/girl01/*.jpg
