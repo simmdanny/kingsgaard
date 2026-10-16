@@ -35,5 +35,12 @@ cut('    /* the stream bed: wet earth at the waterline, then sand and pebbles, d
     '  }\n  diffuseColor.rgb=col;\n }`,U);',
     '${WRL.GLSL_GROUND_RIVER/* parity lab: the game\'s river part of the ground shader */}\n')
 
+# ---- step 2: the stone generator (makeStone, weld), the rock palettes and the stone material ----
+cut('const PAL={\n', 'function rockNew(u){',
+    "/* parity lab: the palettes are the game's (WRL) */\nconst PAL=WRL.PAL,palU=WRL.palU,setPal=WRL.setPal,ROCK_DECL=WRL.ROCK_DECL;\n")
+cut('function boulderMat(u){', "const cliffU=palU('brown',.35,1)", "/* parity lab: the stone material is the game's (WRL.boulderMat) */\nconst boulderMat=WRL.boulderMat;\n")
+cut('function weld(g){', '/* flat chips: cut the shape', "/* parity lab: weld is the game's (WRL) */\nconst weld=WRL.weld;\n")
+cut('/* every rock in the game from one generator', 'const SHAPES=[];', "/* parity lab: makeStone is the game's (WRL.makeStone) */\nconst makeStone=WRL.makeStone;\n")
+
 open(os.path.join(here, 'parity.html'), 'w', encoding='utf-8', newline='\n').write(s)
 print('wrote parity.html')

@@ -22,12 +22,39 @@ these modules; everything not yet ported stays the mockup's own code byte for by
 | D7 | Game only: the ground's `vOcc` in the river block is 0 until the rocks in the water exist (step 3) | not ported yet | game only |
 | D8 | Game only: near the camera (150 m) the ground along a stream is drawn again at 0.5 m (`wrdetail.js`) - the mockup's ground is 0.57 m, the game's lattice 2 m; same function, same material; the lattice lowered under it; its hollows/crests and rock floor measured over 2 m as the lattice's | plumbing: meshes, LOD (R1) | game only |
 
+## Step 2: the stone generator, the stone material, every field boulder from makeStone
+
+| # | What | Why | Parity before -> after |
+|---|---|---|---|
+| D9 | `makeStone(seed, o)` takes the icosphere's level from `o.det` (5 when not given): the game draws each field boulder with the same projection on a level 5 (within 32 m), 4 (within 110 m) or 3 icosphere (beyond) | HANDOFF 3.1: "make a far LOD by running the same projection on a level-3 icosphere" | `stone-row` 0.00 / 0.00 % (exact: the lab passes no `det`) |
+| D10 | Game only: the field boulders' material is `WRL.boulderMat` with the mockup's `boulderU` settings (`palU(pal, .7, 0)`, `uMossP .4`, `uMossTop 0`, `uUpK .30`, `uUW 0`), but two materials (brown, grey) instead of one switched with `setPal`, the sun direction the game's (`WCM.sun`), and the three.js point lights left out of its program (`wcmLights`, as world look's cliff material: with them the stone shader ran out of registers) | the game draws both palettes in one frame; the game's lights (section 6 adapts the light itself) | game only |
+| D11 | Game only: a boulder's palette is grey where the region's weight for grey (world look's `RW[1]*2 + (1-RW[2]-RW[1])*.35`) is over .5, brown otherwise; the instance data is the mockup's `instanceColor` exactly, `(r(), (groundY + 20) / 60, r())` from the boulder's own seed | the mockup's scene has one palette at a time | game only |
+| - | Not a deviation: placement, density, sinking, companions, keep-offs and contact rings are world look's (`wbldPlace`), as HANDOFF 3.1 asks; the shapes are 14, seeds `1000 + 37 i` (were 12 of `wbldMake`) | | |
+
+In game: the fourteen level-5 shapes take ~305 ms once (first boulders), the lower levels a few ms each when first drawn.
+
 ## Parity log
 
 Rendered with `python render-all.py --page parity.html --out parity` (render-reference.py unchanged, run through a shim that lifts only Playwright's
 timeouts), compared with `python compare.py reference parity`.
 
 Step 1 (rivBank, riverAttrs, GLSL_NOISE, patch, the ground's river GLSL from the game's modules):
+```
+shot                       mean   over24  result
+river-wide                 0.00    0.00%  ok
+river-mid                  0.00    0.00%  ok
+river-close                0.00    0.00%  ok
+flow-t3.0                  0.00    0.00%  ok
+flow-t4.2                  0.00    0.00%  ok
+flow-t5.4                  0.00    0.00%  ok
+stone-row                  0.00    0.00%  ok
+river-mid-nowater          0.00    0.00%  ok
+river-close-nowater        0.00    0.00%  ok
+river-wide-grey            0.00    0.00%  ok
+PASS
+```
+
+Step 2 (+ PAL, palU, setPal, ROCK_DECL, weld, makeStone, boulderMat from the game's modules):
 ```
 shot                       mean   over24  result
 river-wide                 0.00    0.00%  ok

@@ -3,6 +3,8 @@
    so its names (GLSL_NOISE, patch, makeStone, ...) stay the mockup's. What comes in from the game (the streams, the tiles, LOD) is the callers'.
    - GLSL_NOISE: the procedural noise every river shader uses (h31, vn, fbm, vn2, fbm2, cell2, vedge, the ramps, the grass strokes) - src/01, verbatim.
    - patch: the mockup's onBeforeCompile helper (world position and normal varyings) - src/01, verbatim.
+   - PAL, palU, setPal, ROCK_DECL (src/05), weld, makeStone (src/07: box, 3-6 plane cuts, exact bevel by projection), boulderMat (src/06: the stone
+     material of every rock) - verbatim but for makeStone's icosphere level (o.det, the LOD).
    - GLSL_GROUND_RIVER: the river part of the ground's colour (the bed, the wet waterline, the earth bank face, mud) - src/03, verbatim; it reads col, P,
      X, fd, slope, vWd, vBf, vOcc as the mockup's ground shader has them.
    Deviations from the mockup are listed in tools/mockups/river/DEVIATIONS.md.
@@ -86,4 +88,82 @@ const GLSL_GROUND_RIVER=`
       float mud=(1.0-smoothstep(0.02,0.22,hw))*smoothstep(-0.15,0.0,hw)*smoothstep(0.42,0.6,fbm2(X*0.9+5.0));/* mud patches at the waterline */
       float e=clamp(max(onFace,mud),0.0,1.0)*smoothstep(-0.25,-0.05,hw+0.0);col=mix(col,earthC,e);}
 `;
-return{GLSL_NOISE,patch,GLSL_GROUND_RIVER};})();
+/* ---- (the mockup's seeded stream: WRB, wrbank.js) ---- */
+const mkRng=WRB.mkRng;
+/* ---- VERBATIM: src/05-rock-palette.js (surface-study.html lines 254-260) ---- */
+const PAL={
+  brown:{r:[[.30,.22,.16],[.48,.39,.29],[.66,.56,.43],[.82,.73,.58]],warm:[1.04,1.0,.94],cool:[.95,.96,1.02]},
+  grey:{r:[[.14,.15,.18],[.27,.28,.30],[.42,.42,.42],[.60,.60,.57]],warm:[1.04,1.0,.94],cool:[.90,.96,1.07]}};
+function palU(name,moss,strata){const p=PAL[name];return{uR0:{value:new THREE.Vector3(...p.r[0])},uR1:{value:new THREE.Vector3(...p.r[1])},uR2:{value:new THREE.Vector3(...p.r[2])},
+  uR3:{value:new THREE.Vector3(...p.r[3])},uWarm:{value:new THREE.Vector3(...p.warm)},uCool:{value:new THREE.Vector3(...p.cool)},uMoss:{value:moss},uStrata:{value:strata}};}
+function setPal(u,name){const p=PAL[name];u.uR0.value.set(...p.r[0]);u.uR1.value.set(...p.r[1]);u.uR2.value.set(...p.r[2]);u.uR3.value.set(...p.r[3]);u.uWarm.value.set(...p.warm);u.uCool.value.set(...p.cool);}
+const ROCK_DECL='uniform vec3 uR0;uniform vec3 uR1;uniform vec3 uR2;uniform vec3 uR3;uniform vec3 uWarm;uniform vec3 uCool;uniform float uMoss;uniform float uStrata;';
+/* ---- VERBATIM: surface-study.html lines 390-393 (weld: the icosphere's repeated corners welded) ---- */
+function weld(g){const pos=g.attributes.position,src=g.index?g.index.array:null,cnt=src?src.length:pos.count,map=new Map(),np=[],idx=[];
+  for(let k=0;k<cnt;k++){const i=src?src[k]:k,x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i),key=Math.round(x*1e4)+'_'+Math.round(y*1e4)+'_'+Math.round(z*1e4);
+    let j=map.get(key);if(j===undefined){j=np.length/3;map.set(key,j);np.push(x,y,z);}idx.push(j);}
+  const o=new THREE.BufferGeometry();o.setAttribute('position',new THREE.Float32BufferAttribute(np,3));o.setIndex(idx);return o;}
+/* ---- VERBATIM: src/07-stone-generator.js, makeStone (surface-study.html lines 432-456) - but for the icosphere's level (LOD, DEVIATIONS D9) ---- */
+/* every rock in the game from one generator: a box, scaled unevenly; 3-6 plane cuts chop off corners and edges (big flat faces); then a small
+   bevel, exact: each vertex of a dense sphere is pulled onto the cut box shrunk by the bevel radius (closest point, Dykstra's projection onto
+   the half-spaces), then pushed back out by that radius. Faces stay perfectly flat, only edges and corners round; normals are exact. */
+function makeStone(seed,o){o=o||{};const r=mkRng(seed);
+  const sx=(o.x0||.75)+(o.xr||.75)*r(),sy=(o.y0||.45)+(o.yr||.6)*r(),sz=(o.z0||.6)+(o.zr||.6)*r();
+  const PL=[[1,0,0,sx],[-1,0,0,sx],[0,1,0,sy],[0,-1,0,sy],[0,0,1,sz],[0,0,-1,sz]];
+  const k=3+Math.floor(r()*4);
+  for(let c=0;c<k;c++){let nx=(r()<.5?-1:1)*(.4+.6*r()),ny=(r()<.75?1:-.35)*(.25+.7*r()),nz=(r()<.5?-1:1)*(.4+.6*r());if(r()<.35){if(r()<.5)nx*=.15;else nz*=.15;}/* (corners, sometimes an edge) */
+    const L=Math.hypot(nx,ny,nz);nx/=L;ny/=L;nz/=L;const sup=Math.abs(nx)*sx+Math.abs(ny)*sy+Math.abs(nz)*sz;PL.push([nx,ny,nz,sup*(.52+.3*r())]);}
+  const bev=(o.bev||.075)*Math.min(sx,sy,sz)*2;/* 5-10% of the stone's size */
+  const SH=PL.map(q=>[q[0],q[1],q[2],q[3]-bev]);
+  const g=weld(new THREE.IcosahedronGeometry(1,o.det!=null?o.det:5))/* (parity lab: 5; the game's far levels: 4, 3 - DEVIATIONS D9) */,p=g.attributes.position,n=p.count,nrm=new Float32Array(n*3),edge=new Float32Array(n);const R0=3*Math.max(sx,sy,sz);
+  for(let i=0;i<n;i++){const P0=[p.getX(i)*R0,p.getY(i)*R0,p.getZ(i)*R0];let x=P0.slice();const Y=SH.map(()=>[0,0,0]);
+    for(let it=0;it<40;it++){for(let j=0;j<SH.length;j++){const q=SH[j],zx=x[0]+Y[j][0],zy=x[1]+Y[j][1],zz=x[2]+Y[j][2],d=zx*q[0]+zy*q[1]+zz*q[2]-q[3];
+      const nxv=d>0?[zx-d*q[0],zy-d*q[1],zz-d*q[2]]:[zx,zy,zz];Y[j]=[zx-nxv[0],zy-nxv[1],zz-nxv[2]];x=nxv;}}
+    let dx=P0[0]-x[0],dy=P0[1]-x[1],dz=P0[2]-x[2];const dl=Math.hypot(dx,dy,dz)||1;dx/=dl;dy/=dl;dz/=dl;
+    p.setXYZ(i,x[0]+dx*bev,x[1]+dy*bev,x[2]+dz*bev);nrm[i*3]=dx;nrm[i*3+1]=dy;nrm[i*3+2]=dz;
+    let best=-1;for(const q of PL)best=Math.max(best,dx*q[0]+dy*q[1]+dz*q[2]);edge[i]=Math.min(1,(1-best)*6);}/* (on a bevel: the normal is between faces) */
+  let ymin=1e9,ymax=-1e9;for(let i=0;i<n;i++){ymin=Math.min(ymin,p.getY(i));ymax=Math.max(ymax,p.getY(i));}
+  const occ=new Float32Array(n),seam=new Float32Array(n),rel=new Float32Array(n);
+  const sm=r()<.35?(()=>{const a=r()*6.283,b=(r()-.5)*.8;return[Math.cos(b)*Math.cos(a),Math.sin(b),Math.cos(b)*Math.sin(a),(r()-.5)*.4*Math.min(sx,sz)];})():null;
+  for(let i=0;i<n;i++){const y=p.getY(i);rel[i]=(ymax-y)/(ymax-ymin);occ[i]=.6*Math.pow(rel[i],1.5);seam[i]=sm?(p.getX(i)*sm[0]+y*sm[1]+p.getZ(i)*sm[2]-sm[3]):10;}
+  g.setAttribute('normal',new THREE.BufferAttribute(nrm,3));g.setAttribute('aEdge',new THREE.BufferAttribute(edge,1));g.setAttribute('aOcc',new THREE.BufferAttribute(occ,1));
+  g.setAttribute('aSeam',new THREE.BufferAttribute(seam,1));g.setAttribute('aRel',new THREE.BufferAttribute(rel,1));
+  g.userData={ymin,ymax,rx:Math.max(sx,sz),sx,sy,sz};return g;}
+/* ---- VERBATIM: src/06-stone-material.js (surface-study.html lines 349-384): the stone material of every rock ---- */
+function boulderMat(u){return patch('bldNew',new THREE.MeshPhongMaterial({color:0xffffff,shininess:6,specular:0x111111}),
+ 'attribute float aEdge;attribute float aOcc;attribute float aSeam;attribute float aRel;varying float vEdge;varying float vOcc;varying float vSeam;varying float vOy;varying vec3 vTint;varying float vRel;varying float vSc;',
+ 'vEdge=aEdge;vOcc=aOcc;vSeam=aSeam;vOy=position.y;vRel=aRel;vSc=1.0;\n#ifdef USE_INSTANCING\nvSc=length(instanceMatrix[0].xyz);\n#endif\n\n#ifdef USE_INSTANCING_COLOR\nvTint=instanceColor;\n#else\nvTint=vec3(0.5,0.25,0.5);\n#endif',
+ 'varying float vEdge;varying float vOcc;varying float vSeam;varying float vOy;varying vec3 vTint;varying float vRel;varying float vSc;uniform vec3 uSunDir;uniform float uDbg;uniform float uMossP;uniform float uIvy;uniform float uMossTop;uniform float uUpK;uniform float uUW;uniform float uWL;'+ROCK_DECL,
+ `{
+  vec3 P=vWP;vec3 N=normalize(vWN);vec2 X=P.xz;float fd=1.0-smoothstep(25.0,70.0,length(P-cameraPosition));float seed=vTint.z;
+  diffuseColor.rgb=vec3(1.0);/* (three.js multiplied in the instance colour: it is data, not a tint) */
+  float up=clamp(N.y*0.5+0.5,0.0,1.0);
+  float t=0.54+uUpK*(up-0.5)+0.10*(fbm(P*0.45+seed*9.0)-0.5)+0.04*(vn(P*3.0)-0.5)*fd+0.12*vEdge*smoothstep(-0.1,0.6,N.y)-0.30*vOcc;
+  float sd=abs(vSeam),on=step(sd,5.0);float sw=0.045,sa=fwidth(sd)*0.8+0.002;float seam=(1.0-smoothstep(sw-sa,sw+sa,sd))*on;float seamSoft=(1.0-smoothstep(0.045,0.2,sd))*on;
+  float crev=max(seam,0.45*seamSoft);t-=0.15*crev;
+  float ck=vedge(vec3(P.x*0.8,P.y*0.5,P.z*0.8)+seed*9.0);float cka=fwidth(ck)*0.8+0.003;float crackFade=1.0-smoothstep(10.0,28.0,length(P-cameraPosition));
+  float crack=(1.0-smoothstep(0.008-cka,0.008+cka,ck))*smoothstep(0.5,0.62,fbm(P*0.6+seed*4.0))*step(0.67,fract(seed*3.71))*crackFade;t-=0.12*crack;
+  vec3 ch=cell2(P.xz*2.2+P.y*1.7);float chip=step(0.93,ch.x)*(1.0-smoothstep(0.08,0.16,ch.y))*fd;t+=0.04*chip*(ch.z<0.5?-1.0:1.0)*crackFade;
+  float q=t*4.0;t=mix(t,(floor(q)+smoothstep(0.3,0.7,fract(q)))/4.0,0.8);
+  vec3 col=ramp4(t,uR0,uR1,uR2,uR3);
+  col*=mix(uCool,uWarm,fract(seed*5.31));col*=0.93+0.14*vTint.x;/* per-boulder hue and brightness, a few percent */
+  col=mix(col,col*uCool*0.9,clamp((1.0-up)*0.35,0.0,1.0));
+  col*=1.0-0.07*smoothstep(0.58,0.74,fbm(P*1.1+7.0));
+  float sp=vn(P*12.0);col*=1.0+(0.02*step(0.86,sp)-0.03*step(sp,0.10))*fd;
+  col*=mix(1.0,0.70,smoothstep(0.15,0.9,crev));col=mix(col,col*vec3(1.0,0.88,0.78),smoothstep(0.4,1.0,crev)*0.5);
+  float clump;vec3 gcol=meadowStrokes(grassRamp(meadowT(X,fd,clump)),X,1.0-smoothstep(14.0,42.0,length(P-cameraPosition)));
+  float mo=smoothstep(0.6,0.9,N.y)*smoothstep(0.5-0.25*uMossTop,0.62-0.25*uMossTop,fbm(P*0.7+2.0))*step(fract(seed*7.13),uMossP)*uMoss;/* moss on some tops, not every boulder */
+  col=mix(col,gcol*0.85,mo);
+  /* hanging ivy (bank stones only): strands of leaf blobs dripping from the top over the sides */
+  if(uIvy>0.5&&fract(seed*11.3)<0.3){float cx=(P.x+P.z)*2.2;float sc=floor(cx),sx=fract(cx)-0.5;float has=step(0.45,h31(vec3(sc,seed*13.0,1.0)));float drip=(0.25+0.6*h31(vec3(sc,seed*13.0,2.0)))*has;
+    vec2 lp=vec2(sx*3.0+0.35*sin(P.y*9.0+sc),P.y*9.0);vec3 lc=cell2(lp);float lw=fwidth(lc.y)+0.02;float strand=1.0-smoothstep(0.22,0.30,abs(sx+0.08*sin(P.y*5.0+sc)));
+    float leaf=(1.0-smoothstep(0.45-lw,0.45+lw,lc.y))*strand*step(vRel,drip)+step(vRel,0.12)*(1.0-smoothstep(0.45-lw,0.45+lw,lc.y))*has;
+    vec3 iv=mix(vec3(0.13,0.28,0.07),vec3(0.36,0.55,0.14),lc.z)*(0.85+0.3*up);col=mix(col,iv,leaf*smoothstep(0.85,0.3,N.y+0.0*vRel));}
+  /* the base: fades to a darker, greener earth tone where it goes into the ground */
+  float hgt=P.y-(vTint.y*60.0-20.0);vec3 earth=mix(mix(vec3(0.16,0.13,0.08),vec3(0.14,0.20,0.07),fbm2(X*0.9)),gcol*0.55,0.35);
+  float bnd=clamp(vSc*0.45,0.04,1.0);/* (a pebble's base band is a few cm, a boulder's 30) */float gm0=1.0-smoothstep(-0.05*bnd,0.30*bnd,hgt);col=mix(col,earth,gm0*0.9);col*=1.0-0.25*(1.0-smoothstep(0.0,0.6*bnd,hgt));
+  float sunF=clamp(dot(N,normalize(uSunDir)),0.0,1.0);col*=1.0+0.32*(1.0-sunF)*(1.0-gm0);
+  if(uUW>0.5){float uw=uWL-P.y;col=mix(col,mix(vec3(0.16,0.55,0.55),vec3(0.05,0.36,0.42),smoothstep(0.2,0.9,uw)),smoothstep(0.0,0.45,uw)*0.92);}/* under water: fades into the water's colour with depth */
+  diffuseColor.rgb=col;
+ }`,u,null,'color_fragment');}
+return{GLSL_NOISE,patch,GLSL_GROUND_RIVER,mkRng,PAL,palU,setPal,ROCK_DECL,weld,makeStone,boulderMat};})();
