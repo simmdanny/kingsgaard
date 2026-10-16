@@ -4,7 +4,7 @@
    - The depth (the shader colours by the water's thickness along the view ray): one depth-only pre-pass a frame, before the game's render, of what can
      lie under or behind a river's water - the ground's chunks, the river ground in detail, the bank stones, pebbles and boulders (the camera on its
      own layer 9 for it; each drawn with a depth material that moves its vertices as its own material does: the ground's push at the cliffs and its
-     lattice lowered under the detail) - not the water, grass, ivy, drifting bits or anything else; no shadows in it. Only when a ribbon is shown.
+     lattice lowered under the detail) - not the water, grass, ivy, drifting bits or anything else; no shadows in it. Only when a ribbon is in view.
      Its size the drawing buffer's (uRes), as the shader reads gl_FragCoord.
    - The ribbons' material: the mockup's shader, its uniforms shared (the texture, the depth, the size, the time, the sun the game's, the air the
      game's) but for the rocks in the water (uRk: the 8 nearest the camera, per ribbon mesh); its vertices go through the game's far-sight depth
@@ -32,7 +32,9 @@ function wwGD(rd){const k=rd?'r':'k';if(WW.dG[k])return WW.dG[k];const m=new THR
   m.customProgramCacheKey=()=>'wwdepth'+k;return WW.dG[k]=m;}
 function wwDepthMat(o){const m=o.material;if(m===WT.gmatRd)return wwGD(true);if(m===WT.gmat||(typeof WRD!=='undefined'&&m===WRD.mat))return wwGD(false);return WW.dB||(WW.dB=new THREE.MeshBasicMaterial({colorWrite:false}));}
 /* the depth pre-pass (called just before the game renders the frame) */
-function wwDepth(){if(!WW.U||typeof WRV==='undefined'||!WRV.on)return;let any=false;for(const c of WRV.cells.values())if(c.wmesh&&c.wmesh.parent){any=true;break;}if(!any)return;
+const _wwF={f:new THREE.Frustum(),m:new THREE.Matrix4(),s:new THREE.Sphere()};
+function wwDepth(){if(!WW.U||typeof WRV==='undefined'||!WRV.on)return;const FR=_wwF;camera.updateMatrixWorld();FR.m.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);FR.f.setFromProjectionMatrix(FR.m);
+  let any=false;for(const c of WRV.cells.values()){const m=c.wmesh;if(!m||!m.parent||!m.visible)continue;FR.s.copy(m.geometry.boundingSphere).applyMatrix4(m.matrixWorld);if(FR.f.intersectsSphere(FR.s)){any=true;break;}}if(!any)return;/* (only when a ribbon is in view, as the mockup's pass only when its water is shown) */
   const T0=performance.now(),r=renderer,U=WW.U,sz=r.getDrawingBufferSize(WW.v2);if(WW.drt.width!==sz.x||WW.drt.height!==sz.y)WW.drt.setSize(sz.x,sz.y);
   U.uRes.value.copy(sz);U.uNear.value=camera.near;U.uFar.value=camera.far;U.uTime.value=WW.tFix!=null?WW.tFix:(performance.now()/1000)%3600;/* (WW.tFix: a time held, for the flow frames' screenshots) */
   const F=scene.fog;if(F){U.uFogC.value.copy(F.color);if(F.far<0)U.uFog.value.set(F.near*WD.S,F.near);else U.uFog.value.set(F.near,F.far);}else U.uFog.value.set(1e8,2e8);
