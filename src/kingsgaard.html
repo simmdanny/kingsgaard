@@ -8773,8 +8773,8 @@ function owInitUI(){if(OW.ui)return;const root=document.createElement('div');roo
   btn.addEventListener('click',e=>{e.stopPropagation();const v=OW.promptV;if(v)owRecognize(v);});root.appendChild(btn);OW.ui={root,btn,labels:new Map()};}
 function owRefreshUI(){}
 const _owLv=new THREE.Vector3();
-function owFrame(){if(!OW.on||!OW.ui)return;TPC.on=flyPC()&&state==='playing';if(heroU&&heroU.mdl)heroU.mdl.visible=!(tpcCam()&&TPC.fp);/* first person: the hero's body would fill the view (its group stays visible for the rest of the game) */if(tpcCam())tpcApply();const f=OW.focus=owFocus();
-  {const hud=document.getElementById('flyHud');if(hud&&tpcCam()){hud.style.display='block';hud.textContent=camHint();OW.hudTP=true;}else if(OW.hudTP){OW.hudTP=false;if(window.flyUpdHud)window.flyUpdHud();}}let pv=null,pd=1e9;
+function owFrame(){if(!OW.on||!OW.ui)return;TPC.on=(flyPC()||owTouch())&&state==='playing';/* (a touch device plays its hero in third person too: touch.js) */if(heroU&&heroU.mdl)heroU.mdl.visible=!(tpcCam()&&TPC.fp);/* first person: the hero's body would fill the view (its group stays visible for the rest of the game) */if(tpcCam())tpcApply();const f=OW.focus=owFocus();
+  {const hud=document.getElementById('flyHud');if(hud&&tpcCam()&&(!owTouch()||performance.now()-TCH.t0<9000)){hud.style.display='block';hud.textContent=camHint();OW.hudTP=true;}/* (on a touch screen the hint shows for a few seconds) */else if(OW.hudTP){OW.hudTP=false;if(window.flyUpdHud)window.flyUpdHud();}}let pv=null,pd=1e9;
   for(const v of OW.villages){const d=Math.hypot(f.x-v.x,f.z-v.z);if(v.state==='discovered'&&d<OW_CFG.recogR&&d<pd){pd=d;pv=v;}}
   OW.promptV=(state==='playing'&&!paused&&!placing)?pv:null;OW.ui.btn.style.display=OW.promptV?'block':'none';
   /* shadows: the near cascade is centred on the CAMERA (never the look point), snapped to its texel grid, and the light is re-seated immediately */
@@ -8896,11 +8896,11 @@ function camSet(m){if(!(TPC.on&&OW.on&&heroU)||CAM.gal)return false;const H=hero
   OWI.cutOn=(m==='tp');if(OWI.cb)owiCut(OWI.cb,OWI.in);
   applyCam();lookSync();return true;}
 function camCycle(){return camSet({tp:'fc',fc:'fp',fp:'tp'}[camMode()]);}
-const camHint=()=>{const m=camMode();return m==='fc'?(FLY.look?'Free camera, mouse look: mouse turns it, G to release - V first person':'Free camera: WASD, Space up, Shift down, G for mouse look - V first person')
+const camHint=()=>{const m=camMode();if(owTouch())return 'Stick on the left: walk, push to the ring to run, past it to sprint - drag anywhere else to turn the camera, pinch to zoom';return m==='fc'?(FLY.look?'Free camera, mouse look: mouse turns it, G to release - V first person':'Free camera: WASD, Space up, Shift down, G for mouse look - V first person')
   :m==='fp'?(TPC.look?'First person: WASD walk, Shift run, Alt sprint, 1-6 hotbar, I inventory, mouse looks, G to release, F doors, click to swing - V third person':'First person: WASD walk, Shift run, Alt sprint, 1-6 hotbar, I inventory, G for mouse look, F doors, click to swing - V third person')
   :(TPC.look?'Third person: WASD walk, Shift run, Alt sprint, 1-6 hotbar, I inventory, mouse turns the camera, G to release, F doors, click to swing - V free camera':'Third person: WASD walk, Shift run, Alt sprint, 1-6 hotbar, I inventory, right-drag or G to turn the camera, F doors, click to swing - V free camera');};
 const tpcCam=()=>OW.on&&TPC.on&&!FLY.on&&!CAM.gal&&heroU&&state==='playing';
-function tpcVec(){const k=TPC.keys;let f=(k.has('KeyW')?1:0)-(k.has('KeyS')?1:0),r=(k.has('KeyD')?1:0)-(k.has('KeyA')?1:0);if(!f&&!r)return null;const l=Math.hypot(f,r);f/=l;r/=l;const sn=Math.sin(TPC.yaw),cs=Math.cos(TPC.yaw);return{x:-sn*f+cs*r,z:-cs*f-sn*r};}
+function tpcVec(){const k=TPC.keys,j=TPC.joy;let f=(k.has('KeyW')?1:0)-(k.has('KeyS')?1:0),r=(k.has('KeyD')?1:0)-(k.has('KeyA')?1:0);if(j&&!f&&!r){f=j.f;r=j.r;}/* (the touch stick, touch.js: its way, up = away from the camera) */if(!f&&!r)return null;const l=Math.hypot(f,r);f/=l;r/=l;const sn=Math.sin(TPC.yaw),cs=Math.cos(TPC.yaw);return{x:-sn*f+cs*r,z:-cs*f-sn*r};}
 /* how far the boom from the hero's head (t) along the direction (dx,dy,dz) can go before it enters a building: the length, at most d and at least .9 m. Buildings are their storeys' rectangles up to the ridge,
    in their own frame (so a rotated building needs no special case). The house the hero is in is skipped while the hero is inside it: its cutaway deals with it. */
 const TPC_MIN=.9;
@@ -8930,7 +8930,7 @@ function tpcApply(){const H=heroU;
    the end; TPC_ACC: its rates speeding up, by pace, and slowing down, slower from a sprint). It goes along a curve when the way changes - quickly on the spot, wider the faster it goes - and a sharp
    turn slows it first (H.tpD: the way it goes; H.tpV, H.tpA: its speed and how fast that changes). */
 const TPC_PACE={walk:1,run:3.6,sprint:6.2},TPC_ACC={walk:4.2,run:3.4,sprint:2.6},TPC_TURN={stand:9,walk:5.5,run:3.8,sprint:2.6};
-function tpcPace(){const k=TPC.keys;return k.has('Alt')?'sprint':k.has('ShiftLeft')||k.has('ShiftRight')?'run':'walk';}
+function tpcPace(){const k=TPC.keys;if(TPC.joy&&!k.size)return TPC.joy.pace;return k.has('Alt')?'sprint':k.has('ShiftLeft')||k.has('ShiftRight')?'run':'walk';}
 function tpcHeroMove(H,tgt,dt){const v=tpcVec();if((CIT.hero!==H&&heroCasting(H))||H.ko>0){H.walk+=(0-H.walk)*.2;H.tpV=0;H.tpA=0;return null;}H.dest=null;H.goal=null;H.hx=H.x;H.hz=H.z;
   dt=Math.min(.1,dt||0);let V=H.tpV||0,A=H.tpA||0,want=0;const pace=tpcPace();
   if(!H.tpD||V<.02&&!v)H.tpD=v?{x:v.x,z:v.z}:{x:Math.sin(H.face||0),z:Math.cos(H.face||0)};
@@ -8944,7 +8944,7 @@ function altMod(e){return e.altKey&&!(OW.on&&TPC.on&&!FLY.on);}
 function owHeroStep(H,nx,nz){return owiMove(H,nx,nz);}
 function owHeroCell(H){const a=owCell(H.x,H.z);if(a.c===H.c&&a.r===H.r)return;if(grid[H.r]&&grid[H.r][H.c]===H)grid[H.r][H.c]=0;H.c=a.c;H.r=a.r;if(grid[a.r]&&grid[a.r][a.c]===0)grid[a.r][a.c]=H;}
 function owCanStand(x,z){const a=owCell(x,z);if(a.c<1||a.r<1||a.c>=W-1||a.r>=H-1)return false;const v=grid[a.r][a.c];return v!==2&&!(TRW.on&&trwBlock(x,z,.28));/* (nor in a tree's trunk, src/trees.js) */}
-function owSpawnHero(){const sp=OW.keepSpawn||{x:OW.keep.x,z:OW.keep.z-8},a=owCell(sp.x,sp.z);if(!meta.equipped||!owns(meta.equipped))return null;const H2=spawnHero(a.c,a.r);if(H2){TPC.yaw=0;TPC.pitch=.38;TPC.fp=false;TPC.pitchTP=.38;OWI.cutOn=true;}return H2;}
+function owSpawnHero(){const sp=OW.keepSpawn||{x:OW.keep.x,z:OW.keep.z-8},a=owCell(sp.x,sp.z);if(!meta.equipped||!owns(meta.equipped))return null;const H2=spawnHero(a.c,a.r);if(H2){TPC.yaw=0;TPC.pitch=.38;TPC.fp=false;TPC.pitchTP=.38;OWI.cutOn=true;if(owTouch()){H2.face=H2.faceA=Math.PI;}/* (a touch screen starts behind the hero, looking the way it looks: touch.js) */}return H2;}
 
 /* Placement (build & move) */
 let placing=null;
@@ -9319,7 +9319,7 @@ function applyCam(){if(OW.on&&!CAM.gal)camTarget.y=owH(camTarget.x+CAM.px,camTar
 function camClamp(){const g=CAM.gal;if(g==='var'){CAM.zoom=clamp(CAM.zoom,.5,1.7);CAM.pz=0;CAM.yaw=0;return;}CAM.zoom=clamp(CAM.zoom,g?.35:.32,g?1.7:2.6);CAM.px=clamp(CAM.px,g?-3.5:-W*TS/2+.5-camTarget.x,g?3.5+(galPages()-1)*GAL_PAGE_W:W*TS/2-.5-camTarget.x);CAM.pz=clamp(CAM.pz,g?-3.5:-H*TS/2+.5-camTarget.z,g?3.5:H*TS/2+.5-camTarget.z);}
 function camPan(dx,dy){const el=CAM.gal==='var'?.14:CAM.gal?.78:EL,D=(CAM.gal==='var'?galVarBase():CAM.gal?galBase():CAM.base)*CAM.zoom,wpp=2*D*Math.tan(camera.fov*Math.PI/360)/Math.max(1,window.innerHeight);
   const c=Math.cos(CAM.yaw),sn=Math.sin(CAM.yaw);CAM.px-=(dx*c+dy*sn/Math.sin(el))*wpp;CAM.pz-=(-dx*sn+dy*c/Math.sin(el))*wpp;camClamp();applyCam();}
-function camReset(){flyExit();CAM.yaw=0;CAM.zoom=1;CAM.px=0;CAM.pz=0;applyCam();}
+function camReset(){if(owTouch()&&tpcCam()){/* touch: the camera button puts the camera behind the hero again */const H=heroU;TPC.yaw=(H.face||0)+Math.PI;TPC.pitch=.38;TPC.dist=5.4;tpcApply();return;}flyExit();CAM.yaw=0;CAM.zoom=1;CAM.px=0;CAM.pz=0;applyCam();}
 function fit(){
   const w=window.innerWidth,h=window.innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;
   const top=$('#hud').offsetHeight,bot=$('#bar').offsetHeight;
@@ -9432,7 +9432,7 @@ function frame(now){
   if(!window.__fz)updFx(state==='playing'&&!paused?rdt*speed:rdt);
   for(const e of enemies)updBar(e);
   if(MAP)anim(rdt,now/1000);/* nothing to animate before a world exists (the title screen builds none) */
-  aimDotUpdate();
+  aimDotUpdate();tchFrame();
   uiT+=rdt;if(uiT>.15&&state==='playing'){uiT=0;updHud();updSpells();updScrollBar();if(sel||buildTile)refreshSheet();}
   saveT+=rdt;if(saveT>10){saveT=0;if(metaDirty)saveMeta();}
   updPlaceUI(now);
@@ -10422,6 +10422,7 @@ const cursedSeal=k=>CURSE.on&&k!=='bloodcurse'&&k!=='bloodneedles'&&RB[SPELLS_S[
 /*@include interior/light.js*/
 /*@include interior/lightmap.js*/
 /*@include menu/menu.js*/
+/*@include touch.js*/
 refreshTorder();slotRefund();
 /* ---------- Boot ---------- */
 makeThumbs();pcThumb();renderer.setClearColor(0x000000,0);applyShadows();fit();
