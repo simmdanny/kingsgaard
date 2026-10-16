@@ -134,7 +134,7 @@ function wtMakeMat(see,inset,rdl){const tex=wtNoiseTex(),m=new THREE.MeshPhongMa
         'float k=(1.0-smoothstep(0.25,0.35,aA.x))*(1.0-smoothstep(0.40,0.50,aA.z))*uClf.x*(1.0-smoothstep(uClf.y*0.85,uClf.y,length(wp0.xz-cameraPosition.xz)));'+
         'transformed.xz+=aPu*k*uClf.z;vIk=k*min(1.0,length(aPu)*4.0);}\n#endif\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE+WT_GLSL_MEADOW+WRL.GLSL_NOISE)
-      .replace('#include <map_fragment>',WT_GLSL_COLOR.replace('/*@WRL_RIVER@*/',WRL.GLSL_GROUND_RIVER))
+      .replace('#include <map_fragment>',WT_GLSL_COLOR.replace('/*@WRL_RIVER@*/',typeof wrxGround==='function'?wrxGround(WRL.GLSL_GROUND_RIVER):WRL.GLSL_GROUND_RIVER))
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
   m.customProgramCacheKey=()=>see?'wtground18see':inset?(rdl?'wtground18kr':'wtground18k'):'wtground18';return m;}
 /* the meadow (world look 4: the mockup's MEADOW, grassRamp, meadowT, meadowStrokes, gStrokes) - a painted green of several shades: broad patches,

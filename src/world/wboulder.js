@@ -64,7 +64,7 @@ function wbldPlace(t){wbldShapes();const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng
 function wbldMaterial(grey){const k=grey?'g':'b';if(WBLD.mats&&WBLD.mats[k])return WBLD.mats[k];WBLD.mats=WBLD.mats||{};
   const u=WRL.palU(grey?'grey':'brown',.7,0);u.uSunDir=WCM.sun;u.uDbg={value:0};u.uMossP={value:.4};u.uIvy={value:0};u.uMossTop={value:0};u.uUpK={value:.30};u.uUW={value:0};u.uWL={value:0};
   const m=WRL.boulderMat(u),ob=m.onBeforeCompile;m.onBeforeCompile=sh=>{ob(sh);sh.fragmentShader=sh.fragmentShader.replace('#include <lights_fragment_begin>',wcmLights());};
-  return WBLD.mats[k]=m;}
+  return WBLD.mats[k]=wrxLit(m,WRX.k.stone);}/* (the game's light: wrlight.js) */
 /* the contact ring: a flat card under each boulder, darkest just outside its foot */
 function wbldRing(){if(WBLD.ringMat)return;const g=new THREE.PlaneGeometry(2,2);g.rotateX(-Math.PI/2);WBLD.ringGeo=g;
   /* (a plain material with a radial alpha: the game's fog patches - wdepth.js - apply to it as to every other) */

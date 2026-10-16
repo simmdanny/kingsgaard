@@ -62,6 +62,16 @@ In game: the fourteen level-5 shapes take ~305 ms once (first boulders), the low
 | D24 | Game only: the depth pre-pass draws only what can lie under or behind a river's water - the ground's chunks, the river ground in detail, the bank stones, pebbles and boulders (on layer 9) - each with a depth material that moves its vertices as its own material does (the ground's push at the cliffs, its lattice lowered under the detail); no shadows in it; only when a ribbon is shown; `uRes` the drawing buffer. The water's vertices go through the game's far-sight depth (wdepth.js) as the depth texture's do; the water's own fog (`uFog`, `uFogC`) is set to the game's air (from `WD.S` of its end to the end, its colour) | frame time; the game's depth and air | game only |
 | D25 | Game only: `uRk` per ribbon mesh (a 256 m cell): the 8 rocks in the water nearest the camera; drifting leaves and flecks per stream piece within 90 m, 34 per 115 m (12 of them leaves), seeded per piece, drawn only where the piece's middle is this stream's water | HANDOFF 3.8 (8 nearest per water tile, deterministic, only near the player) | game only |
 
+## Step 6: the game's light (HANDOFF section 6)
+
+The parity shots rendered under the game's daytime light (`parity-gamelight.html`, made by `make-parity.py`: the game's sun 0xfff0d8 x 0.8, its sky light 0xe8f2ff / 0x4a5530 x 0.58, no ambient, no fog - the game's air is clear at these distances), measured per material by the masks of `parity-ids.html` (every material a flat colour) with `gamelight.py` (each material's mean colour in the reference and the game-light render over its pixels, edges left out; the factor that brings it back is reference / game light by luminance). Then the smallest change: one multiplier per material (`src/world/wrlight.js`, the same code in the lab and the game).
+
+| # | What | Why | Numbers before -> after |
+|---|---|---|---|
+| D26 | Game light: the stone material's final colour times 1.285 (field boulders, bank stones, rocks in the water, pebbles); the ground's river part times 1.210 on its own colours only - its code is affine in the colour it starts from (three mixes by weights of their own), so the colour is divided by 1.21 going in and multiplied coming out: the river's colours times 1.21, the meadow's share as it was, no seam where the river's part ends; the water, grass, ivy and flecks 1 (they read no scene light; the water's 1.041 was the bed seen through it, which the river ground's factor brings back) | the game's light is dimmer and cooler than the mockup's (HANDOFF section 0.3) | by material (reference / game light): stones 1.283 -> 1.008, river ground 1.210 -> 1.027, water 1.041 -> 1.004, grass / ivy / flecks 1.000 -> 1.000; the whole shots below |
+| D27 | Game only: the materials with a light of their own (water, grass, ivy, flecks) are multiplied by the game's light level `WRX.L` = (sky light x its luminance + 0.75 x sun x its luminance) / the game's noon value (0xe8f2ff x 0.58, 0xfff4e4 x 0.8), clamped to 0.04-1.25: 1 at noon, about 0.62 at the game's night | HANDOFF 6.4: no glowing water at night | checked in the game at noon, dusk (day time 1185) and night (1500): the water darkens with the scene, the stones are moonlit grey, not black |
+| - | Not changed: the meadow (world look's) darkens by the same 1.208 under the game's light, the mockup's own cliff by 1.263; neither is the river look's (HANDOFF: leave world look as it is), so the shots with much meadow (river-wide, stone-row) stay apart from the reference under the game's light. An open point for the designer. | | other ground 1.208 -> 1.208 |
+
 ## Parity log
 
 Rendered with `python render-all.py --page parity.html --out parity` (render-reference.py unchanged, run through a shim that lifts only Playwright's
@@ -145,4 +155,61 @@ river-mid-nowater          0.00    0.00%  ok
 river-close-nowater        0.00    0.00%  ok
 river-wide-grey            0.00    0.00%  ok
 PASS
+```
+
+Step 6, under the game's light - `python compare.py reference parity-gamelight-k1` (every factor 1):
+```
+shot                       mean   over24  result
+river-wide                 9.92   40.91%  DIFFERENT
+river-mid                  8.65   20.85%  DIFFERENT
+river-close                9.58   26.01%  DIFFERENT
+flow-t3.0                  8.51   23.38%  DIFFERENT
+flow-t4.2                  8.51   23.41%  DIFFERENT
+flow-t5.4                  8.46   23.35%  DIFFERENT
+stone-row                 16.59   64.99%  DIFFERENT
+river-mid-nowater         17.08   46.25%  DIFFERENT
+river-close-nowater       15.16   44.34%  DIFFERENT
+river-wide-grey            9.50   38.45%  DIFFERENT
+FAIL: 10 shot(s) differ
+```
+`python compare.py reference parity-gamelight` (the factors of D26):
+```
+shot                       mean   over24  result
+river-wide                 7.65   31.98%  DIFFERENT
+river-mid                  3.18    8.00%  DIFFERENT
+river-close                3.94   10.68%  DIFFERENT
+flow-t3.0                  2.36    3.01%  ok
+flow-t4.2                  2.36    3.01%  ok
+flow-t5.4                  2.35    3.01%  ok
+stone-row                 10.73   41.08%  DIFFERENT
+river-mid-nowater          3.69    8.03%  DIFFERENT
+river-close-nowater        4.54   10.82%  DIFFERENT
+river-wide-grey            7.58   31.98%  DIFFERENT
+FAIL: 7 shot(s) differ
+```
+`python gamelight.py reference parity-gamelight-k1 parity-ids` (all shots):
+```
+all shots, pixel-weighted (exposure factor = reference / game light):
+  material             pixels          reference RGB         game light RGB  factor
+  river ground        4913420   (130.4, 133.7, 79.6)   (108.8, 110.2, 65.2)   1.210
+  other ground        5177173   (127.5, 192.8, 43.3)   (106.6, 159.4, 34.1)   1.208
+  stones              7630682   (152.7, 128.5, 88.0)   (119.1, 100.2, 67.4)   1.283
+  cliff (mockup)       471791  (213.4, 178.0, 129.8)  (168.1, 141.3, 101.9)   1.263
+  water               9884991   (70.5, 159.7, 160.0)   (65.0, 154.0, 155.8)   1.041
+  grass               4346636    (99.1, 139.0, 34.4)    (99.1, 139.0, 34.4)   1.000
+  ivy                   64741     (56.9, 94.2, 22.7)     (56.9, 94.2, 22.7)   1.000
+  flecks                  528  (217.8, 239.9, 239.4)  (217.0, 239.6, 239.4)   1.002
+```
+`python gamelight.py reference parity-gamelight parity-ids`:
+```
+all shots, pixel-weighted (exposure factor = reference / game light):
+  material             pixels          reference RGB         game light RGB  factor
+  river ground        4913420   (130.4, 133.7, 79.6)   (129.1, 129.5, 78.1)   1.027
+  other ground        5177173   (127.5, 192.8, 43.3)   (106.6, 159.4, 34.1)   1.208
+  stones              7630682   (152.7, 128.5, 88.0)   (148.9, 128.3, 86.2)   1.008
+  cliff (mockup)       471791  (213.4, 178.0, 129.8)  (168.1, 141.3, 101.9)   1.263
+  water               9884991   (70.5, 159.7, 160.0)   (70.1, 159.1, 159.3)   1.004
+  grass               4346636    (99.1, 139.0, 34.4)    (99.1, 139.0, 34.4)   1.000
+  ivy                   64741     (56.9, 94.2, 22.7)     (56.9, 94.2, 22.7)   1.000
+  flecks                  528  (217.8, 239.9, 239.4)  (217.8, 239.8, 239.4)   1.000
 ```

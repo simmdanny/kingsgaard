@@ -119,10 +119,10 @@ function wrsBankMat(){if(WRS.mat)return WRS.mat;const u=WRL.bankUniforms(new THR
   m.onBeforeCompile=sh=>{ob(sh);sh.fragmentShader=sh.fragmentShader.replace('#include <lights_fragment_begin>',wcmLights());
     sh.vertexShader='attribute float aWli;\nvarying float vWli;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvWli=aWli;');
     sh.fragmentShader='varying float vWli;\n'+sh.fragmentShader.replace('float uw=uWL-P.y;','float uw=vWli-P.y;');};
-  m.customProgramCacheKey=()=>'wrsbank1';return WRS.mat=m;}
+  m.customProgramCacheKey=()=>'wrsbank1';return WRS.mat=wrxLit(m,WRX.k.stone);}/* (the game's light: wrlight.js) */
 function wrsShaderMat(m,noSun){if(!noSun)m.uniforms.uSun=WCM.sun;m.vertexShader=m.vertexShader.replace('#include <fog_vertex>','vec3 wdV=mvPosition.xyz;\n#include <fog_vertex>');return m;}
-function wrsGrassMat(){return WRS.gmat||(WRS.gmat=wrsShaderMat(WRL.grassMaterial(new THREE.Vector3(0,1,0))));}
-function wrsIvyMat(){return WRS.imat||(WRS.imat=wrsShaderMat(WRL.ivyMaterial(new THREE.Vector3(0,1,0))));}
+function wrsGrassMat(){return WRS.gmat||(WRS.gmat=wrxOwn(wrsShaderMat(WRL.grassMaterial(new THREE.Vector3(0,1,0))),'grass'));}
+function wrsIvyMat(){return WRS.imat||(WRS.imat=wrxOwn(wrsShaderMat(WRL.ivyMaterial(new THREE.Vector3(0,1,0))),'ivy'));}
 /* an instanced mesh for a key, with room for n (made anew, bigger, when it has not) */
 function wrsFit(key,n,G,mat,shadow,wl,recv){let m=WRS.meshes.get(key);if(m&&m.instanceMatrix.count>=n)return m;const cap=Math.max(n,m?m.instanceMatrix.count*2:16);
   if(m){OW.group.remove(m);}m=new THREE.InstancedMesh(G,mat,cap);m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

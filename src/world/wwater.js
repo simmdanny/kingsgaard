@@ -13,11 +13,12 @@
      river look's, their positions from the time.
    DEVIATIONS D22-D25.
    ===================================================================================================== */
-const WW={U:null,drt:null,v2:null,dG:{},dB:null,RF:90,lm:null,fm:null,fl:null,ff:null,stats:{depth:0,depthMs:0,leaves:0,flecks:0}};
+const WW={tFix:null,U:null,drt:null,v2:null,dG:{},dB:null,RF:90,lm:null,fm:null,fl:null,ff:null,stats:{depth:0,depthMs:0,leaves:0,flecks:0}};
 function wwShared(){if(WW.U)return WW.U;const drt=new THREE.WebGLRenderTarget(4,4);drt.depthTexture=new THREE.DepthTexture(4,4);drt.depthTexture.type=THREE.UnsignedIntType;drt.texture.generateMipmaps=false;
   WW.drt=drt;WW.v2=new THREE.Vector2();const U=WRL.waterUniforms(new THREE.Vector3(0,1,0),WRL.makeNTEX(),drt.depthTexture);U.uSun=WCM.sun;return WW.U=U;}
 /* a ribbon mesh's material: the shared uniforms, its own rocks */
 function wwMaterial(){const U=wwShared(),u=Object.assign({},U,{uRk:{value:Array.from({length:8},()=>new THREE.Vector4(0,0,0,0))}}),m=WRL.waterMaterial(u),R0=WD.R0.toFixed(1),SP=WD.SPAN.toFixed(1),SC=WD.SCALE.toFixed(1);
+  wrxOwn(m,'water');/* (the game's light: wrlight.js) */
   m.vertexShader=m.vertexShader.replace('gl_Position=projectionMatrix*viewMatrix*w;',
     'vec4 wdMv=viewMatrix*w;if(projectionMatrix[2][3]<-0.5){float wdL=length(wdMv.xyz);if(wdL>'+R0+'){float wdN='+R0+'+'+SP+'*(1.0-exp(-(wdL-'+R0+')/'+SC+'));wdMv.xyz*=wdN/wdL;}}gl_Position=projectionMatrix*wdMv;');
   return m;}
@@ -33,7 +34,7 @@ function wwDepthMat(o){const m=o.material;if(m===WT.gmatRd)return wwGD(true);if(
 /* the depth pre-pass (called just before the game renders the frame) */
 function wwDepth(){if(!WW.U||typeof WRV==='undefined'||!WRV.on)return;let any=false;for(const c of WRV.cells.values())if(c.wmesh&&c.wmesh.parent){any=true;break;}if(!any)return;
   const T0=performance.now(),r=renderer,U=WW.U,sz=r.getDrawingBufferSize(WW.v2);if(WW.drt.width!==sz.x||WW.drt.height!==sz.y)WW.drt.setSize(sz.x,sz.y);
-  U.uRes.value.copy(sz);U.uNear.value=camera.near;U.uFar.value=camera.far;U.uTime.value=(performance.now()/1000)%3600;
+  U.uRes.value.copy(sz);U.uNear.value=camera.near;U.uFar.value=camera.far;U.uTime.value=WW.tFix!=null?WW.tFix:(performance.now()/1000)%3600;/* (WW.tFix: a time held, for the flow frames' screenshots) */
   const F=scene.fog;if(F){U.uFogC.value.copy(F.color);if(F.far<0)U.uFog.value.set(F.near*WD.S,F.near);else U.uFog.value.set(F.near,F.far);}else U.uFog.value.set(1e8,2e8);
   const L=[],add=o=>{if(!o||!o.parent)return;o.layers.enable(9);L.push(o);};
   for(const ch of WT.chunks.values())if(ch.on)add(ch.mesh);if(typeof WRD!=='undefined')for(const e of WRD.tiles.values())add(e.mesh);
@@ -43,7 +44,11 @@ function wwDepth(){if(!WW.U||typeof WRV==='undefined'||!WRV.on)return;let any=fa
   r.setRenderTarget(WW.drt);r.clear();r.render(scene,camera);r.setRenderTarget(null);
   camera.layers.mask=lm;scene.background=bg;r.shadowMap.autoUpdate=au;L.forEach((o,i)=>{o.material=mats[i];});WW.stats.depth++;WW.stats.depthMs+=performance.now()-T0;}
 /* per frame: each near ribbon mesh's rocks (the 8 nearest the camera of the stream pieces' rocks in the water over it), the drifting bits */
-function wwUpdate(f){if(!WW.U||typeof WRV==='undefined'||!OW.group)return;const c=camera.position;
+/* the game's light level for the materials with a light of their own (WRX.L, wrlight.js): the sky light and the sun as the ground takes them (the sun at
+   three quarters: about its angle at noon), against the game's noon (0xe8f2ff x 0.58, 0xfff4e4 x 0.8) */
+const _wwLum=c=>.2126*c.r+.7152*c.g+.0722*c.b,WW_NOON=.58*_wwLum(new THREE.Color(0xe8f2ff))+.75*.8*_wwLum(new THREE.Color(0xfff4e4));
+function wwLight(){WRX.L.value=Math.max(.04,Math.min(1.25,(hemi.intensity*_wwLum(hemi.color)+.75*sun.intensity*_wwLum(sun.color))/WW_NOON));}
+function wwUpdate(f){if(typeof WRX!=='undefined')wwLight();if(!WW.U||typeof WRV==='undefined'||!OW.group)return;const c=camera.position;
   if(typeof WRS!=='undefined'){const rocks=[];for(const e of WRS.segs.values())if(e.rocks)for(const k of e.rocks)rocks.push(k);
     for(const cl of WRV.cells.values()){if(!cl.wmesh)continue;const u=cl.wmesh.material.uniforms.uRk.value,b=cl.bb,L=[];
       for(const k of rocks)if(k[0]>b[0]-10&&k[0]<b[2]+10&&k[1]>b[1]-10&&k[1]<b[3]+10)L.push(k);L.sort((p,q)=>Math.hypot(p[0]-c.x,p[1]-c.z)-Math.hypot(q[0]-c.x,q[1]-c.z));
@@ -63,7 +68,7 @@ function wwFloat(f){if(typeof WRS==='undefined')return;const t=WW.U.uTime.value,
   const fit=(m,n,G,mat)=>{if(m&&m.instanceMatrix.count>=n)return m;if(m)OW.group.remove(m);m=new THREE.InstancedMesh(G,mat,Math.max(16,n*2));m.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(m.instanceMatrix.count*3).fill(1),3);
     m.frustumCulled=false;m.renderOrder=6;m.userData.keep=1;OW.group.add(m);return m;};
   if(WW.lm&&WW.lm.parent!==OW.group){WW.lm=null;WW.fm=null;}
-  WW.lm=fit(WW.lm,ML.length,WW.lg||(WW.lg=new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2)),wrsIvyMat());WW.fm=fit(WW.fm,MF.length,WW.fg||(WW.fg=new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2)),WW.fmat||(WW.fmat=wrsShaderMat(WRL.fleckMaterial(),true))/* (no sun: its uniforms are three.js's fog's own object) */);
+  WW.lm=fit(WW.lm,ML.length,WW.lg||(WW.lg=new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2)),wrsIvyMat());WW.fm=fit(WW.fm,MF.length,WW.fg||(WW.fg=new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2)),WW.fmat||(WW.fmat=wrxOwn(wrsShaderMat(WRL.fleckMaterial(),true),'fleck'))/* (no sun: its uniforms are three.js's fog's own object) */);
   ML.forEach((M,i)=>{WW.lm.instanceMatrix.array.set(M,i*16);WW.lm.instanceColor.setXYZ(i,0,CL[i],0);});WW.lm.count=ML.length;WW.lm.instanceMatrix.needsUpdate=true;WW.lm.instanceColor.needsUpdate=true;
   MF.forEach((M,i)=>{WW.fm.instanceMatrix.array.set(M,i*16);});WW.fm.count=MF.length;WW.fm.instanceMatrix.needsUpdate=true;
   WW.stats.leaves=ML.length;WW.stats.flecks=MF.length;}

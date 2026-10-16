@@ -92,3 +92,39 @@ cut('function updFloat(t){', 'const waterOld=',
 
 open(os.path.join(here, 'parity.html'), 'w', encoding='utf-8', newline='\n').write(s)
 print('wrote parity.html')
+base = s
+
+# ---- step 6 (HANDOFF section 6): the same scene under the game's daytime light -> parity-gamelight.html ----
+# the game's sun (0xfff0d8 x 0.8), its sky light (0xe8f2ff / 0x4a5530 x 0.58), no ambient; the game's air is clear this near (from 58 % of an end of
+# hundreds of metres), so no fog; and the game's light adaptation of the ported materials (src/world/wrlight.js) as the game has it
+s = base
+rep('scene.fog=new THREE.Fog(0xbcdaef,80,200);', "scene.fog=new THREE.Fog(0xbcdaef,1e5,2e5);/* (gamelight: the game's air is clear at these distances) */")
+rep('const sun=new THREE.DirectionalLight(0xfff0d6,.95);', "const sun=new THREE.DirectionalLight(0xfff0d8,.8);/* (gamelight: the game's sun) */")
+rep('new THREE.HemisphereLight(0xd8ecff,0x8a7a58,.62),new THREE.AmbientLight(0xffffff,.10)', "new THREE.HemisphereLight(0xe8f2ff,0x4a5530,.58)/* (gamelight: the game's sky light, no ambient) */")
+rep("const WU=WRL.waterUniforms(SUN,NTEX,DRT.depthTexture);\n", "const WU=WRL.waterUniforms(SUN,NTEX,DRT.depthTexture);WU.uFog.value.set(1e5,2e5);/* (gamelight: no fog) */\n")
+rep('<script src="../../../src/world/wrlook.js"></script>', '<script src="../../../src/world/wrlook.js"></script>\n<script src="../../../src/world/wrlight.js"></script>')
+rep("${WRL.GLSL_GROUND_RIVER/* parity lab: the game's river part of the ground shader */}", "${wrxGround(WRL.GLSL_GROUND_RIVER)/* gamelight: the game's light on the river ground (wrlight.js) */}")
+rep('window.SS={view:', "/* gamelight: the game's light adaptation of the ported materials (wrlight.js) */\nwrxApply({stones:[boulderNew,bankMat],water:[waterMat],grass:[grassMat],ivy:[ivyMat],fleck:[fleckMat],ground:groundMat});\nwindow.SS={view:")
+open(os.path.join(here, 'parity-gamelight.html'), 'w', encoding='utf-8', newline='\n').write(s)
+print('wrote parity-gamelight.html')
+# the same under the game's light with every factor 1 (the 'before' of DEVIATIONS D26): parity-gamelight-k1.html
+s = s.replace('<script src="../../../src/world/wrlight.js"></script>', '<script src="../../../src/world/wrlight.js"></script>\n<script>WRX.k={stone:1,ground:1,water:1,grass:1,ivy:1,fleck:1};/* (gamelight-k1: no factors) */</script>', 1)
+open(os.path.join(here, 'parity-gamelight-k1.html'), 'w', encoding='utf-8', newline='\n').write(s)
+print('wrote parity-gamelight-k1.html')
+
+# ---- step 6: material ids for the measurements -> parity-ids.html: every material a flat colour (river ground red, other ground dark red, stones green,
+# the mockup's cliff grey, water blue, grass yellow, ivy magenta, flecks cyan, the rest and the sky black) ----
+s = base
+rep('window.SS={view:', """/* parity lab, material ids (step 6 measurements) */
+{const vs='void main(){vec4 p=vec4(position,1.0);\\n#ifdef USE_INSTANCING\\np=instanceMatrix*p;\\n#endif\\ngl_Position=projectionMatrix*modelViewMatrix*p;}';
+ const F=(r,g,b)=>new THREE.ShaderMaterial({side:THREE.DoubleSide,vertexShader:vs,fragmentShader:'void main(){gl_FragColor=vec4('+r+','+g+','+b+',1.0);}'});
+ const gid=new THREE.ShaderMaterial({vertexShader:'attribute float aWd;varying float vW;void main(){vW=aWd;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:'varying float vW;void main(){gl_FragColor=vW>-8.5?vec4(1.0,0.0,0.0,1.0):vec4(0.4,0.0,0.0,1.0);}'});
+ const recol=(m,c)=>{const n=m.clone();n.fog=false;n.transparent=false;n.fragmentShader=n.fragmentShader.replace(/gl_FragColor=vec4\\([^;]*\\);/,'gl_FragColor=vec4('+c+',1.0);').replace('#include <fog_fragment>','');return n;};
+ const gm=recol(grassMat,'1.0,1.0,0.0'),im=recol(ivyMat,'1.0,0.0,1.0'),fm=recol(fleckMat,'0.0,1.0,1.0'),FS=F(0,1,0),FC=F(.5,.5,.5),FW=F(0,0,1),FK=F(0,0,0);
+ const ID=new Set([gid,FS,FC,FW,gm,im,fm,FK]);
+ const swap=()=>scene.traverse(o=>{if(!o.isMesh)return;const m=o.material;if(ID.has(m))return;o.material=m===groundMat?gid:(m===boulderNew||m===bankMat)?FS:(m===cliffNew||m===cliffOld)?FC:m===waterMat?FW:m===grassMat?gm:m===ivyMat?im:m===fleckMat?fm:FK;});
+ swap();const sl=setLook;setLook=v=>{sl(v);swap();};/* (setLook puts the boulders' own material back: swap again after it) */
+ scene.background=new THREE.Color(0);scene.fog=null;}
+window.SS={view:""")
+open(os.path.join(here, 'parity-ids.html'), 'w', encoding='utf-8', newline='\n').write(s)
+print('wrote parity-ids.html')
