@@ -18,7 +18,7 @@ these modules; everything not yet ported stays the mockup's own code byte for by
 | D3 | Game only: `WL` is the stream's own water level at the nearest point of its curve (the hydrology's level falls along a stream), not one flat level | the game's rivers fall | game only |
 | D4 | Game only: of several streams near a point, the one whose `rivBank` gives the lowest ground wins (channels cut through other banks; confluences) | the mockup has one river | game only |
 | D5 | Game only: where a stream's water falls faster than 2-5 cm a metre (rapids, falls) the old channel (`wgHydroApply`) stays, blended by `1 - S(.02,.05,slope)` | HANDOFF: waterfalls are out of scope | game only |
-| D6 | Game only: rivBank's land `h` is the game's land after its lakes and with its valley (the soft minimum that keeps a river through a hill in a sloping valley); no river look inside a lake's basin, and by the world's water rivBank only carves (its levee would stand in the sea) | the mockup's land has no lakes, valleys or sea | game only |
+| D6 | Game only: rivBank's land `h` is the game's land after its lakes and with its valley (the soft minimum that keeps a river through a hill in a sloping valley - never under the plain minimum of the two: its dip of up to a metre put the land just beyond a bank under the water, which showed the ribbon over grass; added in step 5); no river look inside a lake's basin, and by the world's water rivBank only carves (its levee would stand in the sea) | the mockup's land has no lakes, valleys or sea, and never stands under its water | game only |
 | D7 | Game only: the ground's `vOcc` in the river block was 0 until the rocks in the water existed (step 3; now D17) | not ported yet | game only |
 | D8 | Game only: near the camera (150 m) the ground along a stream is drawn again at 0.5 m (`wrdetail.js`) - the mockup's ground is 0.57 m, the game's lattice 2 m; same function, same material; the lattice lowered under it; its hollows/crests and rock floor measured over 2 m as the lattice's | plumbing: meshes, LOD (R1) | game only |
 
@@ -52,6 +52,15 @@ In game: the fourteen level-5 shapes take ~305 ms once (first boulders), the low
 | D19 | Game only: per stream piece the grass's random stream (the mockup's `rnd`, line 67) and `lipReeds`' stream (`mkRng(515)` in the lab) are seeded per piece (the mockup's `rnd` also feeds its meadow, which the game does not port); `NREED` = 34 per 115 m; `H` exact (the worker places the grass with `wgHeightAt`'s numbers at hand; `rivBank().y` there is the ground, as the mockup's `H` is `rivBank().y`); a tuft or reed stays only along the metres of the piece whose middle is this stream's water (not a lake, a fall, another stream's channel). The worker's grass equals the same job on the main thread (tests/rs-check.js: 4 pieces, 10932 spots, number for number) | the game's streams; frame time (the lip grass alone is ~8000 bank evaluations a piece) | game only |
 | D20 | Game only: the meadow's grass is the game's (`grass.js`, world look 5) - the mockup's meadow tufts are not ported (HANDOFF: do not redo world look); at the river its plants follow the mockup's rule (`WRB.meadowSkip` on the nearest gentle stream's `bankCore`, `y` the ground) on top of the game's own (none under water, none steeper than .5). The mockup's tufts round the boulders (line 669) are world look 5's; the river's pebbles are under its .3 size anyway | HANDOFF 3.7: the game's grass, the mockup's placement rules | game only |
 | D21 | Game only: the river's tufts, lip grass, reeds and ivy are drawn with the mockup's own `grassMat` and `ivyMat` (HANDOFF 3.7: the tuft shape and colour the mockup's - 11 pointed blades per crossed card, its colour ramp, `vSh`), the sun the game's, and `vec3 wdV=mvPosition.xyz;` before `#include <fog_vertex>` (the game's air, wdepth.js, reads the view position its `project_vertex` sets, which these shaders do not include); tufts within 100 m, ivy within 60 m; the tufts' matrices a few hundred a frame and the ivy a few stones a frame (their random streams carried on: the same tufts and leaves as all at once - same counts checked) | plumbing (materials, LOD, frame time) | game only |
+
+## Step 5: the water
+
+| # | What | Why | Parity before -> after |
+|---|---|---|---|
+| D22 | The water code (`11-water.js`) is functions whose inputs are passed in: `makeNTEX()`, `waterUniforms(SUN, NTEX, depthTexture)`, `waterMaterial(WU)`, `waterRibbon(E)` (its points, its columns `C` - 25 in the lab -, whether it runs on 3 m past its end `ext`, `rivHalf(z, i)` and `WLat(i)` where along), `makeFloat(E)` (how many `NF` and how many of them leaves `NL` - 34 and 12 in the lab), `fleckMaterial()`, `updFloat(t, E)` (`rivHalf(z, u)`, `WLat(u)`); the lab's depth pre-pass and `renderFrame` are the lab's own | plumbing (R1) | all 10 shots 0.00 / 0.00 % (exact) |
+| D23 | Game only: the ribbons (wriver.js) along each stream piece where its water is nearly level (`wrbGentle` > .5); where it falls the old ribbon and water stay (waterfalls are out of scope, D5), lakes and the world's water keep theirs. Sections at every metre, the run's ends exact; at a joint between pieces the section is the same from both sides (its direction from the curve's points a section away in the neighbouring pieces: the main stream upstream, the next piece downstream) so the pieces meet without a seam; the water level per section the stream's own (it falls along a stream); beyond 420 m a cell's ribbons have 5 columns and a section every 4 m (the surface is flat across: the same water) | the game's streams; vertex count far off | game only |
+| D24 | Game only: the depth pre-pass draws only what can lie under or behind a river's water - the ground's chunks, the river ground in detail, the bank stones, pebbles and boulders (on layer 9) - each with a depth material that moves its vertices as its own material does (the ground's push at the cliffs, its lattice lowered under the detail); no shadows in it; only when a ribbon is shown; `uRes` the drawing buffer. The water's vertices go through the game's far-sight depth (wdepth.js) as the depth texture's do; the water's own fog (`uFog`, `uFogC`) is set to the game's air (from `WD.S` of its end to the end, its colour) | frame time; the game's depth and air | game only |
+| D25 | Game only: `uRk` per ribbon mesh (a 256 m cell): the 8 rocks in the water nearest the camera; drifting leaves and flecks per stream piece within 90 m, 34 per 115 m (12 of them leaves), seeded per piece, drawn only where the piece's middle is this stream's water | HANDOFF 3.8 (8 nearest per water tile, deterministic, only near the player) | game only |
 
 ## Parity log
 
@@ -107,6 +116,22 @@ PASS
 ```
 
 Step 4 (+ the ivy's material/leaves/matrices, the grass material and cards, the meadow's rule, the tufts behind the stones, the lip grass and reeds, the tufts' matrices from the game's modules; bankTufts and lipReeds from WRB):
+```
+shot                       mean   over24  result
+river-wide                 0.00    0.00%  ok
+river-mid                  0.00    0.00%  ok
+river-close                0.00    0.00%  ok
+flow-t3.0                  0.00    0.00%  ok
+flow-t4.2                  0.00    0.00%  ok
+flow-t5.4                  0.00    0.00%  ok
+stone-row                  0.00    0.00%  ok
+river-mid-nowater          0.00    0.00%  ok
+river-close-nowater        0.00    0.00%  ok
+river-wide-grey            0.00    0.00%  ok
+PASS
+```
+
+Step 5 (+ the ripple/foam texture, the water's uniforms and shader, the ribbon, the drifting bits from the game's modules):
 ```
 shot                       mean   over24  result
 river-wide                 0.00    0.00%  ok

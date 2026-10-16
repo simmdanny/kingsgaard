@@ -120,7 +120,7 @@ function wrsBankMat(){if(WRS.mat)return WRS.mat;const u=WRL.bankUniforms(new THR
     sh.vertexShader='attribute float aWli;\nvarying float vWli;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvWli=aWli;');
     sh.fragmentShader='varying float vWli;\n'+sh.fragmentShader.replace('float uw=uWL-P.y;','float uw=vWli-P.y;');};
   m.customProgramCacheKey=()=>'wrsbank1';return WRS.mat=m;}
-function wrsShaderMat(m){m.uniforms.uSun=WCM.sun;m.vertexShader=m.vertexShader.replace('#include <fog_vertex>','vec3 wdV=mvPosition.xyz;\n#include <fog_vertex>');return m;}
+function wrsShaderMat(m,noSun){if(!noSun)m.uniforms.uSun=WCM.sun;m.vertexShader=m.vertexShader.replace('#include <fog_vertex>','vec3 wdV=mvPosition.xyz;\n#include <fog_vertex>');return m;}
 function wrsGrassMat(){return WRS.gmat||(WRS.gmat=wrsShaderMat(WRL.grassMaterial(new THREE.Vector3(0,1,0))));}
 function wrsIvyMat(){return WRS.imat||(WRS.imat=wrsShaderMat(WRL.ivyMaterial(new THREE.Vector3(0,1,0))));}
 /* an instanced mesh for a key, with room for n (made anew, bigger, when it has not) */

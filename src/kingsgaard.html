@@ -7100,6 +7100,7 @@ sheet.addEventListener('click',ev=>{
 /*@include world/wcliffmat.js*/
 /*@include world/wboulder.js*/
 /*@include world/wrstone.js*/
+/*@include world/wwater.js*/
 /*@include world/wring.js*/
 /*@include world/wsite.js*/
 /*@include world/wstream.js*/
@@ -9447,6 +9448,7 @@ function frame(now){
   if(!$('#home').hidden&&curTab==='heroes')renderPreview(rdt);
   const shk=meta.shake===false?0:camShake,shx=(rnd()-.5)*shk,shy=(rnd()-.5)*shk;camera.position.x+=shx;camera.position.y+=shy;
   bmAtmos(rdt);sfAtmos(rdt);galFrame(now/1000);if(OW.on){owFrame();owView();}
+  if(typeof wwDepth==='function'&&OW.group)wwDepth();/* (the rivers' water: its depth pre-pass, wwater.js) */
   if(LENS.on)lensRender();else if(DOM.post&&DOM.post.on)DOM.post.render();else if(SDP.n>0)sdpRender();else renderer.render(scene,camera);
   if(SGL.n>0)sglPass();
   camera.position.x-=shx;camera.position.y-=shy;

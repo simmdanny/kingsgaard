@@ -78,5 +78,17 @@ cut('{const r=mkRng(515),nearStone=', 'const tufts=new THREE.InstancedMesh(',
 cut('{const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Pv=', ' tufts.instanceMatrix.needsUpdate=true;',
     "{const tk=WRL.tuftKit();tuftSpots.forEach((s,i)=>{const [M,C]=tk(s,rnd,H);tufts.setMatrixAt(i,M);tufts.setColorAt(i,C);});/* (parity lab: the game's tuftKit) */\n")
 
+# ---- step 5: the water (texture, uniforms, shader, ribbon, drifting bits); the depth pre-pass and renderFrame stay the lab's ----
+cut('const NTEX=(()=>{', 'const DRT=new THREE.WebGLRenderTarget(', "/* parity lab: the ripple and foam texture is the game's (WRL) */\nconst NTEX=WRL.makeNTEX();\n")
+cut('const WU={uRk:', 'const waterMat=', "/* parity lab: the water's uniforms and shader are the game's (WRL) */\nconst WU=WRL.waterUniforms(SUN,NTEX,DRT.depthTexture);\n")
+cut('const waterMat=new THREE.ShaderMaterial({uniforms:WU,', 'const waterGeo=', "const waterMat=WRL.waterMaterial(WU);\n")
+cut('const waterGeo=(()=>{', 'const water=new THREE.Mesh(waterGeo,waterMat);',
+    "/* parity lab: the ribbon is the game's (WRL.waterRibbon), fed the mockup's river */\nconst waterGeo=WRL.waterRibbon({RIV,C:25,ext:true,rivHalf:(z,i)=>rivHalf(z),WLat:i=>WL});\n")
+cut('function rivAt(u){', 'const fleckMat=',
+    "/* parity lab: the drifting bits are the game's (WRL.makeFloat, WRL.updFloat) */\nconst FLOAT=WRL.makeFloat({RIV,NF:34,NL:12,r:mkRng(3131)});\n")
+cut('const fleckMat=new THREE.ShaderMaterial(', 'const leaves=new THREE.InstancedMesh(', "const fleckMat=WRL.fleckMaterial();\n")
+cut('function updFloat(t){', 'const waterOld=',
+    "function updFloat(t){WRL.updFloat(t,{FLOAT,RIV,rivHalf:(z,u)=>rivHalf(z),waterRocks,WLat:u=>WL,leaves,flecks});}\n")
+
 open(os.path.join(here, 'parity.html'), 'w', encoding='utf-8', newline='\n').write(s)
 print('wrote parity.html')

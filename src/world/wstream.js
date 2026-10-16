@@ -192,4 +192,4 @@ function wstRocksDrop(t){const r=t.rocks;t.rocks=undefined;if(!r)return;WBLD.dir
 /* per frame: boulders on the filled tiles near the player, dropped far away */
 function wstRocksView(f){const S=WG_CFG.tile;let made=0;for(const t of WT.tiles.values()){const d=Math.hypot(t.x0+S/2-f.x,t.z0+S/2-f.z);
     if(d<WROCK.R){if(t.rocks===undefined&&made<1&&WSTR.filled.has(t.ti+','+t.tk)){wstRocks(t);made++;}}else if(d>WROCK.R+200&&t.rocks!==undefined)wstRocksDrop(t);}
-  wbldView(f);if(typeof wrsView==='function')wrsView(f);/* (the stream's banks, wrstone.js) */if(typeof wtpUpdate==='function')wtpUpdate(f.x,f.z);}
+  wbldView(f);if(typeof wrsView==='function')wrsView(f);/* (the stream's banks, wrstone.js) */if(typeof wwUpdate==='function')wwUpdate(f);/* (the rivers' water: rocks, drifting bits, wwater.js) */if(typeof wtpUpdate==='function')wtpUpdate(f.x,f.z);}

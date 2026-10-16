@@ -504,7 +504,7 @@ function wgHydroApply(x,z,h,H,out){let wl=-1e9,fx=0,fz=0,hc=h;const N17=WG.N[17]
      falls fast (rapids, falls: not this look) the old channel stays, the two blended between. Not in a lake's basin or by the world's water (rivBank's
      levee would stand in the water there) */
   out.rvW=-1e9;out.rvB=0;let chanR=chan<1e9;
-  if(nR&&!inLake){let hL=h1;if(vcA<hL+4)hL=wnSmin(hL,vcA,4);let bb=null,bi=-1;
+  if(nR&&!inLake){let hL=h1;if(vcA<hL+4)hL=Math.max(wnSmin(hL,vcA,4),Math.min(h1,vcA));/* (the soft minimum never under the plain one: its dip of up to a metre would put the land beside the bank under the water, where the mockup's never is - DEVIATIONS D6) */let bb=null,bi=-1;
     for(let i=0;i<nR;i++){const r=RS[i],bk=WRB.bankCore(x,z,hL,r.rn,wrbHalf(r.hw,r.s),r.W,r.s);if(!bb||bk.y<bb.y){bb=bk;bi=i;}}
     const r=RS[bi],k=wrbGentle(r.g);let y=bb.y;if(hL<WG_CFG.WL+.5)y=Math.min(y,hL);/* (by the world's water: carve only) */
     if(k>0){hc=hc+(y-hc)*k;

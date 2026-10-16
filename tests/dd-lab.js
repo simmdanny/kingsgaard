@@ -37,7 +37,7 @@ D.wsum=()=>{const q=(a,p)=>{const s=[...a].sort((x,y)=>x-y);return +s[Math.min(s
    camera (localStorage 'ddCams'), __dd.camGo(name) poses it again - before/after shots from the same cameras */
 const D=window.__dd,ev=s=>__kk.ev(s);
 D.shot2=name=>{const r=ev('renderer'),c=r.domElement,w=c.clientWidth||c.width,h=c.clientHeight||c.height,p0=r.getPixelRatio();r.setPixelRatio(2);r.setSize(w,h,false);
-  ev('renderer.render(scene,camera)');const url=c.toDataURL('image/jpeg',.9);r.setPixelRatio(p0);r.setSize(w,h,false);ev('renderer.render(scene,camera)');
+  ev('if(typeof wwDepth==="function"&&OW.group)wwDepth();renderer.render(scene,camera)');/* (river look: the water's depth pass at this size first) */const url=c.toDataURL('image/jpeg',.9);r.setPixelRatio(p0);r.setSize(w,h,false);ev('renderer.render(scene,camera)');
   return fetch('http://localhost:8766/'+name+'.jpg',{method:'POST',body:url}).then(x=>x.status);};
 const load=()=>{try{return JSON.parse(localStorage.getItem('ddCams')||'{}');}catch(e){return {};}};
 D.cam=(name,x,z,h,tx,tz,th)=>{const C=load();C[name]=[x,z,h,tx,tz,th];try{localStorage.setItem('ddCams',JSON.stringify(C));}catch(e){}D.pose(x,z,h,tx,tz,th);return C[name];};
