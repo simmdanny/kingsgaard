@@ -1,8 +1,9 @@
 (function(){
 /* The streamed world's signature (v42 on): for each seed the regions round the start, the keep, the village sites of the 5 x 5 cells round it, heights of the
    land on a 9 x 9 grid 2.4 km wide, the streams and lakes there - and with window.__ws2.build also the buildings of the villages built at the start (I.setup:
-   their order is what a save's village state is kept by). Run it in two builds and compare (tests/world-sig2-base.json holds the output of the current generator, WG_VER 7 (world look 3: the trails between hamlets dip 9 cm - stamped
-   ground, which this signature does not sample, so its numbers are those of WG_VER 6, kept as -gv6: the Great Elder Circle's
+   their order is what a save's village state is kept by). Run it in two builds and compare (tests/world-sig2-base.json holds the output of the current generator, WG_VER 8 (river look: the ground along a gently
+   flowing stream is the mockup's rivBank - a wobbling shore, earth banks, a levee, the bed; only heights by streams change); WG_VER 7's numbers (world look 3: the trails
+   between hamlets dip 9 cm - stamped ground, which this signature does not sample) are those of WG_VER 6, kept as -gv6: the Great Elder Circle's
    mountain of two peaks, its cuesta ridges and sub-mountains); -gv5 that of v48 (bigger elderglades, rounded knolls, river valleys, lakes kept apart); -gv4 that of v47 (the Great Elder Circle), -gv3 that of v46, -gv2 that of v42-v45).
    A world must generate what its predecessor generated: a save is the seed and the state of each village by its key. window.__ws2 = {seeds:[1,2,3], build:false}
    (it re-seeds the generator: reload the page after it). */
