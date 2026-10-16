@@ -10,11 +10,13 @@ two heroes to walk it, the title screen and menus.
 The game lives in the `godot/` folder of github.com/simmdanny/kingsgaard (apart from the browser game's files).
 1. Get the repo: `git clone https://github.com/simmdanny/kingsgaard` (later: `git pull` for updates), or Code > Download ZIP.
 2. Get Godot 4.7.2: "Godot Engine - Windows" (the standard one, not .NET) from https://godotengine.org/download/windows/
-   (older versions: https://godotengine.org/download/archive/), unzip it to `C:\Godot` (or set the `GODOT` environment
-   variable to the .exe).
+   (older versions: https://godotengine.org/download/archive/). Unzipped anywhere is fine.
 3. Optional, the female hero: her model is not in the public repo (no license) - see `assets/characters/girl01/SOURCE.md`
    (a free download, two files). Without it the Female button plays as Female B.
-4. Double-click `godot/Play Kingsgaard.bat`. The first start imports everything (a minute); later starts take seconds.
+4. Double-click `godot/Play Kingsgaard.bat` (`tools/launch.ps1`). It searches the usual places for Godot (beside the game,
+   C:\Godot, Downloads, Desktop, Documents, Program Files, Steam, winget, scoop, other drives - a few folders deep), unzips a
+   Godot zip left in Downloads, or asks you to pick the Godot .exe once; it remembers the choice in `godot-path.txt` (delete
+   that file to choose again). The first start imports everything (a minute); later starts take seconds.
    Or open `godot/project.godot` in the Godot editor and press F5.
 
 ## Play
