@@ -22,7 +22,7 @@
 const WG_CFG={res:2,tile:128,regionCell:4000,regionBand:520,regionWarp:650,gladeK:.74,WL:0,hydroCell:96,accDepth:40,accCap:2500,
   streamAcc:5,riverAcc:16,segN:24,maxHalfW:7.5};
 /* the version of the generator: a save keeps it (owSave gv), and a save made by another version gets fresh villages (its villages were other villages) */
-const WG_VER=8;/* (8: the river look - a stream carves rivBank's channel and banks, wrbank.js; 7: world look 3 - the trails between hamlets dip 9 cm, wgStampApply) */
+const WG_VER=9;/* (9: rock look - the Great Elder peaks' ribs and buttresses only on their stony upper faces, their spires blunt knobs, wgCragApply; 8: the river look - a stream carves rivBank's channel and banks, wrbank.js; 7: world look 3 - the trails between hamlets dip 9 cm, wgStampApply) */
 const WG_T={HIGH:1,PLATEAU:2,GLADE:3};
 const WG={on:false,seed:0,ep:0,N:null,reg:new Map(),hyd:new Map(),seg:new Map(),lake:new Map(),feat:new Map(),stats:{h0:0,hydMain:0,hydPre:0}};/* (ep: one more every wgInit - what the workers send back for an older one is dropped) */
 function wgInit(seed){WG.seed=seed|0;WG.N=[];for(let i=0;i<20;i++)WG.N.push(wnSimplex(((seed|0)*7919+i*104729+13)|0));
@@ -141,7 +141,7 @@ function wgCragPrep(G,sd,He,Hk,a,b,s,ps,pw){const R=G.R,c0=R-G.sink,ca=sd*Math.c
     if(k===0){ps2=sOut2+3+5*h(0);pt=(h(1)-.5)*G.th*.8;Hh=R*(.12+.1*h(2))*(sd>0?1:.7);an=G.yaw+Math.PI/2;el=.45+.15*h(5);sl=3.5+1.5*h(3);}/* (against the outer face: thin out from it, long along it) */
     else if(k<4){ps2=xe+(h(0)-.5)*G.th*1.6;pt=(h(1)<.5?-1:1)*(G.th*1.05+2+5*h(5));Hh=R*(.08+.1*h(2))*(sd>0?1:.7);an=G.yaw;el=.45+.15*h(5);sl=3.5+1.5*h(3);}/* (flat against its front and back faces) */
     else{ps2=xe-thE-10-60*h(0);pt=(h(1)-.5)*thE*1.4;Hh=Hp*(.06+.08*h(2));an=h(4)*Math.PI;el=.5+.4*h(5);sl=2.4+1.6*h(3);}/* (lower, down its inner side) */
-    pin(ps2,pt,Hh,sl,an,el,.55);}
+    pin(ps2,pt,Hh,sl/1.7,an,el,.55);}/* (rock look: broader - no thin spikes on the slopes) */
   const at=(pu,pv)=>[C.x+pu*C.ca-pv*C.sa,C.z+pu*C.sa+pv*C.ca];
   const nk=2+Math.floor(3*H(29));for(let k=0;k<nk;k++){const h=k2=>wnHash(a*17+k,b*23-k,s+ps+6+k2),[px,pz]=at(C.Lo*(.12+.3*h(0)),(h(1)<.5?-1:1)*(.38+.25*h(2))*C.Lv);/* (off the ridge: its line stays a grassy way up) */
     const dx=px-G.x,dz=pz-G.z;pin(dx*ca+dz*sa,-dx*sa+dz*ca,Hp*(.03+.035*wnHash(a*17+k,b*23-k,s+ps+11)),1.5+.5*h(3),h(4)*Math.PI,.55+.35*h(5),.5);}
@@ -190,8 +190,11 @@ function wgCragCover(C,x,z){const dx=x-C.gx,dz=z-C.gz,s=dx*C.ga+dz*C.gs,t=-dx*C.
 function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)return hm;let hb=wgCragBase(C,x,z);
   const N=WG.N,u=dx*C.ca+dz*C.sa,v=-dx*C.sa+dz*C.ca;
   if(hb>.01){const Lu=u>0?C.Lo:C.Li,uL=u/Lu,vL=v/C.Lv,cu=uL/(Math.sqrt(uL*uL+vL*vL)+1e-6),inner=1-wnS(cu,-.2,.6),up=wnS(hb/C.H,.08,.55);
-    if(!det||det<90)hb+=inner*up*C.H*.1*(wnRidged(N[9],v/48+C.id,u/120,2,2.2,.5,1,2)-.45);/* (buttresses) */
-    if(!det||det<35)hb+=inner*up*C.H*.05*(wnRidged(N[10],v/17-C.id,u/55,2,2.1,.5,1,2)-.45);/* (ribs and gullies) */
+    /* (rock look: the buttresses, ribs and gullies only on the stony upper faces - from 40 % of the peak's height up. Down to 8 % they ran on into the
+       grassy lower flanks as a fan of long green ribs round the peak: the light and dark ring stripes on its hillside) */
+    const upR=wnS(hb/C.H,.4,.72);
+    if(!det||det<90)hb+=inner*upR*C.H*.1*(wnRidged(N[9],v/48+C.id,u/120,2,2.2,.5,1,2)-.45);/* (buttresses) */
+    if(!det||det<35)hb+=inner*upR*C.H*.05*(wnRidged(N[10],v/17-C.id,u/55,2,2.1,.5,1,2)-.45);/* (ribs and gullies) */
     if(!det||det<150)hb+=(1-inner)*wnS(hb/C.H,0,.3)*C.H*.02*wnN(N[16],x/150+C.id,z/150);/* (shoulders and hollows on the grassy side) */
 }
   /* (the body and the foothills merged as one mass: a 4-norm of their heights - exactly the one where the other is nothing, a soft union where both
@@ -203,7 +206,7 @@ function wgCragApply(C,hm,x,z,det){const dx=x-C.x,dz=z-C.z;if(dx*dx+dz*dz>C.r2)r
   const gs=(x-C.gx)*C.ga+(z-C.gz)*C.gs,gt=Math.abs(-(x-C.gx)*C.gs+(z-C.gz)*C.ga),cvMax=C.hc+C.Hc*1.04+3-Math.max(0,gt-C.tw*1.25)*.55-Math.max(0,gs-C.sOut2)*1.3-Math.max(0,C.R*.25-gs);
   const cv=cvMax>h-24?wgCragCover(C,x,z):-1e9;if(cv>h-24){let c=cv;if((!det||det<35)&&cv>h)c+=Math.min(cv-h,30)*.12*_wgCv.rk*(wnRidged(N[10],x/19+C.id,z/19,2,2.1,.5,1,2)-.45);h=wnSmax(h,c,24);}/* (ribs on its rock only: its grassy skirts stay smooth) *//* (a wide seam: the flanks run into the ground in a curve, no crease) */
   for(const p of C.pins){const px=x-p.x,pz=z-p.z;if(px*px+pz*pz>p.r2)continue;const a=px*p.ca+pz*p.sa,b=pz*p.ca-px*p.sa,q=Math.sqrt(a*a*p.ik+b*b*p.k)*p.sl/p.H;if(q>=1)continue;
-    let ph=p.b+p.H*Math.pow(1-q,p.pw);if(!det||det<30)ph+=p.H*.05*wnN(N[9],a/7+p.x*.01,b/7);h=wnSmax(h,ph,6);}
+    let ph=p.b+p.H*Math.pow(1-q*q,1.3);/* (rock look: a blunt knob, its top rounded - a cone's point read as a thin spike) */if(!det||det<30)ph+=p.H*.05*wnN(N[9],a/7+p.x*.01,b/7);h=wnSmax(h,ph,6);}
   return h;}
 /* whether a point is on a ridge's scarp or a sub-mountain (designed rock: the checks measure the mountain's greenness without it) */
 function wgGreatRock(G,x,z){if(G.subs&&G.subs.some(F=>wgCragHill(F,x,z)>0))return true;if(!G.spurs)return false;

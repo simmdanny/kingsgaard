@@ -25,7 +25,7 @@
    The cliff never looks at the camera: a tile's sheet is final as soon as it is made.
    ===================================================================================================== */
 const WCL_SN=24;/* (floats a stone: see wclStones) */
-const WCL={r:1,cs:[.8,1.6,3.2],cellH:2.6,cellV:1.6,colH:1.8,colV:5,tall:7,crown:5,steep:1.0,ring:4,margin:72,SC:[1,2,3,5],wp:9,ws:.5,rw:3.4,bury:.45,deep:3,ms:3,stats:{built:0,ms:0,verts:0,stones:0}};
+const WCL={face:[[1.5,2.4],[2.5,10.5]],foot:[[2,.6],[3,.8]],r:1,cs:[.8,1.6,3.2],cellH:2.6,cellV:1.6,colH:1.8,colV:5,tall:7,crown:5,steep:1.0,ring:4,margin:72,SC:[1,2,3,5],wp:9,ws:.5,rw:3.4,bury:.45,deep:3,ms:3,stats:{built:0,ms:0,verts:0,stones:0}};
 /* cubic B-spline weights (and their derivatives): smooth, and never overshooting at a sheer step as an interpolating spline does (its ripples ran
    down the walls as ribs) - the face is the raster smoothed by about its own spacing */
 const WCL_CR=(u,w,d)=>{const u2=u*u,u3=u2*u,m=1-u;w[0]=m*m*m/6;w[1]=(3*u3-6*u2+4)/6;w[2]=(-3*u3+3*u2+3*u+1)/6;w[3]=u3/6;
@@ -105,6 +105,13 @@ function wclStones(s,xa,za,xb,zb,steepAt){const out=[],seed=WG.seed|0,o=_wclO1,o
             if(tb!==null){x+=ux*tb;z+=uz*tb;ok=true;}}}
         if(!ok)continue;wclH(s,x,z,o);const gl=Math.hypot(o.hx,o.hz);if(Math.abs(o.h-y)>.1||gl<1.1||wclWet(y,o.wl)>.5||o.ko>.3)continue;
         if(x<ci*Ah||x>=(ci+1)*Ah||z<ck*Ah||z>=(ck+1)*Ah)continue;/* (a point of the face belongs to one cell only) */
+        /* (rock look: a stone only on a face that stays steep - a block where the land rises 2.4 m over the 3 m across it (39 degrees on average), a
+           column 10.5 m over 5 m (65 degrees: a wall, not a steep hillside) - not on a hillside that is steep for a step or two, nor on the steep
+           flanks under a peak: there a column or a block only poked out of the turf, painted with its grass - half-buried shards, ribs fanning down -
+           and the land falls on under it (a block 0.6 a metre over the 2 m down the slope, a column 0.8 over 3 m: at a cliff's ragged foot a stone
+           stood half out of the turf) */
+        {const q4=_wclO4,gq=o.hx/gl,gr=o.hz/gl,F=WCL.face[mode],D=WCL.foot[mode];wclH(s,x+gq*F[0],z+gr*F[0],q4);const hu=q4.h;wclH(s,x-gq*F[0],z-gr*F[0],q4);if(hu-q4.h<F[1])continue;
+          wclH(s,x-gq*D[0],z-gr*D[0],q4);if(o.h-q4.h<D[1]*D[0])continue;}
         const gx=o.hx/gl,gz=o.hz/gl;if(R()>1/(Math.abs(gx)+Math.abs(gz)))continue;
         if(wclScale(s,x,z,gx,gz)!==sc||wclTall(s,x,z,gx,gz)!==mode)continue;
         if(mode){/* a column: tall, upright, its sides a little slanted, its front turned a little (and on most of them a ridge down its middle: two facets), standing
@@ -275,7 +282,7 @@ function* wclGen(t,lod,out,st){const T0=performance.now();let tY=T0;const S=WG_C
   for(let i=0;i<IX.length;i+=3){const a=IX[i]*3,b=IX[i+1]*3,d=IX[i+2]*3,ux=P[b]-P[a],uy=P[b+1]-P[a+1],uz=P[b+2]-P[a+2],vx=P[d]-P[a],vy=P[d+1]-P[a+1],vz=P[d+2]-P[a+2];
     const gx=uy*vz-uz*vy,gy=uz*vx-ux*vz,gz=ux*vy-uy*vx,mx=NR[a]+NR[b]+NR[d],my=NR[a+1]+NR[b+1]+NR[d+1],mz=NR[a+2]+NR[b+2]+NR[d+2];
     if(gx*mx+gy*my+gz*mz<0){const tq=IX[i+1];IX[i+1]=IX[i+2];IX[i+2]=tq;}}
-  /* the palette: grey where the spires' stone is, brown on the tablelands (the region weights at the vertex, from the generator's lattice fields) */
-  {const ctx=wgCtx(x0-4,z0-4,x0+S+4,z0+S+4,0),W=new Float64Array(9);for(let r=0;r<nv;r++){wgFields(ctx,P[r*3]+x0,P[r*3+2]+z0,W);PL[r*3]=Math.min(1,Math.max(0,W[1]*2+(1-W[2]-W[1])*.35));}}
+  /* the palette: grey where the spires' stone is, warm tan elsewhere (rock look; the region weights at the vertex, from the generator's lattice fields) */
+  {const ctx=wgCtx(x0-4,z0-4,x0+S+4,z0+S+4,0),W=new Float64Array(9);for(let r=0;r<nv;r++){wgFields(ctx,P[r*3]+x0,P[r*3+2]+z0,W);PL[r*3]=Math.min(1,Math.max(0,W[1]*2));/* (rock look: warm tan everywhere, grey only on the spires' stone) */}}
   out.pos=P;out.nrm=NR;out.blk=BK;out.crev=CR;out.rk=RK;out.pal=PL;out.idx=IX;out.nv=nv;out.ntri=IX.length/3;out.samples=s.cnt;out.cols=nCol;out.nodes=off;mark();
   WCL.stats.built++;WCL.stats.ms+=performance.now()-T0;WCL.stats.verts+=nv;WCL.stats.stones+=A.length/WCL_SN;}

@@ -204,7 +204,7 @@ function trwMats(){if(TRW.mats)return TRW.mats;const U=TRW.U;
    as the player walks. The chance a cell holds a tree: 1.4 % in the open (lone trees), up to 71 % deep in a forest (a tree every 8.5 m or so);
    a little fewer in the highlands and none high on their mountains, a little fewer on the plateau and in the elderglade, fewer as the ground
    steepens (none past a slope of .72 on the cell's corners, nor within 3 m of a drop, nor where the drawn ground under the trunk is steeper
-   than 1); none in water (a stream, a lake, a sinkhole's pool, the sea), within 5 m of a stream's channel or on the summit of a Great Elder
+   than 0.7 - 35 degrees, the rock look); none in water (a stream, a lake, a sinkhole's pool, the sea), within 5 m of a stream's channel or on the summit of a Great Elder
    mountain (fewer on its flanks). Every tree is TRW.SC (1.25) times its model, by the scale of the land and the hero. The kind: deep in a forest round, oak and tall trees with young ones (hardly an umbrella), young trees and umbrellas towards the
    edges, the broad umbrellas and oaks standing alone in the open; the elderglade has more round and tall ones, the plateau more umbrellas,
    the highlands a few more young ones; and a slow field makes stands where round, oak or tall trees lead.
@@ -244,7 +244,7 @@ function trwPlace(ti,tk){const S=WG_CFG.tile,n=TRW_N,cs=S/n,x0=ti*S,z0=tk*S,seed
     {let wet=false;for(const sg of H.segs){if(x<sg.x0-14||x>sg.x1+14||z<sg.z0-14||z>sg.z1+14)continue;const o2=wgSegNear(sg,x,z,_trwSN);if(o2.d<o2.hw+5){wet=true;break;}}if(wet)continue;}
     {let steep=false;for(let a=0;a<8&&!steep;a++){const an=a*.7854,hs=HG(x+Math.cos(an)*3,z+Math.sin(an)*3);if(Math.abs(hs-h)>2.16)steep=true;}if(steep)continue;}/* (a drop within 3 m any way: a cliff's edge, a steep bank) */
     {const ci=Math.round((x-x0)/2),ck=Math.round((z-z0)/2),L=[];for(let b=-1;b<=1;b++)for(let a=-1;a<=1;a++){const key=(ck+b)*1000+ci+a;let v=LH.get(key);if(v===undefined){v=HG(x0+(ci+a)*2,z0+(ck+b)*2);LH.set(key,v);}L.push(v);}
-      let st=0;for(let b=0;b<2;b++)for(let a=0;a<2;a++){const q=b*3+a;st=Math.max(st,Math.abs(L[q+1]-L[q]),Math.abs(L[q+3]-L[q]),Math.abs(L[q+4]-L[q+1]),Math.abs(L[q+4]-L[q+3]));}if(st/2>1)continue;}
+      let st=0;for(let b=0;b<2;b++)for(let a=0;a<2;a++){const q=b*3+a,gx=(L[q+1]-L[q]+L[q+4]-L[q+3])/4,gz=(L[q+3]-L[q]+L[q+4]-L[q+1])/4;st=Math.max(st,Math.hypot(gx,gz),Math.abs(L[q+1]-L[q])/2,Math.abs(L[q+3]-L[q])/2,Math.abs(L[q+4]-L[q+1])/2,Math.abs(L[q+4]-L[q+3])/2);}if(st>.7)continue;}/* (rock look: no tree where the drawn ground under it is steeper than 35 degrees - its slope, any way) */
     const st=wnN(NS,x/310+17.3,z/310-8.1)*.5+.5,dom=Math.min(2,Math.floor(st*3)),w=f>.7?[.32,.28,.22,.04,.14]:f>.2?[.3,.18,.12,.12,.28]:[.25,.3,.1,.3,.05];
     w[dom]*=2.4;w[2]*=(1+.5*w3)*(1-.25*w1);w[0]*=1+.3*w3;w[3]*=Math.max(.1,1-.5*w3+.6*w2);w[1]*=1+.2*w2;w[4]*=1+.3*w1;
     let tot=w[0]+w[1]+w[2]+w[3]+w[4],r=R()*tot,kd=0;while(kd<4&&r>=w[kd]){r-=w[kd];kd++;}

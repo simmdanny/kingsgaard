@@ -22,7 +22,7 @@ function wbldLod(lv,i){const A=lv===4?WBLD.mid:WBLD.low;if(!A[i]){const T0=perfo
 
 /* ---------- places: the boulders of one level-0 tile (t.g: its heights and water) ---------- */
 function wbldPlace(t){wbldShapes();const S=WG_CFG.tile,g=t.g,n=g.n,s=n+1,R=wnRng(wnHashI(t.ti,t.tk,WG.seed+701)),list=[],props=[];
-  const RW=new Float64Array(4);wgRegions(t.x0+S/2,t.z0+S/2,RW);const grey=Math.min(1,Math.max(0,RW[1]*2+(1-RW[2]-RW[1])*.35));
+  const RW=new Float64Array(4);wgRegions(t.x0+S/2,t.z0+S/2,RW);const grey=Math.min(1,Math.max(0,RW[1]*2));/* (rock look: warm tan everywhere, grey only on the spires' stone - as the cliffs and the ground's rock) */
   /* (the roads by their points, from the settlements' stamps: the ground's road marks do not reach every road's edge) */
   const ST=WG.stampsIn?WG.stampsIn(t.x0-12,t.z0-12,t.x0+S+12,t.z0+S+12):null;
   const road=(x,z,r)=>{if(!ST||!ST.nr)return false;const R2=(2.8+r)*(2.8+r);for(let tz=Math.floor((z-6)/8);tz<=Math.floor((z+6)/8);tz++)for(let tx=Math.floor((x-6)/8);tx<=Math.floor((x+6)/8);tx++){const L=ST.rh[tx+','+tz];if(!L)continue;

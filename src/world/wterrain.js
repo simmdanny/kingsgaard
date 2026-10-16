@@ -110,9 +110,14 @@ const WT_GLSL_FUNCS=`
 uniform sampler2D tWN;uniform float uWTime;
 varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;
 float wn(vec2 p,int c){vec4 t=texture2D(tWN,p);return c==0?t.r:c==1?t.g:c==2?t.b:t.a;}
+/* the noise texture laid on a surface from the three sides (triplanar, sharply weighted): the rock's variation never streaks down a steep face (rock look) */
+vec4 wtTri(vec3 P,vec3 n,float s){vec3 a=abs(n);a*=a;a*=a;a/=a.x+a.y+a.z+1e-5;return texture2D(tWN,P.zy/s)*a.x+texture2D(tWN,P.xz/s)*a.y+texture2D(tWN,P.xy/s)*a.z;}
 vec3 wtPerturb(vec3 sp,vec3 sn,float hgt){vec3 dx=dFdx(sp),dy=dFdy(sp);vec3 R1=cross(dy,sn),R2=cross(sn,dx);float det=dot(dx,R1);float dHx=dFdx(hgt),dHy=dFdy(hgt);
   vec3 g=sign(det)*(dHx*R1+dHy*R2);return normalize(abs(det)*sn-g);}
 `;
+/* the river values of a mesh drawn with the ground's material that has no river ground (a ring, an arch): aRv.x = -9 (none) - an attribute left out reads 0,
+   which the river code takes for a bank (rock look) */
+function wtNoRiver(n){const a=new Float32Array(n*3);for(let i=0;i<n;i++)a[i*3]=-9;return new THREE.BufferAttribute(a,3);}
 function wtMaterial(){return WT.mat||(WT.mat=wtMakeMat(null));}
 /* the ground's chunks: the same material, but where a cliff sheet covers the face (wcliff.js) the steep lattice faces stand back into the rock (WT_INSET),
    so the 2 m facets never show through the sheet: in the vertex shader only (the heights the game walks on stay), within uClf.y of the camera,
@@ -136,7 +141,7 @@ function wtMakeMat(see,inset,rdl){const tex=wtNoiseTex(),m=new THREE.MeshPhongMa
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+WT_GLSL_FUNCS+WCM_PAL+WT_GLSL_STONE+WT_GLSL_MEADOW+WRL.GLSL_NOISE)
       .replace('#include <map_fragment>',WT_GLSL_COLOR.replace('/*@WRL_RIVER@*/',typeof wrxGround==='function'?wrxGround(WRL.GLSL_GROUND_RIVER):WRL.GLSL_GROUND_RIVER))
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n  if(wtFacet>0.001)normal=normalize(mix(normal,normalize((viewMatrix*vec4(wtNf,0.0)).xyz),wtFacet));\n  {vec3 bn=wtPerturb(-vViewPosition,normal,wtBump*wtBumpK);normal=bn;}');};
-  m.customProgramCacheKey=()=>see?'wtground18see':inset?(rdl?'wtground18kr':'wtground18k'):'wtground18';return m;}
+  m.customProgramCacheKey=()=>see?'wtground19see':inset?(rdl?'wtground19kr':'wtground19k'):'wtground19';return m;}
 /* the meadow (world look 4: the mockup's MEADOW, grassRamp, meadowT, meadowStrokes, gStrokes) - a painted green of several shades: broad patches,
    darker clover clumps (the noise texture's channels: r broad, a fine), and two sizes of painted blade strokes leaning along a slowly turning direction
    (wtStrokeTex: a pointed stroke a cell). The ground's grass and the cliffs' (wcliffmat.js) are painted by the same functions: no seam where they meet */
@@ -202,60 +207,57 @@ const WT_GLSL_COLOR=`
     vec3 dirt=tt<0.5?mix(vec3(0.30,0.23,0.17),vec3(0.48,0.39,0.30),tt*2.0):mix(vec3(0.48,0.39,0.30),vec3(0.66,0.56,0.44),tt*2.0-1.0);
     {vec2 pc=P.xz*5.0,pf=fract(pc)-0.5;float ph=fract(sin(dot(floor(pc),vec2(12.9898,78.233)))*43758.5453);dirt=mix(dirt,vec3(0.60,0.56,0.48),step(0.94,ph)*(1.0-smoothstep(0.16,0.24,length(pf+0.15*(ph-0.97))))*d1*0.7);}/* (a few pebbles) */
     grass=mix(grass,dirt*0.94,trM);}}}
-  /* ---- how rocky ---- */
-  float sl=max(1.0-Nw.y,slIk);float rt=mix(0.31,0.17,wTb)-0.04*wSp+(nm-0.5)*0.12+(ns-0.5)*0.07;
-  /* (the elderglade's own rock - its knolls, the great mountain's outcrops - is sculpted: smoothly shaded, no per-facet speckle or strata, its edge
-     against the grass soft (the lattice's rock floor counts little there); a ring's stone keeps its chiselled facets) */
-  float gRk=wLk*(1.0-step(0.97,vB.w))*(1.0-ped);/* (the pedestal's rock is chiselled, as the ring's stone) */
-  float rocky=max(smoothstep(rt,rt+0.1,sl),vB.w*(1.0-gRk));
+  /* ---- how rocky (rock look): by slope, its edge wide and soft, broken by noise laid on from three sides (the noise texture, triplanar: no streaks down a steep face, no
+     blotches) - grass creeps onto the ledges and the flatter parts. Near a cliff the lattice's rock floor (aB.w) counts, its edge broken the same way;
+     a ring's stone (aB.w = 1) is rock all over ---- */
+  float sl=max(1.0-Nw.y,slIk),blkR=step(0.97,vB.w);
+  float rN1=0.5,rN2=0.5;if(sl>0.06||vB.w>0.01||ped>0.002){vec4 TA=wtTri(P,Nw,90.0);rN1=TA.r;rN2=TA.a;}/* (triplanar: about 22 m and 6 m) */
+  float rt=mix(0.31,0.17,wTb)-0.04*wSp+(rN1-0.5)*0.20+(rN2-0.5)*0.08;
+  /* (the elderglade's own rock - its knolls, the great mountain's outcrops - its edge against the grass softer still, the lattice's rock floor counts little there) */
+  float gRk=wLk*(1.0-blkR)*(1.0-ped);
+  float rocky=max(smoothstep(rt-0.05,rt+0.13,sl),max(blkR,smoothstep(0.25,0.85,vB.w+0.45*(rN2-0.5))*(1.0-gRk)));
   if(ped>0.002){
     /* the pedestal (ped: strongest at the ring, fading out to the mountain's foot): grass, moss and stone in one palette, so the ring belongs to its
        ground - the grass deeper near the ring and turning to the ring's moss as the ground steepens towards rock, and the rock coming in over a
        wider band */
     vec3 mossC=mix(vec3(0.12,0.225,0.075),vec3(0.22,0.35,0.10),smoothstep(0.2,0.8,val));
     grass=mix(grass,mossC,min(1.0,ped*1.3)*(0.24+0.5*smoothstep(rt-0.2,rt+0.06,sl)));
-    rocky=max(mix(smoothstep(rt,rt+0.1,sl),smoothstep(rt-0.04,rt+0.24,sl),ped),vB.w*(1.0-gRk));}
-  vec3 col=grass;float wtBump=(nt-0.5)*0.12*d1;float sn=0.0;float wtFacet=0.0;vec3 wtNf=Nw;
+    rocky=max(mix(smoothstep(rt-0.05,rt+0.13,sl),smoothstep(rt-0.12,rt+0.32,sl),ped),blkR);}
+  vec3 col=grass;float wtBump=(nt-0.5)*0.12*d1*(1.0-smoothstep(0.3,0.6,sl));float sn=0.0;float wtFacet=0.0;vec3 wtNf=Nw;
   if(rocky>0.002||snowP>0.002){
-    /* ---- rock: chiselled stone (src/world/wrock.js). Every facet - a triangle of the ground, of a block, a boulder, a ring - is one flat plane of stone:
-       it is lit as a plane (its normal from the screen derivatives of the world position) and has one value, from its own normal: lighter where it faces
-       up, with a step from facet to facet. Quiet bands of strata a few metres high, each its own tint (higher bands in the tablelands and the spires);
-       the region's stone (cool grey spires, warm tablelands, dark mossy lake rock, a warm grey elsewhere); the meadow's own grass on the facets that face
-       the sky. Far off the facets soften a little (the lattice there is coarse). No striations, streaks or cracks: clean planes. ---- */
     float stri=0.5,streak=0.5,striF=0.5;
     if(snowP>0.002){/* (the streaks of the snow down the faces: two reads, only where there can be snow) */float bx=abs(Nw.x),bz=abs(Nw.z),bs=bx*bx*bx*bx+bz*bz*bz*bz+1e-4;float wx=bx*bx*bx*bx/bs,wz=1.0-wx;
       vec4 RX=texture2D(tWN,vec2(P.z/34.8,P.y/250.0)),RZ=texture2D(tWN,vec2(P.x/34.8+0.37,P.y/250.0));vec4 R=RX*wx+RZ*wz;stri=R.r;streak=R.g;striF=mix(0.5,R.a,d2);}
     vec3 Nf=normalize(cross(dFdx(P),dFdy(P)));if(dot(Nf,Nw)<0.0)Nf=-Nf;
-    wtFacet=rocky*(1.0-0.45*smoothstep(400.0,2200.0,length(P-cameraPosition)))*(1.0-0.9*gRk);wtNf=Nf;
-    float bandH=3.2+1.6*wTb+2.2*wSp,bi=floor((P.y+(nm-0.5)*7.0)/bandH),bh=fract(sin(bi*12.9898+7.13)*43758.5453);
-    vec3 fq=floor(Nf*5.0+0.5);float fh=fract(sin(dot(fq,vec3(12.9898,78.233,37.719))+bi*3.71)*43758.5453);
-    float rv=clamp(0.44+0.34*smoothstep(-0.25,0.75,mix(Nf.y,Nw.y,gRk*0.7))+0.17*(fh-0.5)*(1.0-0.8*gRk)+0.12*(bh-0.5)*(1.0-0.85*gRk)+0.14*(nm-0.5)+0.08*(nL-0.5),0.0,1.0);
-    vec3 rSp=mix(vec3(0.40,0.42,0.47),vec3(0.85,0.86,0.89),rv);
-    vec3 rTb=mix(vec3(0.50,0.42,0.33),vec3(0.90,0.82,0.68),rv);rTb=mix(rTb,rTb*vec3(1.06,0.94,0.82),step(0.55,bh)*0.4);
-    vec3 rLk=mix(vec3(0.30,0.33,0.30),vec3(0.64,0.67,0.60),rv);
-    vec3 rPl=mix(vec3(0.46,0.42,0.37),vec3(0.86,0.81,0.71),rv);rPl=mix(rPl,rPl*vec3(1.04,0.96,0.88),step(0.6,bh)*0.3);
-    vec3 rock=rPl*wPl+rSp*wSp+rTb*wTb+rLk*wLk;
-    /* world look 1: the ground's own stone is the cliff's (wcliffmat.js) - its palette (brown; grey on the spires' stone and the pedestals), four soft
-       tone steps, lighter where it faces up, and on steep faces courses of big blocks anchored to the world with thin dark seams (70 %, warm), so the
-       far cliffs past the sheets and the faces round them read as the same carved rock; the facets light softly (the look is paint, not facets).
-       Not a ring's or a boulder's block (aB.w = 1): those keep their chiselled stone */
-    if(vB.w<0.97){float gry=clamp(wSp*2.0+(1.0-wTb-wSp)*0.35+ped,0.0,1.0),stp=smoothstep(0.42,0.62,sl);
-      vec2 sq=abs(Nf.x)>abs(Nf.z)?wtStoneQ(vec2(P.z,P.y)):wtStoneQ(vec2(P.x+17.3,P.y));float fq=fwidth(sq.x);stp*=smoothstep(60.0,140.0,length(P-cameraPosition));/* (the courses are the far cliffs': near, the sheets are the rock) */
-      float upv=clamp(Nw.y*0.5+0.5,0.0,1.0),t=0.52+0.30*(upv-0.5)+0.14*(sq.y-0.5)*stp*(1.0-smoothstep(0.3,1.2,fq))+0.12*(nm-0.5)+0.08*(ns-0.5)+0.05*(nL-0.5);
-      float q4=t*4.0;t=mix(t,(floor(q4)+smoothstep(0.3,0.7,fract(q4)))/4.0,0.8);vec3 rn=wcStone(t,gry);
-      float seam=(1.0-smoothstep(0.09-fq,0.09+fq+0.002,sq.x))*stp*(1.0-smoothstep(0.12,0.45,fq));rn*=mix(1.0,0.70,seam);rn=mix(rn,rn*vec3(1.0,0.88,0.78),seam*0.5);
-      rock=mix(rn,rock,gRk*0.6);wtFacet*=0.3;}
-    float ledge=smoothstep(0.56,0.8,mix(Nf.y,Nw.y,gRk));
-    /* a block of the cliffs (wrock.js, aB.w = 1): less light where it is shut in (aB.y, its cavity: low down, at the ground, in the crevices, underneath),
-       and a tint and brightness of its own (aB.z, cooler or warmer), so a wall is many stones */
-    float blk=step(0.97,vB.w),bo=max(blk,ped*0.8)*clamp(cav,0.0,1.0);
-    rock*=(1.0-0.42*bo)*(1.0-0.16*ped);rock*=mix(1.0,0.86+0.28*vB.z,blk);rock=mix(rock,rock*mix(vec3(0.92,0.97,1.05),vec3(1.07,0.98,0.87),vB.z),blk*0.7);
-    /* a ring of the elderglade (wring.js: a block whose aA.w is its moss), and the rock of a Great Elder Circle's pedestal: the moss takes what faces
-       up first and creeps down the sides in patches */
-    float mos=max(blk*wFo,ped*0.4);/* (and the pedestal's rock is mossy like the ring: one stone, the ring growing out of it) */
-    if(mos>0.003){float mt=mos*(0.7+0.55*Nf.y)+(ns-0.5)*0.5+(nt-0.5)*0.35+(nm-0.5)*0.25;float mA=smoothstep(0.36,0.5,mt);
-      vec3 mc=mix(vec3(0.11,0.215,0.07),vec3(0.24,0.38,0.10),clamp(0.3+0.55*Nf.y+(nu-0.5)*0.6+(nL-0.5)*0.4+(fh-0.5)*0.2,0.0,1.0));rock=mix(rock,mc*(1.0-0.3*bo),mA);}
-    rock=mix(rock,grass*1.04,clamp(ledge*0.93+wLk*0.25*smoothstep(0.3,0.56,Nf.y),0.0,1.0)*(1.0-wSp*0.5));
+    /* (the facets light softly - the look is paint, not facets) */
+    wtFacet=rocky*(1.0-0.45*smoothstep(400.0,2200.0,dcam))*(1.0-0.9*gRk)*mix(0.3,0.12,blkR);wtNf=Nf;
+    /* ---- rock look: ONE stone for every rock in the world - the boulders' and the cliffs' (wcliffmat.js WCM_PAL; the mockup's boulderMat): the
+       palette (warm tan; grey only on the snowy spires' stone), four soft tone steps, lighter where it
+       faces up and cooler underneath, its variation soft, low in contrast and large (the noise texture laid on triplanar at about 22 m and 6 m, a faint
+       grain near): no blotches, no streaks, no per-facet speckle. A ring's stone (aB.w = 1) the same, darker where it is shut in (aB.y) and a few
+       per cent warmer or cooler along the ring (aB.z). On far steep faces past the cliff sheets, the courses of big blocks (the sheets' stones) ---- */
+    float gry=clamp(wSp*2.0,0.0,1.0)*(1.0-blkR);/* (warm tan everywhere - grey only on the snowy spires' stone; the cliffs' sheets and the boulders choose it the same way: wcliff.js, wboulder.js) */
+    vec3 Nr=normalize(mix(Nw,Nf,0.35));float upv=clamp(Nr.y*0.5+0.5,0.0,1.0),fdR=1.0-smoothstep(0.25,1.1,fp),occ=blkR*clamp(cav,0.0,1.0)*0.45;
+    float stp=smoothstep(0.42,0.62,sl)*(1.0-blkR);
+    vec2 sq=abs(Nf.x)>abs(Nf.z)?wtStoneQ(vec2(P.z,P.y)):wtStoneQ(vec2(P.x+17.3,P.y));float fq=fwidth(sq.x);stp*=smoothstep(60.0,140.0,dcam);/* (the courses are the far cliffs': near, the sheets are the rock) */
+    float t=0.54+0.30*(upv-0.5)+0.22*(rN2-0.5)+0.18*(rN1-0.5)+0.05*((fdR>0.01?wtTri(P+vec3(17.0,3.0,29.0),Nr,9.0).a:0.5)-0.5)*fdR-0.22*occ+0.14*(sq.y-0.5)*stp*(1.0-smoothstep(0.3,1.2,fq));
+    float q4=t*4.0;t=mix(t,(floor(q4)+smoothstep(0.25,0.75,fract(q4)))/4.0,0.6);
+    vec3 rock=wcStone(t,gry);
+    rock*=mix(vec3(0.95,0.96,1.02),vec3(1.04,1.0,0.94),blkR>0.5?vB.z:0.5+0.6*(rN1-0.5));
+    rock=mix(rock,rock*vec3(0.95,0.96,1.02)*0.9,clamp((1.0-upv)*0.35,0.0,1.0));
+    float seam=(1.0-smoothstep(0.09-fq,0.09+fq+0.002,sq.x))*stp*(1.0-smoothstep(0.12,0.45,fq));rock*=mix(1.0,0.70,seam);rock=mix(rock,rock*vec3(1.0,0.88,0.78),seam*0.5);
+    rock*=(1.0-0.30*occ)*(1.0-0.12*ped);
+    /* (the fill light the cliffs' sheets and the boulders have: a face turned from the sun stays readable, not a dark mass - wcliffmat.js, boulderMat;
+       a ring's stone a little lighter still, as the boulders beside it are under the game's light - wrlight.js) */
+    rock*=(1.0+0.30*(1.0-clamp(dot(Nr,normalize(uSunD)),0.0,1.0)))*(1.0+0.15*blkR);
+    /* moss on a ring's stone (aA.w: how much, from wring.js) and on the pedestal's rock: on what faces up first, down the sides only where there is
+       much of it - soft-edged, broad patches */
+    float mos=max(blkR*wFo,ped*0.4);
+    if(mos>0.003){float mt=mos*0.55+0.6*Nr.y+(rN1-0.5)*0.35+(rN2-0.5)*0.2;float mA=smoothstep(0.55,0.95,mt);
+      vec3 mc=mix(vec3(0.12,0.225,0.075),vec3(0.25,0.39,0.11),clamp(0.35+0.5*Nr.y+(rN2-0.5)*0.5,0.0,1.0));rock=mix(rock,mc*(1.0-0.25*occ),mA);}
+    /* grass on the ledges and the flatter parts of the rock */
+    float ledge=smoothstep(0.60,0.82,mix(Nf.y,Nw.y,0.5)+0.16*(rN2-0.5))*(1.0-0.6*blkR);
+    rock=mix(rock,grass*1.04,clamp(ledge*0.93,0.0,1.0)*(1.0-wSp*0.5));
     col=mix(grass,rock,rocky);
     /* ---- snow on the upper spires, off the steepest faces, in streaks down them ---- */
     float snowE=snowP+(nL-0.5)*0.4+(nm-0.5)*0.45+(ns-0.5)*0.2+(cav<0.0?-cav*0.25:-cav*0.15);
@@ -275,7 +277,7 @@ const WT_GLSL_COLOR=`
     col=mix(col,mix(vec3(0.53,0.50,0.40),vec3(0.70,0.66,0.52),ns),smoothstep(-0.9,0.05,dep)*smoothstep(1.2,0.0,dep)*0.6*(1.0-rocky*0.7));
     if(dep>0.0){vec3 sand=mix(vec3(0.60,0.60,0.47),vec3(0.74,0.72,0.58),ns);vec3 bot=mix(sand,col,0.3);vec3 wc=mix(vec3(0.22,0.66,0.63),vec3(0.04,0.22,0.36),1.0-exp(-dep*0.2));col=mix(bot,wc,1.0-exp(-dep*0.6));}}
   else if(vWd<=-8.5&&wet>0.0)col=mix(col,col*vec3(0.6,0.65,0.6),wet*0.5*(1.0-rocky));
-  col*=1.0-clamp(cav,0.0,1.0)*0.3;
+  col*=1.0-clamp(cav,0.0,1.0)*(0.3-0.22*blkR);
   diffuseColor.rgb*=col;float wtBumpK=0.5+0.5*rocky;
 `;
 /* the water (stylized, v48): clean surfaces coloured by depth - turquoise in the shallows, blue-green further out, deep blue in the deep - nearly

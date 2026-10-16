@@ -41,15 +41,15 @@ function wfGeo(f,lod){const nA=lod?40:72,nS=lod?6:9,/* (big planes: the ground m
       const X=f.x+wx0,Z=f.z+wz0,Y=f.y-f.sink+R+wy;
       /* rock: ridged noise pushing the surface in and out along the section's normal */
       const nx=Math.cos(ang)*rx*ca-rz*sa,ny=Math.sin(ang)*rx,nz=Math.cos(ang)*rx*sa+rz*ca,nl=Math.hypot(nx,ny,nz)||1;
-      const dsp=r*(.32*(wnRidged(N[18],(X+Y*.7)/(R*.22),(Z-Y*.5)/(R*.22),lod?1:3,2.1,.5,1,2)-.45)+.12*wnN(N[19],(X-Y)/(R*.07),(Z+Y)/(R*.07))*(lod?0:1));
-      pos.push(X+nx/nl*dsp,Y+ny/nl*dsp,Z+nz/nl*dsp);aA.push(0,f.kind==='arch'?1:0,f.kind==='ring'?1:0,0);aB.push(0,.5,0,f.kind==='arch'?.75:.45);aW.push(-1e4);}}
+      const dsp=r*(.24*(wnRidged(N[18],(X+Y*.7)/(R*.22),(Z-Y*.5)/(R*.22),lod?1:3,2.1,.5,1,2)-.45)+.12*wnN(N[19],(X-Y)/(R*.07),(Z+Y)/(R*.07))*(lod?0:1));
+      pos.push(X+nx/nl*dsp,Y+ny/nl*dsp,Z+nz/nl*dsp);aA.push(0,f.kind==='arch'?1:0,f.kind==='ring'?1:0,0);aB.push(0,.5,.5,1);/* (rock look: a landmark's stone is stone all over, as a ring's - the one rock material, ground's own grass only on its ledges) */aW.push(-1e4);}}
   for(let i=0;i<(ring?nA:nA);i++)for(let j=0;j<nS;j++){const i2=ring?(i+1)%nA:i+1,j2=(j+1)%nS,a=i*nS+j,b=i2*nS+j,c=i*nS+j2,d=i2*nS+j2;idx.push(a,b,c,b,d,c);}
   if(!ring){/* caps at the feet (buried, but closed) */for(const i of[0,nA]){const c0=pos.length/3;let mx=0,my=0,mz=0;for(let j=0;j<nS;j++){mx+=pos[(i*nS+j)*3];my+=pos[(i*nS+j)*3+1];mz+=pos[(i*nS+j)*3+2];}
       pos.push(mx/nS,my/nS,mz/nS);aA.push(0,1,0,0);aB.push(0,.5,0,0);aW.push(-1e4);for(let j=0;j<nS;j++){const a=i*nS+j,b=i*nS+(j+1)%nS;if(i===0)idx.push(c0,b,a);else idx.push(c0,a,b);}}}
   /* local to its centre (precision), normals, attributes */
   const P=new Float32Array(pos.length);for(let q=0;q<pos.length;q+=3){P[q]=pos[q]-f.x;P[q+1]=pos[q+1];P[q+2]=pos[q+2]-f.z;}
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(P,3));g.setIndex(idx);g.computeVertexNormals();
-  const A=new Uint8Array(aA.map(v=>v*255)),B=new Uint8Array(aB.map(v=>Math.round(v*255)));g.setAttribute('aA',new THREE.BufferAttribute(A,4,true));g.setAttribute('aB',new THREE.BufferAttribute(B,4,true));g.setAttribute('aW',new THREE.Float32BufferAttribute(aW,1));
+  const A=new Uint8Array(aA.map(v=>v*255)),B=new Uint8Array(aB.map(v=>Math.round(v*255)));g.setAttribute('aA',new THREE.BufferAttribute(A,4,true));g.setAttribute('aB',new THREE.BufferAttribute(B,4,true));g.setAttribute('aW',new THREE.Float32BufferAttribute(aW,1));g.setAttribute('aRv',wtNoRiver(aW.length));/* (rock look: no river ground on the stone) */
   /* hollows of the rock darker: a cavity from how much the normals of a vertex's neighbours turn towards it (cheap: from the noise displacement sign) */
   g.computeBoundingSphere();return g;}
 /* the Great Elder Circle of an elderglade as a landmark: its ring stands on the summit of its mountain, at the height of the ground at its middle */

@@ -75,41 +75,44 @@ function wrTube(S,F,R,a0,a1,o){const N=WG.N,lod=o.lod,closed=!!o.closed,nA=o.nA,
     const cx=C[0]+R*rx,cy=C[1]+R*ry,cz=C[2]+R*rz,th=o.thF(ang),end=closed?0:i===0?-1:i===nA?1:0;
     for(let j=0;j<nS;j++){const ph=(j+(wnHash(i*31+j,sd,7772)-.5)*.45)/nS*6.2832,cp=Math.cos(ph),sp=Math.sin(ph),dx=rx*cp+W[0]*sp,dy=ry*cp+W[1]*sp,dz=rz*cp+W[2]*sp;
       let X=cx+dx*th,Y=cy+dy*th,Z=cz+dz*th;
-      const dsp=th*(.32*(wnRidged(N[18],(X+Y*.7)/n1,(Z-Y*.5)/n1,lod?1:3,2.1,.5,1,2)-.45)+(lod?0:.12*wnN(N[19],(X-Y)/n2,(Z+Y)/n2)));
+      const dsp=th*(.24*(wnRidged(N[18],(X+Y*.7)/n1,(Z-Y*.5)/n1,lod?1:3,2.1,.5,1,2)-.45)+(lod?0:.12*wnN(N[19],(X-Y)/n2,(Z+Y)/n2)));
       X+=dx*dsp;Y+=dy*dsp;Z+=dz*dsp;
-      if(end){const k=end<0?K0:K1,e=Math.max(-.42*step,Math.min(.45*th,th*(.55*(cp*k[0]+sp*k[1])+.3*(jag[j]-.5))))*end;X+=tx*e;Y+=ty*e;Z+=tz*e;}/* (the break: slanted, its edge uneven) */
+      if(end){const k=end<0?K0:K1,e=Math.max(-.3*step,Math.min(.2*th,th*(.3*(cp*k[0]+sp*k[1])+.08*(jag[j]-.5))))*end;X+=tx*e;Y+=ty*e;Z+=tz*e;}/* (the break: a little slanted, its edge a little uneven - never a blade: rock look) */
       const hy=Y-o.gh(X,Z),under=.36*wnS(dy,-.15,-.75),inner=.2*wnS(-cp,.1,.85),low=.5*(1-wnS(hy,0,th*1.4)),hol=.3*Math.min(1,Math.max(0,-dsp/(th*.09)));
       S.pos.push(X,Y,Z);S.aA.push(0,0,1,o.mo(X,Y,Z,hy,th)*(end?.5:1));S.aB.push(0,.5+.5*Math.min(.9,1-(1-under)*(1-inner)*(1-low)*(1-hol)),wrTint(o.ti,X,Y,Z,R),1);S.aW.push(-1e4);}}
   for(let i=0;i<nA;i++)for(let j=0;j<nS;j++){const i2=closed?(i+1)%nA:i+1,j2=(j+1)%nS,a=b0+i*nS+j,b=b0+i2*nS+j,c=b0+i*nS+j2,d=b0+i2*nS+j2;S.idx.push(a,b,c,b,d,c);}
-  /* the breaks' caps: a ring of points half way in, each pulled in or out along the ring, then the middle, a little proud or sunk - rough, not cut */
+  /* the breaks' caps: a ring of points half way in, each set a little back along the ring, then the middle - a shallow rough dish, not a blade */
   if(!closed)for(const e of[0,nA]){const r0=b0+e*nS,sg=e?1:-1,ang=e?a1:a0,c=Math.cos(ang),s=Math.sin(ang),tx=-s*U[0]+c*V[0],ty=-s*U[1]+c*V[1],tz=-s*U[2]+c*V[2],th=o.thF(ang);
     let mx=0,my=0,mz=0;for(let j=0;j<nS;j++){mx+=S.pos[(r0+j)*3];my+=S.pos[(r0+j)*3+1];mz+=S.pos[(r0+j)*3+2];}mx/=nS;my/=nS;mz/=nS;
     const mo=o.mo(mx,my,mz,99,th)*.3,r1=S.pos.length/3,put=(X,Y,Z)=>{S.pos.push(X,Y,Z);S.aA.push(0,0,1,mo);S.aB.push(0,.6,wrTint(o.ti,X,Y,Z,R),1);S.aW.push(-1e4);};
-    for(let j=0;j<nS;j++){const q=(r0+j)*3,u=(rg()-.5)*th*.55*sg,k=.48+.12*rg();put(mx+(S.pos[q]-mx)*k+tx*u,my+(S.pos[q+1]-my)*k+ty*u,mz+(S.pos[q+2]-mz)*k+tz*u);}
-    const u=(rg()-.35)*th*.4*sg,cc=S.pos.length/3;put(mx+tx*u,my+ty*u,mz+tz*u);
+    for(let j=0;j<nS;j++){const q=(r0+j)*3,u=-(.01+.03*rg())*th*sg,k=.55+.1*rg();put(mx+(S.pos[q]-mx)*k+tx*u,my+(S.pos[q+1]-my)*k+ty*u,mz+(S.pos[q+2]-mz)*k+tz*u);}
+    const u=-(.01+.04*rg())*th*sg,cc=S.pos.length/3;put(mx+tx*u,my+ty*u,mz+tz*u);/* (rock look: a broken face, a little dished and rough only a little - never pulled out into a blade; the triangles face out only while the cap stays behind the end) */
     for(let j=0;j<nS;j++){const j2=(j+1)%nS,a=r0+j,b=r0+j2,c2=r1+j,d=r1+j2;if(e)S.idx.push(a,b,c2,b,d,c2,c2,d,cc);else S.idx.push(a,c2,b,b,c2,d,c2,cc,d);}}}
 
 /* ---------- earth heaped where stone goes into the land ----------
    An oval mound (radii a along (ux,uz), b across, height hm) on the ground, its edge sunk into it; the land's own attributes (its grass and colours
-   there), a little darker by the stone. The ground under it is a 4 x 4 lattice of samples (the same for both levels of detail). */
-function wrBermPrep(L,x,z,ux,uz,a,b,hm,sd){const n=3,G=[];for(let j=0;j<=n;j++)for(let i=0;i<=n;i++){const lx=(i/n*2-1)*a,lz=(j/n*2-1)*b;G.push(wrG(L,x+lx*ux-lz*uz,z+lx*uz+lz*ux).h);}
+   there), a little darker by the stone. The ground under it is a 9 x 9 lattice of samples (the same for both levels of detail). */
+function wrBermPrep(L,x,z,ux,uz,a,b,hm,sd){const n=8,G=[];/* (rock look: 9 x 9 samples - on 4 x 4 a heap over a crest hung in the air) */for(let j=0;j<=n;j++)for(let i=0;i<=n;i++){const lx=(i/n*2-1)*a,lz=(j/n*2-1)*b;G.push(wrG(L,x+lx*ux-lz*uz,z+lx*uz+lz*ux).h);}
   const g0=wrG(L,x,z),N=WG.N,ph=(sd%997)*.37;
   const gAt=(lx,lz)=>{const fi=Math.min(n-1e-6,Math.max(0,(lx/a+1)*n/2)),fj=Math.min(n-1e-6,Math.max(0,(lz/b+1)*n/2)),i=fi|0,j=fj|0,u=fi-i,w=fj-j,q=j*(n+1)+i;
     return (G[q]*(1-u)+G[q+1]*u)*(1-w)+(G[q+n+1]*(1-u)+G[q+n+2]*u)*w;};
-  const hL=(lx,lz)=>{const r=Math.hypot(lx/a,lz/b);return gAt(lx,lz)+(r<1?hm*Math.pow(1-r*r,1.5)*(1+.22*wnN(N[15],lx/(a*.6)+ph,lz/(b*.6)-ph)):0)-.5*Math.pow(Math.min(1,r),3);};
+  const hL=(lx,lz)=>{const r=Math.hypot(lx/a,lz/b);return gAt(lx,lz)+(r<1?hm*Math.pow(1-r*r,1.5)*(1+.22*wnN(N[15],lx/(a*.6)+ph,lz/(b*.6)-ph)):0)-.9*Math.pow(Math.min(1,r),3);};
   return {x,z,ux,uz,a,b,hm,sd,A:g0.A,wl:g0.wl>-1e8?g0.wl:-1e4,hL,kx:0,kz:0};}
-function wrBerm(S,B,lod){const K=lod?3:6,M=lod?10:18,b0=S.pos.length/3,N=WG.N,ph=(B.sd%997)*.37;
+function wrBerm(S,B,lod){const K=lod?3:8,M=lod?10:26,/* (rock look: finer - its facets read as flat plates) */b0=S.pos.length/3,N=WG.N,ph=(B.sd%997)*.37;
   const put=(lx,lz,r)=>{S.pos.push(B.x+lx*B.ux-lz*B.uz,B.hL(lx,lz),B.z+lx*B.uz+lz*B.ux);S.aA.push(B.A[0],B.A[1],B.A[2],B.A[3]);S.aB.push(0,.5+.5*.16*(1-r),0,0);S.aW.push(B.wl);};
   put(0,0,0);
   for(let k=1;k<=K;k++){const r=k/K;for(let m=0;m<M;m++){const t=m/M*6.2832,rr=r*(1+(k<K?.1*wnN(N[15],Math.cos(t)*1.7+ph,Math.sin(t)*1.7-ph):0));put(Math.cos(t)*B.a*rr,Math.sin(t)*B.b*rr,r);}}
   for(let m=0;m<M;m++)S.idx.push(b0,b0+1+(m+1)%M,b0+1+m);
   for(let k=1;k<K;k++){const r0=b0+1+(k-1)*M,r1=b0+1+k*M;for(let m=0;m<M;m++){const m2=(m+1)%M,a=r0+m,b=r0+m2,c=r1+m,d=r1+m2;S.idx.push(a,b,c,b,d,c);}}}
 
-/* rubble: a chiselled stone (wrock.js wrkShape), tipped a little, its lower part darker, with the ring's moss */
-function wrStone(S,x,y,z,sz,mo,ti,lod,sd){const rg=wnRng(sd),w=sz*(1+.5*rg()),h=sz*(.55+.4*rg()),d=sz*(.85+.5*rg());if(!WRK.N)WRK.N=wnSimplex(424242);
-  const sh=wrkShape(rg,w,h,d,{det:lod?0:1,cuts:5+Math.floor(rg()*3),up:1,rough:.08,box:.5}),yaw=rg()*6.2832,tl=(rg()-.5)*.6,cy=Math.cos(yaw),sy=Math.sin(yaw),ct=Math.cos(tl),st=Math.sin(tl),b0=S.pos.length/3,ylo=-.55*h/2;
-  for(let i=0;i<sh.length;i+=3){const px=sh[i]*ct-sh[i+1]*st,py=sh[i]*st+sh[i+1]*ct,pz=sh[i+2],hf=Math.min(1,Math.max(0,(sh[i+1]-ylo)/(h/2-ylo)));
-    S.pos.push(x+px*cy-pz*sy,y+py,z+px*sy+pz*cy);S.aA.push(0,0,1,mo);S.aB.push(0,.5+.5*.55*Math.pow(1-hf,1.6),ti,1);S.aW.push(-1e4);S.idx.push(b0+i/3);}}
+/* rubble: a stone from the one generator of every rock (rock look: WRL.makeStone, wrlook.js - a box, 3-6 plane cuts, a small exact bevel; eight shapes
+   made once a level of detail), stretched a little, tipped a little, its lower part darker, with the ring's moss; on the lowest ground under it */
+function wrRubShape(lod,i){const k=(lod?'f':'n')+i,C=WR.rs||(WR.rs={});return C[k]||(C[k]=WRL.makeStone(5100+i*53,{det:lod?2:3}));}
+function wrStone(S,x,y,z,sz,mo,ti,lod,sd){const rg=wnRng(sd),G=wrRubShape(lod,sd%8),u=G.userData,P=G.attributes.position.array,I=G.index.array,k=sz*.5/u.rx,
+    ky=k*(.8+.3*rg()),yaw=rg()*6.2832,tl=(rg()-.5)*.4,cy=Math.cos(yaw),sy=Math.sin(yaw),ct=Math.cos(tl),st=Math.sin(tl),b0=S.pos.length/3,y0=y-u.ymin*ky*.8;
+  for(let i=0;i<P.length;i+=3){const ox=P[i]*k,oy=P[i+1]*ky,oz=P[i+2]*k,px=ox*ct-oy*st,py=ox*st+oy*ct,hf=(P[i+1]-u.ymin)/(u.ymax-u.ymin);
+    S.pos.push(x+px*cy-oz*sy,y0+py,z+px*sy+oz*cy);S.aA.push(0,0,1,mo);S.aB.push(0,.5+.5*.55*Math.pow(1-hf,1.6),ti,1);S.aW.push(-1e4);}
+  for(let i=0;i<I.length;i++)S.idx.push(b0+I[i]);}
 
 /* ---------- what grows on it (flat-shaded vertex colours, the foliage's own material) ---------- */
 /* a leafy blob: an icosahedron squashed by sq, its corners nudged (three shapes made once per detail), each face its own shade, darker underneath */
@@ -163,7 +166,7 @@ function wrFrame(f,v,L){const R=f.R,th=v.th,N=WG.N,PI=Math.PI,yaw=f.yaw,ca=Math.
   L.closed=!v.brk;L.a0=v.brk?-PI-v.eL:-PI/2;L.a1=v.brk?v.eR:1.5*PI;
   L.thF=a=>{const c=Math.cos(a),s=Math.sin(a);let t=th*(1+.28*wnN(N[9],c*1.7+id,s*1.7)+.12*wnN(N[9],c*5.1-id,s*5.1));
     t*=1-.22*wnS(wnN(N[10],c*2.6+id*.7,s*2.6),.45,.85);/* (worn thin in places) */
-    if(v.brk)t*=1-.2*(1-wnS(Math.min(a-L.a0,L.a1-a),0,.4));/* (the horns thinner towards their breaks) */return t;};
+    return Math.max(th*.72,t);};/* (rock look: never worn thinner than 0.72 of it, and the horns keep their thickness to the break - no thin spikes) */
   L.cR=wrContact(L,F,R,v.brk?v.eR:PI/2);L.cL=wrContact(L,F,R,v.brk?-PI-v.eL:-1.5*PI);
   const gl=L.cL?Math.max(L.cL.h,L.cL.wl):f.y,gr=L.cR?Math.max(L.cR.h,L.cR.wl):f.y;
   L.gh=(X,Z)=>{const t=Math.min(1,Math.max(0,(((X-f.x)*ca+(Z-f.z)*sa)+R)/(2*R)));return gl+(gr-gl)*t;};
@@ -178,8 +181,10 @@ function* wrPrepG(f,v,res){const L={G:new Map()},R=f.R,th=v.th,N=WG.N,PI=Math.PI
       const u=inPl?(rg()-.5)*.5*R:(rg()-.5)*1.1*R,w=inPl?(rg()-.5)*th:side*(th*1.7+R*(.16+.38*rg())),psi=yaw+(rg()-.5)*(inPl?.5:1);
       const mx=f.x+ca*u+nx*w,mz=f.z+sa*u+nz*w,roll=(rg()<.5?-1:1)*(.25+.85*rg()),/* (tipped onto its edge, so its curve shows) */cp=Math.cos(psi),sp=Math.sin(psi),cr=Math.cos(roll),sr=Math.sin(roll);
       const U=[-sp*cr,sr,cp*cr],V=[cp,0,sp],W=[U[1]*V[2]-U[2]*V[1],U[2]*V[0]-U[0]*V[2],U[0]*V[1]-U[1]*V[0]],tp=th*(.78+.3*rg()),e=.15+.4*rg();
-      let ys=0;for(const a of[-s/2,0,s/2]){const q=R*(Math.cos(a)-1),r=R*Math.sin(a);ys+=wrG(L,mx+q*U[0]+r*V[0],mz+q*U[2]+r*V[2]).h+tp*e-q*U[1];}
-      const my=ys/3,sd=(wnHashI(v.seed,k,353))%1000003;L.pieces.push({F:{C:[mx-R*U[0],my-R*U[1],mz-R*U[2]],U,V,W},a0:-s/2,a1:s/2,th:tp,sd,x:mx,y:my,z:mz,gy:my-tp*e,psi,s});}}
+      /* (rock look: it rests on the lowest ground under it - along it and either side of it - so no part of it hangs in the air) */
+      const wl=Math.hypot(W[0],W[2])||1,wx=W[0]/wl,wz=W[2]/wl;let ys=1e9;for(let ka=0;ka<5;ka++){const a=-s/2+s*ka/4,q=R*(Math.cos(a)-1),r=R*Math.sin(a);
+        for(const sd of[-1,0,1])ys=Math.min(ys,wrG(L,mx+q*U[0]+r*V[0]+sd*tp*wx,mz+q*U[2]+r*V[2]+sd*tp*wz).h+tp*e-q*U[1]);}
+      const my=ys,sd=(wnHashI(v.seed,k,353))%1000003;L.pieces.push({F:{C:[mx-R*U[0],my-R*U[1],mz-R*U[2]],U,V,W},a0:-s/2,a1:s/2,th:tp,sd,x:mx,y:my,z:mz,gy:my-tp*e,psi,s});}}
   yield;
   /* earth heaped round the feet and along the pieces; where a foot stands in water a few metres deep the earth rises out of it as a little island */
   L.berms=[];const berm=(x,z,ux,uz,a,b,hm,sd,kx,kz,maxD)=>{const g=wrG(L,x,z),dp=g.wl>-1e8?g.wl-g.h:-1;if(dp>maxD)return null;const w=Math.max(0,dp)*3.4;/* (an island's sides slope gently down to the bed: a steep one shows through the water as a wall) */
@@ -187,7 +192,7 @@ function* wrPrepG(f,v,res){const L={G:new Map()},R=f.R,th=v.th,N=WG.N,PI=Math.PI
   {const cR=L.cR,cL=L.cL,aF=th*2.1+2,hm=th*(.26+.38*ov)+.6,sd=v.seed%1000003,d=cR&&cL?Math.hypot(cR.x-cL.x,cR.z-cL.z)/2:1e9;
     if(d<aF*1.1)berm((cR.x+cL.x)/2,(cR.z+cL.z)/2,ca,sa,d+th*1.5+2,th*1.7+2,hm,sd+1,d+th*.9,th*.8,7);/* (feet close together - the bottom of a half ring: one long heap along it) */
     else for(const c of[cR,cL])if(c)berm(c.x,c.z,ca,sa,aF,th*1.7+2,hm,sd+(c===cR?1:2),th*.95,th*.8,7);}
-  for(const p of L.pieces){const ch=R*Math.sin(p.s/2);p.B=berm(p.x,p.z,Math.cos(p.psi),Math.sin(p.psi),ch+p.th*.9,p.th*1.45,p.th*(.2+.25*ov)+.4,p.sd+3,ch,p.th*.85,4);}
+  for(const p of L.pieces){const ch=R*Math.sin(p.s/2);p.B=berm(p.x,p.z,Math.cos(p.psi),Math.sin(p.psi),ch+p.th*.9,p.th*1.45,p.th*(.1+.12*ov)+.4,/* (rock look: a low heap - a high one wrapped the piece in plates) */p.sd+3,ch,p.th*.85,4);}
   yield;
   /* a small ring beside it, leaning away or nearly fallen, half buried */
   L.comp=null;if(v.comp){const Rs=9+15*rg(),ths=Rs*(.13+.05*rg()),side=rg()<.5?-1:1,u=(rg()-.5)*R*.7,w=side*(th*1.3+Rs*.6+R*.25*rg()),dd=Math.hypot(u,w),lim=R-Rs-6,sc=dd>lim?lim/dd:1;
@@ -200,7 +205,8 @@ function* wrPrepG(f,v,res){const L={G:new Map()},R=f.R,th=v.th,N=WG.N,PI=Math.PI
   yield;
   /* rubble round the feet and the pieces */
   L.rub=[];const rub=(x,z,sz,mo)=>{let y=null;for(const B of L.berms){const lx=(x-B.x)*B.ux+(z-B.z)*B.uz,lz=-(x-B.x)*B.uz+(z-B.z)*B.ux;if(Math.hypot(lx/B.a,lz/B.b)<.9){y=B.hL(lx,lz);break;}}
-    L.rub.push({x,y:(y===null?wrG(L,x,z).h:y)-sz*.15,z,sz,mo,sd:(rg()*1e9)|0});};
+    if(y===null){y=wrG(L,x,z).h;for(let q=0;q<4;q++)y=Math.min(y,wrG(L,x+Math.cos(q*1.5708)*sz*.6,z+Math.sin(q*1.5708)*sz*.6).h);}/* (rock look: on the lowest ground under it) */
+    L.rub.push({x,y:y-sz*.25,z,sz,mo,sd:(rg()*1e9)|0});};
   for(const c of[L.cR,L.cL])if(c){const n=(v.brk?4:2)+Math.floor(rg()*3);for(let k=0;k<n;k++){const a=rg()*6.283,d=th*(1.1+1.3*rg());rub(c.x+Math.cos(a)*d,c.z+Math.sin(a)*d,th*(.09+.22*rg()*rg())+.5,Math.min(1,ov+.25));}}
   for(const p of L.pieces){const n=2+Math.floor(rg()*4),ch=R*Math.sin(p.s/2);for(let k=0;k<n;k++){const a=rg()*6.283,d=p.th*1.2+ch*rg();rub(p.x+Math.cos(a)*d,p.z+Math.sin(a)*d,p.th*(.1+.22*rg())+.5,Math.min(1,ov+.3));}}
   if(v.brk){const nB=v.ruin?3+Math.floor(rg()*3):1+Math.floor(rg()*2.5);for(let k=0;k<nB;k++){const u=(rg()-.5)*1.2*R,w=(rg()<.5?-1:1)*(th*1.6+R*(.1+.45*rg()));/* (big broken blocks of the top) */
@@ -209,13 +215,13 @@ function* wrPrepG(f,v,res){const L={G:new Map()},R=f.R,th=v.th,N=WG.N,PI=Math.PI
   /* on the stone: bushes where its top faces up, a bush or a small tree on a break, small trees on a whole ring's top, vines from its underside */
   L.bush=[];L.tree=[];L.vine=[];const o=[0,0,0,0,0,0],onS=a=>v.brk&&(a<L.a0||a>L.a1)?(a<L.a0?L.a0+.04:L.a1-.04):a;/* (a broken ring's plants stay on what is left of it: a ruin's arc can be narrow) */
   const nb=Math.round(ov*(3+R*.1)*(v.great?1.5:1));for(let k=0;k<nb;k++){const q=rg(),a=onS(v.brk?(q<.35?L.a1-rg()*.55:q<.7?L.a0+rg()*.55:-PI/2+(rg()-.5)*1.6):PI/2+(rg()-.5)*PI*.9);wrSurf(F,R,a,L.thF,1,o);
-    if(o[4]<.35||o[1]<L.gh(o[0],o[2])+.6)continue;/* (where its top faces up, out of the ground and the water) */L.bush.push({x:o[0],y:o[1],z:o[2],r:th*(.15+.2*rg())+1,sd:(rg()*1e9)|0,bl:ov>.7&&rg()<.3});}
+    if(o[4]<.82||o[1]<L.gh(o[0],o[2])+.6)continue;/* (where its top faces up - no steeper than 35 degrees (rock look) - out of the ground and the water) */L.bush.push({x:o[0],y:o[1],z:o[2],r:th*(.15+.2*rg())+1,sd:(rg()*1e9)|0,bl:ov>.7&&rg()<.3});}
   if(v.brk)for(const e of[L.a0,L.a1]){const c=Math.cos(e),s=Math.sin(e),sg=e===L.a1?1:-1,tx=(-s*F.U[0]+c*F.V[0])*sg,ty=(-s*F.U[1]+c*F.V[1])*sg,tz=(-s*F.U[2]+c*F.V[2])*sg;wrAt(F,R,e,o);
-    if(ty>.3&&rg()<.35+ov*.6){const x=o[0]+tx*th*.2,y=o[1]+ty*th*.2,z=o[2]+tz*th*.2;
-      if(ov>.5&&rg()<.6)L.tree.push({x,y,z,ax:tx*.5,ay:1,az:tz*.5,H:th*(.9+.7*rg())+6,sd:(rg()*1e9)|0});else L.bush.push({x,y,z,r:th*(.24+.18*rg())+1,sd:(rg()*1e9)|0,bl:ov>.6&&rg()<.4});}}
+    if(ty>.82&&rg()<.35+ov*.6){/* (rock look: only a break that faces up, and the tree upright) */const x=o[0]+tx*th*.2,y=o[1]+ty*th*.2,z=o[2]+tz*th*.2;
+      if(ov>.5&&rg()<.6)L.tree.push({x,y,z,ax:tx*.08,ay:1,az:tz*.08,H:th*(.9+.7*rg())+6,sd:(rg()*1e9)|0});else L.bush.push({x,y,z,r:th*(.24+.18*rg())+1,sd:(rg()*1e9)|0,bl:ov>.6&&rg()<.4});}}
   {let nt=ov>.5?1+(rg()<ov-.3?1:0)+(rg()<ov-.55?1:0)+(R>100&&rg()<.5?1:0):ov>.35&&rg()<.4?1:0;if(v.great)nt+=4+Math.floor(rg()*4);
-    for(let k=0;k<nt;k++){const a=onS(v.brk?-PI/2+(rg()-.5)*1.4:PI/2+(rg()-.5)*1.5);wrSurf(F,R,a,L.thF,1,o);if(o[4]<.5||o[1]<L.gh(o[0],o[2])+1)continue;const c=Math.cos(a)*(v.brk?-1:1);
-      L.tree.push({x:o[0],y:o[1],z:o[2],ax:o[3]*.35+c*F.U[0]*.25,ay:1,az:o[5]*.35+c*F.U[2]*.25,H:th*(.9+.8*rg())+6,sd:(rg()*1e9)|0});}}
+    for(let k=0;k<nt;k++){const a=onS(v.brk?-PI/2+(rg()-.5)*1.4:PI/2+(rg()-.5)*1.5);wrSurf(F,R,a,L.thF,1,o);if(o[4]<.82||o[1]<L.gh(o[0],o[2])+1)continue;const c=Math.cos(a)*(v.brk?-1:1);
+      L.tree.push({x:o[0],y:o[1],z:o[2],ax:o[3]*.08+c*F.U[0]*.05,ay:1,az:o[5]*.08+c*F.U[2]*.05,H:th*(.9+.8*rg())+6,sd:(rg()*1e9)|0});}}
   const nv=Math.round(ov*ov*(3+R*.1));for(let k=0;k<nv;k++){const ac=v.brk?(rg()<.5?L.a1-rg()*.25:L.a0+rg()*.25):PI/2+(rg()-.5)*PI*.78,ns=3+Math.floor(rg()*5);
     for(let q=0;q<ns;q++){const a=onS(ac+(rg()-.5)*Math.min(.25,10/R));wrSurf(F,R,a,L.thF,-1,o);if(o[4]>(v.brk?-.12:-.55))continue;/* (only from what faces down) */
       const len=Math.min(o[1]-L.gh(o[0],o[2])-2,(5+30*rg()*ov)*Math.min(1.5,R/100)*(.6+.4*rg()),v.brk?1.6*(R-th)*Math.sin(a):1e9);
@@ -229,6 +235,7 @@ function* wrPrepG(f,v,res){const L={G:new Map()},R=f.R,th=v.th,N=WG.N,PI=Math.PI
       if(Math.abs(lx)<B.kx&&Math.abs(lz)<B.kz){if(Math.abs(lz)/B.kz>Math.abs(lx)/B.kx)lz=Math.sign(lz||1)*B.kz*(1+.15*rg());else lx=Math.sign(lx||1)*B.kx*(1+.15*rg());}/* (not inside the stone) */
       const x=B.x+lx*B.ux-lz*B.uz,z=B.z+lx*B.uz+lz*B.ux,y=B.hL(lx,lz),sd=(rg()*1e9)|0,r2=rg(),bl=ov>.6&&rg()<.35,H=th*(.35+.3*rg())+3;let kind=k<nb2?'bush':k<nb2+nt?'tuft':'tree';
       if(wet&&y<B.wl+.4){if(kind!=='tuft'||y<B.wl-1.3)continue;kind='reed';}/* (in the water only reeds, and not deep) */
+      if(kind==='bush'||kind==='tree'){const e=.8,gx=(B.hL(lx+e,lz)-B.hL(lx-e,lz))/(2*e),gz=(B.hL(lx,lz+e)-B.hL(lx,lz-e))/(2*e);if(Math.hypot(gx,gz)>.7)continue;}/* (rock look: no bush or tree steeper than 35 degrees) */
       L.base.push({kind,x,y,z,r:kind==='bush'?th*(.07+.08*r2)+.6:kind==='reed'?Math.max(0,B.wl-y)+1.3+1.1*r2:1.1+1.1*r2,sd,bl,H});}}
   L.G=null;res.L=L;}
 /* the layout at once (or what is left of it) */
@@ -256,7 +263,7 @@ function* wrBuildG(f,v,L,lod,res){const S={pos:[],aA:[],aB:[],aW:[],idx:[]},Vg={
   const g=new THREE.Group(),ox=f.x,oz=f.z,u8=a=>Uint8Array.from(a,q=>Math.round(Math.min(1,Math.max(0,q))*255));
   {const P=new Float32Array(S.pos.length);for(let i=0;i<P.length;i+=3){P[i]=S.pos[i]-ox;P[i+1]=S.pos[i+1];P[i+2]=S.pos[i+2]-oz;}
     const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.BufferAttribute(P,3));G.setIndex(S.idx);G.computeVertexNormals();
-    G.setAttribute('aA',new THREE.BufferAttribute(u8(S.aA),4,true));G.setAttribute('aB',new THREE.BufferAttribute(u8(S.aB),4,true));G.setAttribute('aW',new THREE.Float32BufferAttribute(S.aW,1));G.computeBoundingSphere();
+    G.setAttribute('aA',new THREE.BufferAttribute(u8(S.aA),4,true));G.setAttribute('aB',new THREE.BufferAttribute(u8(S.aB),4,true));G.setAttribute('aW',new THREE.Float32BufferAttribute(S.aW,1));G.setAttribute('aRv',wtNoRiver(P.length/3));G.computeBoundingSphere();/* (rock look: no river ground on the stone - without aRv the river's earth bank was painted over it) */
     const m=new THREE.Mesh(G,f.mat||wtMaterial());m.castShadow=true;m.receiveShadow=true;m.frustumCulled=false;/* (wrCull: no far plane) */g.add(m);}
   yield;
   if(Vg.pos.length){const P=new Float32Array(Vg.pos.length);for(let i=0;i<P.length;i+=3){P[i]=Vg.pos[i]-ox;P[i+1]=Vg.pos[i+1];P[i+2]=Vg.pos[i+2]-oz;}

@@ -35,7 +35,7 @@ function wrsPrep(e){const s=e.s,cv=wrsCurve(s),RIV=cv.RIV,hwA=cv.hwA;e.RIV=RIV;e
   for(let q=0;q<nR&&len>40;q++){let t=4+rr()*(len-40),sg=rr()<.5?1:-1;const m=5+Math.floor(rr()*4);
     for(let j=0;j<m;j++){const ti=Math.round(t),o=sg*(.15+.35*rr()),sz=.7+.6*rr();if(ti<=len-2&&wrbHalf(wrsLerp(hwA,ti),e.s0+ti)>=1.5)R.push([ti,o,sz]);sg=-sg;t+=4+1.4*rr();}}
   e.ROCKS=R;e.NPEB=Math.floor(26*len/115+rr());e.NREED=Math.floor(34*len/115+rr());
-  const RW=new Float64Array(4),mid=RIV[len>>1];wgRegions(mid[0],mid[1],RW);e.grey=Math.min(1,Math.max(0,RW[1]*2+(1-RW[2]-RW[1])*.35))>.5;
+  const RW=new Float64Array(4),mid=RIV[len>>1];wgRegions(mid[0],mid[1],RW);e.grey=Math.min(1,Math.max(0,RW[1]*2))>.5;/* (rock look: as the boulders) */
   let x0=1e9,z0=1e9,x1=-1e9,z1=-1e9;for(const q of RIV){x0=Math.min(x0,q[0]);x1=Math.max(x1,q[0]);z0=Math.min(z0,q[1]);z1=Math.max(z1,q[1]);}e.bb=[x0-12,z0-12,x1+12,z1+12];
   e.hc=new Map();e.stage=0;}
 /* this stream's rivBank at x, z (its y, read only by the lip grass, the ground there) */
