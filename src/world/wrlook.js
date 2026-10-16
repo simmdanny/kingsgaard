@@ -5,6 +5,8 @@
    - patch: the mockup's onBeforeCompile helper (world position and normal varyings) - src/01, verbatim.
    - PAL, palU, setPal, ROCK_DECL (src/05), weld, makeStone (src/07: box, 3-6 plane cuts, exact bevel by projection), boulderMat (src/06: the stone
      material of every rock) - verbatim but for makeStone's icosphere level (o.det, the LOD).
+   - makePlaceBoulder (placeBoulder), bankUniforms, bankShapes, bankKit (putStone), riverStones (src/08: bank stones, rocks in the water, pebbles), occAt
+     (the ground's contact shade) - verbatim, the river's data passed in (wrstone.js feeds them the game's streams).
    - GLSL_GROUND_RIVER: the river part of the ground's colour (the bed, the wet waterline, the earth bank face, mud) - src/03, verbatim; it reads col, P,
      X, fd, slope, vWd, vBf, vOcc as the mockup's ground shader has them.
    Deviations from the mockup are listed in tools/mockups/river/DEVIATIONS.md.
@@ -166,4 +168,69 @@ function boulderMat(u){return patch('bldNew',new THREE.MeshPhongMaterial({color:
   if(uUW>0.5){float uw=uWL-P.y;col=mix(col,mix(vec3(0.16,0.55,0.55),vec3(0.05,0.36,0.42),smoothstep(0.2,0.9,uw)),smoothstep(0.0,0.45,uw)*0.92);}/* under water: fades into the water's colour with depth */
   diffuseColor.rgb=col;
  }`,u,null,'color_fragment');}
-return{GLSL_NOISE,patch,GLSL_GROUND_RIVER,mkRng,PAL,palU,setPal,ROCK_DECL,weld,makeStone,boulderMat};})();
+/* ---- (the mockup's S, for occAt: WRB, wrbank.js) ---- */
+const S=WRB.S;
+/* ---- VERBATIM: surface-study.html lines 460-467, placeBoulder (the pebbles at the rocks in the water and by the waterline are field boulders); what
+   it reads (the shapes, their lists, the ground, the path and the river for its companions) passed in ---- */
+function makePlaceBoulder(E){const SHAPES=E.SHAPES,BINST=E.BINST,H=E.H,pathDist=E.pathDist,pathHalfAt=E.pathHalfAt,rivMask=E.rivMask;
+function placeBoulder(x,z,seed,fixedScale,shapeIdx){const r=mkRng(seed);const s0=Math.floor(r()*SHAPES.length),si=shapeIdx!=null?shapeIdx:s0,G=SHAPES[si],ud=G.userData;
+  const u=r();const sc=fixedScale||(.22+1.9*Math.pow(u,2.4));const h=(ud.ymax-ud.ymin)*sc;
+  const f=.45-.20*Math.min(1,Math.max(0,(sc-.3)/1.6));/* sink fraction: 25% for the big ones, 45% for pebbles */
+  const e=.4,nx=-(H(x+e,z)-H(x-e,z))/(2*e),nz=-(H(x,z+e)-H(x,z-e))/(2*e);const nrm=new THREE.Vector3(nx,1,nz).normalize();
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),nrm).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),r()*6.283));
+  const y=H(x,z)-f*h-ud.ymin*sc;/* the lowest point sits f*h under the ground */const M=new THREE.Matrix4().compose(new THREE.Vector3(x,y,z),q,new THREE.Vector3(sc,sc,sc));
+  BINST[si].push({M,tint:new THREE.Color(r(),(H(x,z)+20)/60,r()),x,z,sc,rw:ud.rx*sc});
+  if(!fixedScale&&sc>.6&&r()<.4){const k=1+Math.floor(r()*3);for(let j=0;j<k;j++){const a=r()*6.283,d=sc*ud.rx*(1.3+1.0*r());const cx=x+Math.cos(a)*d,cz=z+Math.sin(a)*d;if(pathDist(cx,cz)<pathHalfAt(cx,cz)*1.6+.4||rivMask(cx,cz,2.5))continue;placeBoulder(cx,cz,seed*7+j*13+1,sc*(.22+.3*r()));}}}
+return placeBoulder;}
+/* ---- VERBATIM: src/08-river-banks.js (surface-study.html lines 542-586), the stream's banks: the bank palette, its uniforms, the bank stones' shapes
+   (with the icosphere's level for the LOD), putStone, and the placing - clusters along both banks, the rocks in the water, the pebbles - with the
+   river's data passed in (DEVIATIONS D12-D13) ---- */
+PAL.bank={r:[[.34,.21,.14],[.56,.39,.27],[.75,.59,.43],[.90,.79,.62]],warm:[1.05,1.0,.92],cool:[.94,.95,1.03]};
+function bankUniforms(SUN){const bankU=palU('bank',1.0,0);bankU.uSunDir={value:SUN.clone()};bankU.uDbg={value:0};bankU.uMossP={value:.45};bankU.uIvy={value:0};bankU.uMossTop={value:.3};bankU.uUpK={value:.16};bankU.uUW={value:1};bankU.uWL={value:0};return bankU;}
+const makeStone0=makeStone;
+function bankShapes(det){const makeStone=(s,o)=>makeStone0(s,det!=null?Object.assign(o,{det}):o);/* (the LOD: DEVIATIONS D9) */
+const BSH=[],BKIND=[];/* 0-3 flat slabs, 4-8 blocks, 9-11 small stones */
+for(let i=0;i<4;i++){BSH.push(makeStone(3000+i*41,{x0:1.0,xr:.6,y0:.28,yr:.18,z0:.75,zr:.4}));BKIND.push(0);}
+for(let i=0;i<5;i++){BSH.push(makeStone(3200+i*43,{x0:.7,xr:.5,y0:.5,yr:.4,z0:.6,zr:.4}));BKIND.push(1);}
+for(let i=0;i<3;i++){BSH.push(makeStone(3400+i*47,{x0:.55,xr:.4,y0:.4,yr:.35,z0:.5,zr:.35}));BKIND.push(2);}
+return{BSH,BKIND};}
+function bankKit(E){const BSH=E.BSH,BKIND=E.BKIND,BKI=E.BKI,H=E.H;
+function seedWith(r,want){for(let k=0;k<40;k++){const s=r();if(want(s))return s;}return r();}
+function putStone(x,z,y,sc,yaw,tilt,r,mossy,ivy,groundY,kind){const pool=BSH.map((g,i)=>i).filter(i=>kind==null||BKIND[i]===kind),si=pool[Math.floor(r()*pool.length)],ud=BSH[si].userData;
+  const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt[0],yaw,tilt[1]));
+  const h0=(ud.ymax-ud.ymin)*sc,bedY=H(x,z),ys=Math.min(3.5,Math.max(1,(y-(bedY-.28*h0))/h0));/* (reach down into the bed: never end at the water) */
+  const yy=y-ud.ymax*sc*ys;/* (y is where its top sits) */groundY=bedY;
+  const M=new THREE.Matrix4().compose(new THREE.Vector3(x,yy,z),q,new THREE.Vector3(sc,sc*ys,sc));
+  const sd=seedWith(r,s=>(fract7(s)<.75)===mossy&&(fract11(s)<.3)===ivy);
+  BKI[si].push({M,tint:new THREE.Color(kind===0?.15*r():r(),(groundY+20)/60,sd)});return{x,z,top:y,rw:ud.rx*sc,h:h0*ys,si,M,yaw,bed:bedY};}
+const fract7=s=>(s*7.13)%1,fract11=s=>(s*11.3)%1;
+return{seedWith,putStone,fract7,fract11};}
+function riverStones(E){const r=E.r,RIV=E.RIV,rivHalf=E.rivHalf,rivBank=E.rivBank,WLat=E.WLat,ROCKS=E.ROCKS,NPEB=E.NPEB,sd=E.sd,solids=E.solids,
+  placeBoulder=E.placeBoulder,putStone=E.putStone,bankSpots=E.bankSpots,bankTops=E.bankTops,waterRocks=E.waterRocks;
+ /* along each bank: a cluster of 2-6 stones (now and then one big flat slab, blocks, small stones), then a gap where the grass meets the water */
+ const at=(u)=>{const i=Math.max(0,Math.min(RIV.length-2,Math.floor(u))),f=u-i,a=RIV[i],b=RIV[i+1];return[a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,b[0]-a[0],b[1]-a[1]];};
+ for(const side of[-1,1]){let u=r()*2;while(u<RIV.length-3){const nCl=2+Math.floor(r()*5);let v=u;
+   for(let c=0;c<nCl&&v<RIV.length-3;c++){const [px,pz,tx,tz]=at(v),tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side,w=rivHalf(pz,v),WL=WLat(v);
+     const roll=r(),kind=roll<.22?0:roll<.68?1:2;
+     const size=kind===0?2.2+1.0*r():kind===1?1.0+.7*r():.45+.4*r();const sc=size/2/1.15;
+     const rel=(kind===0?-.25:-.05)+.25*(r()-.4)+(kind===2?(r()-.5)*.6:0);let off=w+rel;for(let it=0;it<4;it++){const bk=rivBank(px+nx*off,pz+nz*off);off+=(bk.w+rel)-bk.dd;}/* (on the real, wobbly shore) */const x=px+nx*off,z=pz+nz*off;
+     const topAbove=kind===0?.18+.22*r():kind===1?.4+.5*r():.12+.3*r();
+     const flat=kind===0||r()<.45,tilt=flat?[(r()-.5)*.08,(r()-.5)*.08]:[(r()-.5)*.6,(r()-.5)*.6];
+     const yaw=Math.atan2(nx,nz)+(r()-.5)*.6;/* (roughly along the bank) */
+     const st=putStone(x,z,WL+topAbove,sc,yaw,tilt,r,r()<.7,false,WL-.05,kind);st.kind=kind;bankSpots.push(st);bankTops.push([st,nx,nz]);
+     v+=(size*.55+.15*r())/1.0;}
+   u=v+1.5+3.5*r();}}
+ /* rocks in the water: mossy tops */
+ for(const [t,o,sz] of ROCKS){const a=RIV[t],b=RIV[t+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz);
+   const w=rivHalf(a[1],t),WL=WLat(t),x=a[0]-tz/tl*o*w,z=a[1]+tx/tl*o*w;const sc=sz/2/1.1;
+   const st=putStone(x,z,WL+sz*(.3+.2*r()),sc,r()*6.283,[(r()-.5)*.2,(r()-.5)*.2],r,true,false,WL-.05);bankSpots.push(st);waterRocks.push(st);
+   solids.push([x,z,st.rw*.85,1]);for(let j=0;j<5;j++){const a=r()*6.283,d=st.rw*(1.0+.7*r());placeBoulder(x+Math.cos(a)*d,z+Math.sin(a)*d,sd+7000+t*13+j,.08+.1*r());}}/* (a darker contact patch and pebbles on the bed) */
+ /* pebbles: small clusters at the waterline in the gaps */
+ for(let c=0;c<NPEB;c++){const i=Math.floor(r()*(RIV.length-2)),side=r()<.5?-1:1,a=RIV[i],b=RIV[i+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
+   let d=rivHalf(a[1],i),x=a[0]+nx*d,z=a[1]+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+.05)-bk.dd;x=a[0]+nx*d;z=a[1]+nz*d;}
+   if(bankSpots.some(q=>Math.hypot(q.x-x,q.z-z)<q.rw+.4)||rivBank(x,z).steep>.35)continue;const m=3+Math.floor(r()*6);
+   for(let j=0;j<m;j++){const u=(r()-.5)*1.4,v=(r()-.5)*.6;placeBoulder(x-nz*u+nx*v,z+nx*u+nz*v,sd+9000+c*31+j,.07+.12*r());}}
+}
+/* ---- VERBATIM: surface-study.html line 627, the ground's contact shade (aOcc) from the solids (x, z, radius, kind) round it ---- */
+function occAt(x,z,solids){let o=0;for(const q of solids){const dd=Math.hypot(x-q[0],z-q[1])-q[2];const R=q[3]?.9+q[2]*.5:2.6;if(dd<R){const v=(1-S(-.3,R,dd))*(q[3]?.9:.85);if(v>o)o=v;}}return o;}
+return{GLSL_NOISE,patch,GLSL_GROUND_RIVER,mkRng,PAL,palU,setPal,ROCK_DECL,weld,makeStone,boulderMat,makePlaceBoulder,bankUniforms,bankShapes,bankKit,riverStones,occAt};})();

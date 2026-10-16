@@ -84,6 +84,15 @@ const wrbReach=hw=>hw*1.62+3.05+4+1.25+.5;
    how fast the water falls, the way it flows - without a second search */
 function wrbFrom(s,o,x,z,r){const P=s.pts,n=s.n,k=Math.min(n-1,Math.floor(o.u)),t=o.u-k,ax=P[k*2],az=P[k*2+1],dx=P[k*2+2]-ax,dz=P[k*2+3]-az,ex=x-ax-dx*t,ez=z-az-dz*t,c=wrbCum(s),L=Math.hypot(dx,dz)||1e-9;
   r.rn[0]=o.d;r.rn[1]=o.u;r.rn[2]=Math.sign(dx*ez-dz*ex)||1;r.W=o.w;r.hw=o.hw;r.s=wrbS0(s.p)+c[k]+(c[k+1]-c[k])*t;r.g=Math.abs(s.wl[k+1]-s.wl[k])/L;r.fx=dx/L;r.fz=dz/L;return r;}
+/* the stream's banks (wrstone.js), the worker's side: the ground at the points the placing asks for (P: x, z, ...) - wgHeightAt's numbers (the land, the
+   lakes and streams, the settlements' stamps st; the streams and lakes of the points' box at once, as wgGrid) - and the water level of the stream whose
+   bank the ground is there (the ground's river value rvW; -1e9: none) */
+function wrsHeights(P,st){const n=P.length>>1,out=new Float64Array(n*2);let x0=1e9,z0=1e9,x1=-1e9,z1=-1e9;
+  for(let i=0;i<n;i++){const x=P[i*2],z=P[i*2+1];if(x<x0)x0=x;if(x>x1)x1=x;if(z<z0)z0=z;if(z>z1)z1=z;}
+  const H=wgHydroIn(x0-60,z0-60,x1+60,z1+60),o=_wgO;
+  for(let i=0;i<n;i++){const x=P[i*2],z=P[i*2+1];o.mtn=0;o.tier=0;o.isl=0;const h0=wgH0At(x,z,o);wgHydroApply(x,z,h0,H,_wgHo);let h=_wgHo.h;const rv=_wgHo.rvW;
+    if(st)h=wgStampApply(st,x,z,h,_wgHo);out[i*2]=h;out[i*2+1]=rv;}
+  return out;}
 /* the river ground in detail (wrdetail.js), the worker's side: a tile's blocks (bl: block index bk*16+bi of its 8 m blocks) at 0.5 m with a 2 m ring - the
    same grid code as the tiles (wgGrid) - packed per vertex: height, normal, aWd, aBf, water level, region weights, snow (B.x), wet (B.z) */
 const WRD_N=24,WRD_V=(WRD_N+1)*(WRD_N+1),WRD_F=WRD_V*13;

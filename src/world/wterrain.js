@@ -128,8 +128,8 @@ function wtMaterialSee(y0,R,x,z){return wtMakeMat({y0,R,x,z});}
 WT.gU=[0,1,2,3].map(()=>new THREE.Vector4(0,0,0,0));
 function wtMakeMat(see,inset,rdl){const tex=wtNoiseTex(),m=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x000000,shininess:2,flatShading:false});
   m.defines=see?{WD_SEE:1,WD_PED:1}:{WD_PED:1};if(inset)m.defines.WT_INSET=1;if(rdl)m.defines.WT_RD=1;if(see)m.userData.see=new THREE.Vector4(see.y0,see.R,see.x||0,see.z||0);/* (WD_PED: the pedestal shows through the haze, wdepth.js) */
-  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uSunD=WCM.sun;sh.uniforms.tGS={value:wtStrokeTex()};if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='varying float vIk;\nvarying vec2 vRv;\nuniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\nuniform vec3 uSunD;\nuniform sampler2D tGS;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
-    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;varying float vIk;attribute vec2 aRv;varying vec2 vRv;uniform vec3 uClf;\n#ifdef WT_RD\nattribute float aRd;\n#endif\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
+  m.onBeforeCompile=sh=>{sh.uniforms.tWN={value:tex};sh.uniforms.uWTime=WT.time;sh.uniforms.uClf=WT.clf;sh.uniforms.uSunD=WCM.sun;sh.uniforms.tGS={value:wtStrokeTex()};if(typeof WTP!=='undefined'){wtpInit();sh.uniforms.tTr=WTP.uT;sh.uniforms.uTrO=WTP.uO;}sh.uniforms.uGreat={value:WT.gU};sh.uniforms.uZen={value:WD.zen};sh.fragmentShader='varying float vIk;\nvarying vec3 vRv;\nuniform vec4 uGreat[4];\nuniform vec3 uZen;\nuniform sampler2D tTr;\nuniform vec4 uTrO;\nuniform vec3 uSunD;\nuniform sampler2D tGS;\n'+sh.fragmentShader;if(see){sh.uniforms.uSee={value:m.userData.see};sh.fragmentShader='uniform vec4 uSee;\n'+sh.fragmentShader;}
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aA;attribute vec4 aB;attribute float aW;varying vec4 vA;varying vec4 vB;varying vec3 vWp;varying vec3 vWn;varying float vWl;varying float vIk;attribute vec3 aRv;varying vec3 vRv;uniform vec3 uClf;\n#ifdef WT_RD\nattribute float aRd;\n#endif\n#ifdef WT_INSET\nattribute vec2 aPu;\n#endif\n')
       .replace('#include <begin_vertex>','#include <begin_vertex>\nvIk=0.0;vRv=aRv;\n#ifdef WT_RD\ntransformed.y-=aRd*0.6;\n#endif\n#ifdef WT_INSET\n{vec3 wp0=(modelMatrix*vec4(transformed,1.0)).xyz;'+
         'float k=(1.0-smoothstep(0.25,0.35,aA.x))*(1.0-smoothstep(0.40,0.50,aA.z))*uClf.x*(1.0-smoothstep(uClf.y*0.85,uClf.y,length(wp0.xz-cameraPosition.xz)));'+
         'transformed.xz+=aPu*k*uClf.z;vIk=k*min(1.0,length(aPu)*4.0);}\n#endif\nvA=aA;vB=aB;vWl=aW;vWp=(modelMatrix*vec4(transformed,1.0)).xyz;vWn=normalize(mat3(modelMatrix)*objectNormal);');
@@ -264,9 +264,9 @@ const WT_GLSL_COLOR=`
     wtBump=(stri*0.9*d3+striF*0.4*d2)*sn*0.5+wtBump*(1.0-rocky);}
   /* ---- the river look (wrlook.js, HANDOFF 3.4): where a stream's bank is (aWd > -9) the mockup's bed, wet waterline, earth bank face and mud - its own
      code, word for word (WRL.GLSL_GROUND_RIVER), on its own variables: X the ground's xz, fd the fine-detail fade (28-80 m), slope 1 - N.y, vOcc the
-     contact patches round the rocks in the water - in place of the shore colours below ---- */
+     contact patches round the rocks in the water and the pebbles (aRv's third value: the river ground in detail has it, wrdetail.js; 0 on the lattice) - in place of the shore colours below ---- */
   float vWd=vRv.x,vBf=vRv.y;
-  if(vWd>-8.5){vec2 X=P.xz;float fd=fdF,slope=slp,vOcc=0.0;
+  if(vWd>-8.5){vec2 X=P.xz;float fd=fdF,slope=slp,vOcc=vRv.z;
 /*@WRL_RIVER@*/
   }
   /* ---- by the water ---- */

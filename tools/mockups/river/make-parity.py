@@ -42,5 +42,21 @@ cut('function boulderMat(u){', "const cliffU=palU('brown',.35,1)", "/* parity la
 cut('function weld(g){', '/* flat chips: cut the shape', "/* parity lab: weld is the game's (WRL) */\nconst weld=WRL.weld;\n")
 cut('/* every rock in the game from one generator', 'const SHAPES=[];', "/* parity lab: makeStone is the game's (WRL.makeStone) */\nconst makeStone=WRL.makeStone;\n")
 
+# ---- step 3: placeBoulder, the stream's banks (bank stones, rocks in the water, pebbles), the ground's contact shade ----
+cut('function placeBoulder(x,z,seed,fixedScale,shapeIdx){', '/* the cliff is one surface',
+    "/* parity lab: placeBoulder is the game's (WRL.makePlaceBoulder) */\n"
+    "const placeBoulder=WRL.makePlaceBoulder({SHAPES,BINST,H:(x,z)=>H(x,z),pathDist:(x,z)=>pathDist(x,z),pathHalfAt:(x,z)=>pathHalfAt(x,z),rivMask:(x,z,m)=>rivMask(x,z,m)});\n")
+cut('PAL.bank={', 'const bankMeshes=[];',
+    "/* parity lab: the bank palette, its uniforms, the bank stones' shapes, putStone and the placing are the game's (WRL), fed the mockup's river */\n"
+    "const bankU=WRL.bankUniforms(SUN);\n"
+    "const bankMat=boulderMat(bankU);\n"
+    "const {BSH,BKIND}=WRL.bankShapes();\n"
+    "const BKI=BSH.map(()=>[]),bankSpots=[],bankTops=[];\n"
+    "const {seedWith,putStone,fract7,fract11}=WRL.bankKit({BSH,BKIND,BKI,H:(x,z)=>H(x,z)});const waterRocks=[];\n"
+    "WRL.riverStones({r:mkRng(777),RIV,rivHalf:(z,u)=>rivHalf(z),rivBank,WLat:u=>WL,ROCKS:[[50,.15,1.1],[55,-.45,.8],[60,.5,1.3],[64,-.25,.9],[69,.35,.7],[74,-.4,1.0],[78,.2,.8]],"
+    "NPEB:26,sd:0,solids,placeBoulder,putStone,bankSpots,bankTops,waterRocks});\n")
+rep('let o=0;for(const q of solids){const dd=Math.hypot(x-q[0],z-q[1])-q[2];const R=q[3]?.9+q[2]*.5:2.6;if(dd<R){const v=(1-S(-.3,R,dd))*(q[3]?.9:.85);if(v>o)o=v;}}',
+    "let o=WRL.occAt(x,z,solids);/* (parity lab: the game's occAt) */")
+
 open(os.path.join(here, 'parity.html'), 'w', encoding='utf-8', newline='\n').write(s)
 print('wrote parity.html')
