@@ -44,6 +44,15 @@ In game: the fourteen level-5 shapes take ~305 ms once (first boulders), the low
 | D16 | Game only: the bank stones' material takes the water level per stone (an instanced attribute `aWli`, the stream's level at the stone) in place of the uniform `uWL`; sun and point lights as D10; bank stones and pebbles drawn with levels 5 / 4 / 3 by distance (32 / 110 m, D9), bank stones within 300 m, pebbles within 150 m; pebbles in the region's palette (D11); the bigger bank stones and the rocks block the hero (the game's props) | the game's water falls along a stream; LOD | game only |
 | D17 | Game only: the ground's contact shade (`aOcc` from the solids: each rock in the water at .85 of its reach, each pebble at .95, `occAt` verbatim) is on the river ground in detail (D8, within 150 m) as `aRv`'s third value; 0 on the 2 m lattice; the mockup's cliff-foot shade is the mockup's cliff only; field boulders keep world look's contact rings. Resolves D7 | plumbing (meshes, LOD) | game only |
 
+## Step 4: grass at the river, reeds, ivy
+
+| # | What | Why | Parity before -> after |
+|---|---|---|---|
+| D18 | The grass and ivy code (`10-grass-tufts.js`, `09-ivy.js`) are functions whose inputs are passed in: `grassMaterial(SUN)`, `tuftGeometry()`, `tuftKit()` (one tuft's matrix and colour; the caller puts it on the instance), `ivyMaterial(SUN)`, `ivySpots(E)` (the ray cast passed in: three.js's own `Raycaster` in the lab and the game alike), `ivyKit()` in WRL; `bankTufts(E)`, `lipReeds(E)` and the meadow's rule `meadowSkip(bk,WL)` in WRB (no three.js in them: the game's world workers run the first two, the game's grass reads the third). Inside: the water level per stone (`WLof(st)`) in the "behind the stone" test and the ivy; `rivHalf(z, where)` and `WLat(i)` in `lipReeds`; the number of reed clusters `NREED` (34 in the lab) | plumbing (R1) | all 10 shots 0.00 / 0.00 % (exact) |
+| D19 | Game only: per stream piece the grass's random stream (the mockup's `rnd`, line 67) and `lipReeds`' stream (`mkRng(515)` in the lab) are seeded per piece (the mockup's `rnd` also feeds its meadow, which the game does not port); `NREED` = 34 per 115 m; `H` exact (the worker places the grass with `wgHeightAt`'s numbers at hand; `rivBank().y` there is the ground, as the mockup's `H` is `rivBank().y`); a tuft or reed stays only along the metres of the piece whose middle is this stream's water (not a lake, a fall, another stream's channel). The worker's grass equals the same job on the main thread (tests/rs-check.js: 4 pieces, 10932 spots, number for number) | the game's streams; frame time (the lip grass alone is ~8000 bank evaluations a piece) | game only |
+| D20 | Game only: the meadow's grass is the game's (`grass.js`, world look 5) - the mockup's meadow tufts are not ported (HANDOFF: do not redo world look); at the river its plants follow the mockup's rule (`WRB.meadowSkip` on the nearest gentle stream's `bankCore`, `y` the ground) on top of the game's own (none under water, none steeper than .5). The mockup's tufts round the boulders (line 669) are world look 5's; the river's pebbles are under its .3 size anyway | HANDOFF 3.7: the game's grass, the mockup's placement rules | game only |
+| D21 | Game only: the river's tufts, lip grass, reeds and ivy are drawn with the mockup's own `grassMat` and `ivyMat` (HANDOFF 3.7: the tuft shape and colour the mockup's - 11 pointed blades per crossed card, its colour ramp, `vSh`), the sun the game's, and `vec3 wdV=mvPosition.xyz;` before `#include <fog_vertex>` (the game's air, wdepth.js, reads the view position its `project_vertex` sets, which these shaders do not include); tufts within 100 m, ivy within 60 m; the tufts' matrices a few hundred a frame and the ivy a few stones a frame (their random streams carried on: the same tufts and leaves as all at once - same counts checked) | plumbing (materials, LOD, frame time) | game only |
+
 ## Parity log
 
 Rendered with `python render-all.py --page parity.html --out parity` (render-reference.py unchanged, run through a shim that lifts only Playwright's
@@ -82,6 +91,22 @@ PASS
 ```
 
 Step 3 (+ placeBoulder, the bank palette/uniforms/shapes, putStone, the placing of bank stones, rocks and pebbles, occAt from the game's modules):
+```
+shot                       mean   over24  result
+river-wide                 0.00    0.00%  ok
+river-mid                  0.00    0.00%  ok
+river-close                0.00    0.00%  ok
+flow-t3.0                  0.00    0.00%  ok
+flow-t4.2                  0.00    0.00%  ok
+flow-t5.4                  0.00    0.00%  ok
+stone-row                  0.00    0.00%  ok
+river-mid-nowater          0.00    0.00%  ok
+river-close-nowater        0.00    0.00%  ok
+river-wide-grey            0.00    0.00%  ok
+PASS
+```
+
+Step 4 (+ the ivy's material/leaves/matrices, the grass material and cards, the meadow's rule, the tufts behind the stones, the lip grass and reeds, the tufts' matrices from the game's modules; bankTufts and lipReeds from WRB):
 ```
 shot                       mean   over24  result
 river-wide                 0.00    0.00%  ok

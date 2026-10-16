@@ -44,7 +44,28 @@ function makeRivBank(env){const Hland=env.Hland,inside=env.inside,rivNear=env.ri
    the bank: the .3 m limit keeps the bed's colour off low meadow) and aBf (how much of the earth face this is) ---- */
 function riverAttrs(bk,h,WL){return[bk.dd<bk.w+bk.run+.3?WL-h:-9,bk.face*(.25+.75*bk.steep)];}
 
-return{h2,h3,vn2,fbm2,vq2,fbq2,vn3,fbm3,S,mkRng,bankCore,makeRivBank,riverAttrs};})();
+/* ---- src/10-grass-tufts.js (surface-study.html line 663): a meadow tuft is left out at the river only in the water or on a steep earth face (bk: rivBank's
+   result there, its y the ground) - verbatim ---- */
+/* ---- VERBATIM: src/10-grass-tufts.js (surface-study.html lines 665-667, 671-680): the tufts behind the bank stones (a fringe on the land side, and over
+   the edge of the lower ones, leaning out), the lip grass drooping over the steep banks and the reeds - their data passed in (DEVIATIONS D18); here, not
+   in WRL: no three.js in them, the world workers run them (wrsTuftWork) ---- */
+function bankTufts(E){const bankTops=E.bankTops,rnd=E.rnd,rivMask=E.rivMask,H=E.H,WLof=E.WLof,tuftSpots=E.tuftSpots;
+for(const [st,nx,nz] of bankTops){for(let k=0;k<7;k++){const d=st.rw*(.35+1.4*rnd()),j=(rnd()-.5)*st.rw*2.2;const x=st.x+nx*d-nz*j,z=st.z+nz*d+nx*j;if(rivMask(x,z,.3))continue;tuftSpots.push([x,z,1.0+.5*rnd()]);}
+  if(st.kind!==2&&st.top<WLof(st)+.85){for(let k=0;k<5;k++){const j=(rnd()-.5)*st.rw*1.6,d=st.rw*(.7+.25*rnd()),x=st.x+nx*d-nz*j,z=st.z+nz*d+nx*j;const gy=Math.max(H(x,z),st.top-.04);
+    tuftSpots.push([x,z,1.0+.4*rnd(),gy-.03,.75+.35*rnd(),-nx,-nz]);}}}/* (behind the stone, leaning out over its edge) */
+}
+function lipReeds(E){const r=E.r,RIV=E.RIV,rivHalf=E.rivHalf,rivBank=E.rivBank,bankSpots=E.bankSpots,H=E.H,WLat=E.WLat,NREED=E.NREED,tuftSpots=E.tuftSpots,nearStone=(x,z)=>bankSpots.some(b=>Math.hypot(b.x-x,b.z-z)<b.rw+.35);
+ for(let i=0;i<RIV.length-1;i++)for(const side of[-1,1])for(let k=0;k<9;k++){const a=RIV[i],b=RIV[i+1],f=(k+r())/9,cx=a[0]+(b[0]-a[0])*f,cz=a[1]+(b[1]-a[1])*f,tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
+   let d=rivHalf(cz,i+f)+1.0,x=cx+nx*d,z=cz+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+bk.run-.12)-bk.dd;x=cx+nx*d;z=cz+nz*d;}/* (find the lip) */
+   const bk=rivBank(x,z);if(bk.steep<.22||nearStone(x,z))continue;const jx=(r()-.5)*.2;tuftSpots.push([x+nx*jx,z+nz*jx,1.0+.6*r(),bk.y-.03,.8+.6*r(),-nx,-nz]);/* (leaning out and down over the lip) */
+   if(r()<.5)tuftSpots.push([x+nx*.25,z+nz*.25,1.0+.4*r()]);}
+ /* reeds: clusters at the waterline in the gaps, some standing in the shallows */
+ for(let c=0;c<NREED;c++){const i=Math.floor(r()*(RIV.length-2)),side=r()<.5?-1:1,a=RIV[i],b=RIV[i+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
+   let d=rivHalf(a[1],i),x=a[0]+nx*d,z=a[1]+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+.15)-bk.dd;x=a[0]+nx*d;z=a[1]+nz*d;}
+   if(nearStone(x,z)||rivBank(x,z).steep>.5)continue;const m=8+Math.floor(r()*12);
+   for(let j=0;j<m;j++){const u=(r()-.5)*1.6,v=(r()-.6)*.7,px=x-nz*u+nx*v,pz=z+nx*u+nz*v;if(H(px,pz)<WLat(i)-.35)continue;tuftSpots.push([px,pz,.9+.4*r(),undefined,undefined,undefined,undefined,2.6+1.8*r()]);}}}
+function meadowSkip(bk,WL){return bk.dd<bk.w+bk.run+.5&&(bk.y<WL+.07||(bk.face&&bk.steep>.35&&bk.dd<bk.w+bk.run-.2));}
+return{h2,h3,vn2,fbm2,vq2,fbq2,vn3,fbm3,S,mkRng,bankCore,makeRivBank,riverAttrs,bankTufts,lipReeds,meadowSkip};})();
 
 /* =====================================================================================================
    The game's plumbing for rivBank: the streams of the hydrology (wgen.js).
@@ -84,6 +105,31 @@ const wrbReach=hw=>hw*1.62+3.05+4+1.25+.5;
    how fast the water falls, the way it flows - without a second search */
 function wrbFrom(s,o,x,z,r){const P=s.pts,n=s.n,k=Math.min(n-1,Math.floor(o.u)),t=o.u-k,ax=P[k*2],az=P[k*2+1],dx=P[k*2+2]-ax,dz=P[k*2+3]-az,ex=x-ax-dx*t,ez=z-az-dz*t,c=wrbCum(s),L=Math.hypot(dx,dz)||1e-9;
   r.rn[0]=o.d;r.rn[1]=o.u;r.rn[2]=Math.sign(dx*ez-dz*ex)||1;r.W=o.w;r.hw=o.hw;r.s=wrbS0(s.p)+c[k]+(c[k+1]-c[k])*t;r.g=Math.abs(s.wl[k+1]-s.wl[k])/L;r.fx=dx/L;r.fz=dz/L;return r;}
+/* a stream piece's curve resampled at 1 m (the mockup's RIV), the hydrology's half width and water level at each metre, where along the stream it begins
+   (wrstone.js and its worker job alike) */
+function wrsCurve(s){const P=s.pts,n=s.n,c=wrbCum(s),L=c[n],N=Math.floor(L)+1,RIV=[],hwA=new Float64Array(N),wlA=new Float64Array(N);let k=0;
+  for(let i=0;i<N;i++){while(k<n-1&&c[k+1]<i)k++;const t=Math.min(1,Math.max(0,(i-c[k])/((c[k+1]-c[k])||1e-9)));
+    RIV.push([P[k*2]+(P[k*2+2]-P[k*2])*t,P[k*2+1]+(P[k*2+3]-P[k*2+1])*t]);hwA[i]=s.hw+(s.hwQ-s.hw)*((k+t)/n);wlA[i]=s.wl[k]+(s.wl[k+1]-s.wl[k])*t;}
+  return{RIV,hwA,wlA,s0:wrbS0(s.p)};}
+const wrsLerp=(A,v)=>{const i=Math.max(0,Math.min(A.length-2,Math.floor(v))),f=Math.min(1,Math.max(0,v-i));return A[i]+(A[i+1]-A[i])*f;};
+/* the mockup's random stream for the grass (surface-study.html line 67: seed*16807 mod 2^31-1), seeded per piece; its state s can be carried on */
+function wrsRndS(seed){const R={s:seed%2147483646+1};R.f=()=>{R.s=(R.s*16807)%2147483647;return(R.s-1)/2147483646;};return R;}
+/* the stream's banks (wrstone.js), the worker's grass job: a piece's tufts behind its bank stones (m.tops: x, z, rw, top, kind, wl, nx, nz each), its lip
+   grass and reeds (m.spots: the bank stones' x, z, rw) - WRB.bankTufts and WRB.lipReeds with the exact ground (as wrsHeights, kept per point) - and the
+   ground under each tuft that has no height of its own (hs, for WRL.tuftKit), the grass's random stream where it stopped (rs) */
+function wrsTuftWork(m){const p=wgHyd(m.i,m.j),s=p&&wgSeg(p);if(!s)return null;const cv=wrsCurve(s),o={rn:[0,0,1],W:0,hw:0,s:0,g:0,fx:0,fz:0},hc=new Map();
+  let x0=1e9,z0=1e9,x1=-1e9,z1=-1e9;for(const q of cv.RIV){if(q[0]<x0)x0=q[0];if(q[0]>x1)x1=q[0];if(q[1]<z0)z0=q[1];if(q[1]>z1)z1=q[1];}
+  const HL=wgHydroIn(x0-80,z0-80,x1+80,z1+80),O=_wgO;
+  const H=(x,z)=>{const k=x+','+z;let h=hc.get(k);if(h!==undefined)return h;O.mtn=0;O.tier=0;O.isl=0;const h0=wgH0At(x,z,O);wgHydroApply(x,z,h0,HL,_wgHo);h=_wgHo.h;
+    if(m.st)h=wgStampApply(m.st,x,z,h,_wgHo);hc.set(k,h);return h;};
+  const rb=(x,z)=>{wrbNear(s,x,z,o);const bk=WRB.bankCore(x,z,0,o.rn,wrbHalf(o.hw,o.s),o.W,o.s);Object.defineProperty(bk,'y',{get:()=>H(x,z)});return bk;};/* (its y the ground, read only by the lip grass) */
+  const tops=[],spots=[];for(let i=0;i<m.tops.length;i+=8)tops.push([{x:m.tops[i],z:m.tops[i+1],rw:m.tops[i+2],top:m.tops[i+3],kind:m.tops[i+4],wl:m.tops[i+5]},m.tops[i+6],m.tops[i+7]]);
+  for(let i=0;i<m.spots.length;i+=3)spots.push({x:m.spots[i],z:m.spots[i+1],rw:m.spots[i+2]});
+  const tuftSpots=[],R=wrsRndS(m.tseed);
+  WRB.bankTufts({bankTops:tops,rnd:R.f,rivMask:(x,z,mm)=>{const b=rb(x,z);return b.dd<b.w+(mm||2.2);},H,WLof:st=>st.wl,tuftSpots});
+  WRB.lipReeds({r:WRB.mkRng(m.lseed),RIV:cv.RIV,rivHalf:(z,v)=>wrbHalf(wrsLerp(cv.hwA,v),cv.s0+v),rivBank:rb,bankSpots:spots,H,WLat:v=>wrsLerp(cv.wlA,v),NREED:m.NREED,tuftSpots});
+  const hs=new Float64Array(tuftSpots.length);tuftSpots.forEach((sp,i)=>{hs[i]=sp[3]!==undefined?NaN:H(sp[0],sp[1]);});
+  return{spots:tuftSpots,hs,rs:R.s};}
 /* the stream's banks (wrstone.js), the worker's side: the ground at the points the placing asks for (P: x, z, ...) - wgHeightAt's numbers (the land, the
    lakes and streams, the settlements' stamps st; the streams and lakes of the points' box at once, as wgGrid) - and the water level of the stream whose
    bank the ground is there (the ground's river value rvW; -1e9: none) */

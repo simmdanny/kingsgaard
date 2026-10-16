@@ -78,6 +78,7 @@ function grsSite(x0,z0,cs){const keep=OW.keep,G=OW.G,T=G.T;
   /* the paths and squares that can reach the cell (from the ground network's tiles) */
   const segs=[],sqs=[];{const seen=new Set();for(let tz=Math.floor((z0-4)/T);tz<=Math.floor((z0+cs+4)/T);tz++)for(let tx=Math.floor((x0-4)/T);tx<=Math.floor((x0+cs+4)/T);tx++){const t=G.tiles.get(tx+','+tz);if(!t||!t.segs)continue;
       for(const g of t.segs){if(seen.has(g)||g.x1<x0-1||g.x0>x0+cs+1||g.z1<z0-1||g.z0>z0+cs+1)continue;seen.add(g);segs.push(g);}for(const q of t.sqs)if(!seen.has(q)){seen.add(q);sqs.push(q);}}}
+  const rvS=typeof wrsMeadowSegs==='function'&&typeof WG!=='undefined'&&WG.on?wrsMeadowSegs(x0,z0,cs):[];/* (the river look: the streams near, for the mockup's rule at the river) */
   const strm=[];if(OW.streams)for(const p of OW.streams)for(const q of p)if(q[0]>x0-4&&q[0]<x0+cs+4&&q[1]>z0-4&&q[1]<z0+cs+4)strm.push(q);
   /* how far outside the paths a point is (negative: on a path), with the wandering width the ground tiles draw */
   const pathOut=(x,z)=>{let o=99;for(const g of segs){if(x<g.x0||x>g.x1||z<g.z0||z>g.z1)continue;const tt=Math.max(0,Math.min(1,((x-g.ax)*g.dx+(z-g.az)*g.dz)*g.il2)),ex=x-(g.ax+g.dx*tt),ez=z-(g.az+g.dz*tt);
@@ -103,6 +104,7 @@ function grsSite(x0,z0,cs){const keep=OW.keep,G=OW.G,T=G.T;
     const h=owH(x,z),ft=foot(x,z,h);if(ft<0)return false;const boost=Math.max(near.rock,ft)*(kind===1?.2:.55);
     if(pk>w0+boost)return false;
 if(owSlope(x,z)>.5||wtWater(x,z)>h-.02)return false;
+    if(rvS.length&&wrsMeadowSkip(rvS,x,z,h))return false;/* (river look, HANDOFF 3.7: at a stream left out only in the water or on a steep earth face - wrstone.js) */
     for(const q of strm)if((q[0]-x)*(q[0]-x)+(q[1]-z)*(q[1]-z)<3.2)return false;
     o.h=h;o.edge=edge;o.nz=nz;o.nc=nc;return true;};}
 /* one cell: candidates from its own seeded stream, kept where grass grows, in a random order, as instanced meshes (a generator: it stops every few hundred candidates) */

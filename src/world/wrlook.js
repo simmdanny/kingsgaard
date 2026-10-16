@@ -7,6 +7,8 @@
      material of every rock) - verbatim but for makeStone's icosphere level (o.det, the LOD).
    - makePlaceBoulder (placeBoulder), bankUniforms, bankShapes, bankKit (putStone), riverStones (src/08: bank stones, rocks in the water, pebbles), occAt
      (the ground's contact shade) - verbatim, the river's data passed in (wrstone.js feeds them the game's streams).
+   - ivyMaterial, ivySpots, ivyKit (src/09), grassMaterial, tuftGeometry, tuftKit (src/10; its bankTufts and lipReeds are WRB's, wrbank.js: the world
+     workers run them) - verbatim, their data passed in.
    - GLSL_GROUND_RIVER: the river part of the ground's colour (the bed, the wet waterline, the earth bank face, mud) - src/03, verbatim; it reads col, P,
      X, fd, slope, vWd, vBf, vOcc as the mockup's ground shader has them.
    Deviations from the mockup are listed in tools/mockups/river/DEVIATIONS.md.
@@ -233,4 +235,65 @@ function riverStones(E){const r=E.r,RIV=E.RIV,rivHalf=E.rivHalf,rivBank=E.rivBan
 }
 /* ---- VERBATIM: surface-study.html line 627, the ground's contact shade (aOcc) from the solids (x, z, radius, kind) round it ---- */
 function occAt(x,z,solids){let o=0;for(const q of solids){const dd=Math.hypot(x-q[0],z-q[1])-q[2];const R=q[3]?.9+q[2]*.5:2.6;if(dd<R){const v=(1-S(-.3,R,dd))*(q[3]?.9:.85);if(v>o)o=v;}}return o;}
-return{GLSL_NOISE,patch,GLSL_GROUND_RIVER,mkRng,PAL,palU,setPal,ROCK_DECL,weld,makeStone,boulderMat,makePlaceBoulder,bankUniforms,bankShapes,bankKit,riverStones,occAt};})();
+/* ---- VERBATIM: src/09-ivy.js (surface-study.html lines 587-616): the ivy's material, its leaves ray-cast onto the bank stones (the cast passed in: three.js's
+   own in the lab and the game alike, wrstone.js), each leaf's matrix - the stones' water level per stone (DEVIATIONS D18) ---- */
+function ivyMaterial(SUN){return new THREE.ShaderMaterial({side:THREE.DoubleSide,fog:true,uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uSun:{value:SUN.clone()}}]),
+  vertexShader:`varying vec2 vUv;varying vec3 vC;varying float vL;uniform vec3 uSun;
+    #include <fog_pars_vertex>
+    void main(){vUv=uv;vC=instanceColor;vec3 n=normalize(mat3(modelMatrix*instanceMatrix)*vec3(0.0,0.0,1.0));vL=0.55+0.45*abs(dot(n,normalize(uSun)));
+      vec4 mvPosition=viewMatrix*modelMatrix*instanceMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mvPosition;
+      #include <fog_vertex>
+    }`,
+  fragmentShader:`varying vec2 vUv;varying vec3 vC;varying float vL;
+    #include <fog_pars_fragment>
+    void main(){vec2 q=vUv-vec2(0.5,0.55);float w=0.42*(1.0-pow(abs(q.y*1.9),1.6))*(1.0-0.35*(q.y));if(abs(q.x)>w||abs(q.y)>0.5)discard;/* a pointed leaf */
+      float vein=1.0-smoothstep(0.0,0.035,abs(q.x));vec3 col=mix(vec3(0.16,0.33,0.07),vec3(0.42,0.62,0.16),vC.y)*(0.9+0.25*vUv.y);col=mix(col,col*1.25,vein*0.35);
+      gl_FragColor=vec4(col*vL,1.0);
+      #include <fog_fragment>
+    }`});}
+function ivySpots(E){const BSH=E.BSH,bankTops=E.bankTops,WLof=E.WLof,leafSpots=E.leafSpots,cast=E.cast;const rc=new THREE.Raycaster(),tmp=new THREE.Mesh(BSH[0],new THREE.MeshBasicMaterial()),r=E.r;
+ for(const [st,nx,nz] of bankTops){const WL=WLof(st);if(st.kind!==1||st.top<WL+.55||r()>.35)continue;
+   tmp.geometry=BSH[st.si];tmp.matrixAutoUpdate=false;tmp.matrix.copy(st.M);tmp.matrixWorld.copy(st.M);tmp.geometry.computeBoundingSphere();
+   const nS=2+Math.floor(r()*3);
+   for(let k=0;k<nS;k++){const j=(r()-.5)*st.rw*1.3,len=.35+.6*r();
+     for(let y=st.top-.02;y>st.top-len&&y>WL+.05;y-=.055+.02*r()){const sw=.05*Math.sin(y*9+k);
+       const o=new THREE.Vector3(st.x-nx*st.rw*2.5-nz*(j+sw),y,st.z-nz*st.rw*2.5+nx*(j+sw));rc.set(o,new THREE.Vector3(nx,0,nz));
+       const h=cast(rc,tmp);if(!h)continue;const fn=h.face.normal.clone().transformDirection(st.M);
+       leafSpots.push([h.point.clone().addScaledVector(fn,.025),fn,r()]);}}}}
+function ivyKit(){const M=new THREE.Matrix4(),C=new THREE.Color(),up=new THREE.Vector3(0,1,0);
+ return(spot)=>{const [pt,fn,rr]=spot;const tgt=pt.clone().add(fn);const L=new THREE.Object3D();L.position.copy(pt);L.lookAt(tgt);L.rotateZ((rr-.5)*1.4);L.rotateX(.35);
+   const sz=.10+.06*rr;L.scale.set(sz,sz*1.25,sz);L.updateMatrix();C.setRGB(0,rr,0);return[L.matrix,C];};}
+/* ---- VERBATIM: src/10-grass-tufts.js (surface-study.html lines 632-686): the grass material and the crossed cards (the tufts behind the bank stones, the
+   lip grass and the reeds are in WRB, wrbank.js), each tuft's matrix and colour - the river's data passed in (DEVIATIONS D18) ---- */
+function grassMaterial(SUN){return new THREE.ShaderMaterial({side:THREE.DoubleSide,fog:true,
+  uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uSun:{value:SUN.clone()}}]),
+  vertexShader:`varying vec2 vUv;varying vec3 vC;varying float vSh;uniform vec3 uSun;
+    #include <fog_pars_vertex>
+    void main(){vUv=uv;vC=instanceColor;vec4 wp=modelMatrix*instanceMatrix*vec4(position,1.0);
+      vec3 nrm=normalize(mat3(modelMatrix*instanceMatrix)*vec3(0.0,0.0,1.0));vSh=0.78+0.22*abs(dot(nrm,uSun));
+      vec4 mvPosition=viewMatrix*wp;gl_Position=projectionMatrix*mvPosition;
+      #include <fog_vertex>
+    }`,
+  fragmentShader:`varying vec2 vUv;varying vec3 vC;varying float vSh;
+    #include <fog_pars_fragment>
+    float hs(float x){return fract(sin(x)*4375.7);}
+    void main(){float ty=-1.0;
+      for(int i=0;i<11;i++){float fi=float(i);float r1=hs(vC.z*91.7+fi*13.1),r2=hs(vC.z*17.3+fi*7.7),r3=hs(vC.z*51.9+fi*3.3);
+        float cx=(fi+0.5)/11.0+(r1-0.5)*0.10;float hg=0.55+0.45*r2;if(vUv.y>hg)continue;
+        float y=vUv.y/hg;float x=cx+(r3-0.5)*0.4*y*y;float w=0.052*(1.0-y*0.8)*(0.8+0.5*r1);
+        if(abs(vUv.x-x)<w)ty=max(ty,y);}
+      if(ty<0.0)discard;
+      vec3 col=mix(vec3(0.24,0.44,0.09),vec3(0.62,0.80,0.22),ty)*vC.y*vSh;
+      col=mix(col,col*vec3(1.08,1.0,0.78),vC.x*0.4);
+      gl_FragColor=vec4(col,1.0);
+      #include <fog_fragment>
+    }`});}
+function tuftGeometry(){return (()=>{const a=new THREE.PlaneGeometry(1,1);a.translate(0,.5,0);const b=a.clone();b.rotateY(Math.PI/2);
+  const g=new THREE.BufferGeometry(),pa=a.attributes.position.array,pb=b.attributes.position.array,ua=a.attributes.uv.array;
+  g.setAttribute('position',new THREE.Float32BufferAttribute([...pa,...pb],3));g.setAttribute('uv',new THREE.Float32BufferAttribute([...ua,...ua],2));
+  const ia=a.index.array;g.setIndex([...ia,...ia.map(i=>i+4)]);return g;})();}
+function tuftKit(){const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Pv=new THREE.Vector3(),Sv=new THREE.Vector3(),C=new THREE.Color();
+ return(spot,rnd,H)=>{const [x,z,sc,yl,tilt,tx,tz,hs]=spot;const h=yl!==undefined?yl:H(x,z)-.03;Pv.set(x,h,z);Q.setFromAxisAngle(new THREE.Vector3(0,1,0),rnd()*6.283);
+   if(tilt){const ax=new THREE.Vector3(tz,0,-tx).normalize();Q.premultiply(new THREE.Quaternion().setFromAxisAngle(ax,tilt));}/* (leaning out over the water) */
+   const w=.40+.22*rnd();Sv.set(w*sc*(hs?.6:1),(.16+.14*rnd())*sc*(hs||1),w*sc*(hs?.6:1));M.compose(Pv,Q,Sv);C.setRGB(hs?.45+.4*rnd():yl!==undefined?.1:rnd()*.6,hs?.62+.2*rnd():(yl!==undefined?.7:.85)+.3*rnd(),rnd());return[M,C];};}
+return{GLSL_NOISE,patch,GLSL_GROUND_RIVER,mkRng,PAL,palU,setPal,ROCK_DECL,weld,makeStone,boulderMat,makePlaceBoulder,bankUniforms,bankShapes,bankKit,riverStones,occAt,ivyMaterial,ivySpots,ivyKit,grassMaterial,tuftGeometry,tuftKit};})();

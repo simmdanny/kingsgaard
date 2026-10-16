@@ -58,5 +58,25 @@ cut('PAL.bank={', 'const bankMeshes=[];',
 rep('let o=0;for(const q of solids){const dd=Math.hypot(x-q[0],z-q[1])-q[2];const R=q[3]?.9+q[2]*.5:2.6;if(dd<R){const v=(1-S(-.3,R,dd))*(q[3]?.9:.85);if(v>o)o=v;}}',
     "let o=WRL.occAt(x,z,solids);/* (parity lab: the game's occAt) */")
 
+# ---- step 4: the ivy, the grass material and cards, the meadow's exclusion at the river, the tufts behind the stones, the lip grass, the reeds ----
+cut('const ivyMat=new THREE.ShaderMaterial(', 'const leafSpots=[];', "/* parity lab: the ivy's material is the game's (WRL) */\nconst ivyMat=WRL.ivyMaterial(SUN);\n")
+cut('{const rc=new THREE.Raycaster(),tmp=', 'const ivy=new THREE.InstancedMesh(',
+    "/* parity lab: the ivy's leaves are the game's (WRL.ivySpots), three.js's own ray cast */\n"
+    "WRL.ivySpots({BSH,bankTops,WLof:st=>WL,r:mkRng(4242),leafSpots,cast:(rc,tmp)=>rc.intersectObject(tmp,false)[0]});\n")
+cut('{const M=new THREE.Matrix4(),C=new THREE.Color(),up=new THREE.Vector3(0,1,0);', ' ivy.count=leafSpots.length;',
+    "{const ik=WRL.ivyKit();leafSpots.forEach((s,i)=>{const [M,C]=ik(s);ivy.setMatrixAt(i,M);ivy.setColorAt(i,C);});/* (parity lab: the game's ivyKit) */\n")
+cut('const grassMat=new THREE.ShaderMaterial(', 'const tuftGeo=', "/* parity lab: the grass material is the game's (WRL) */\nconst grassMat=WRL.grassMaterial(SUN);\n")
+cut('const tuftGeo=(()=>{', 'const tuftSpots=[];', "const tuftGeo=WRL.tuftGeometry();/* (parity lab: the game's) */\n")
+rep('{const bk=rivBank(x,z);if(bk.dd<bk.w+bk.run+.5&&(bk.y<WL+.07||(bk.face&&bk.steep>.35&&bk.dd<bk.w+bk.run-.2)))continue;}',
+    "{const bk=rivBank(x,z);if(WRB.meadowSkip(bk,WL))continue;}/* (parity lab: the game's meadowSkip) */")
+cut('for(const [st,nx,nz] of bankTops){for(let k=0;k<7;k++)', 'for(const [x,y,z] of cliffFine.geometry.userData.ledges)',
+    "/* parity lab: the tufts behind the bank stones are the game's (WRB.bankTufts) */\n"
+    "WRB.bankTufts({bankTops,rnd,rivMask:(x,z,m)=>rivMask(x,z,m),H:(x,z)=>H(x,z),WLof:st=>WL,tuftSpots});\n")
+cut('{const r=mkRng(515),nearStone=', 'const tufts=new THREE.InstancedMesh(',
+    "/* parity lab: the lip grass and the reeds are the game's (WRB.lipReeds) */\n"
+    "WRB.lipReeds({r:mkRng(515),RIV,rivHalf:(z,u)=>rivHalf(z),rivBank,bankSpots,H:(x,z)=>H(x,z),WLat:u=>WL,NREED:34,tuftSpots});\n")
+cut('{const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Pv=', ' tufts.instanceMatrix.needsUpdate=true;',
+    "{const tk=WRL.tuftKit();tuftSpots.forEach((s,i)=>{const [M,C]=tk(s,rnd,H);tufts.setMatrixAt(i,M);tufts.setColorAt(i,C);});/* (parity lab: the game's tuftKit) */\n")
+
 open(os.path.join(here, 'parity.html'), 'w', encoding='utf-8', newline='\n').write(s)
 print('wrote parity.html')

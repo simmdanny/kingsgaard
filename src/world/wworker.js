@@ -12,6 +12,7 @@ if(typeof window==='undefined'&&typeof self!=='undefined'&&typeof importScripts=
       postMessage({id:m.id,g},[g.h.buffer,g.wl.buffer,g.fw.buffer,g.nrm.buffer,g.A.buffer,g.B.buffer,g.pu.buffer,g.rv.buffer]);}
     if(m.rd){const t0=performance.now(),F=wrdWork(m.x0,m.z0,m.bl,m.st);F.ms=performance.now()-t0;postMessage({id:m.id,g:F},[F.buffer]);}/* (the river ground in detail, wrdetail.js) */
     if(m.rs){const F=wrsHeights(m.P,m.st);postMessage({id:m.id,g:F},[F.buffer]);}/* (the stream's banks: the ground under the stones, wrstone.js) */
+    if(m.rt){const g=wrsTuftWork(m)||{spots:[],hs:new Float64Array(0),rs:1};postMessage({id:m.id,g},[g.hs.buffer]);}/* (the stream's banks: the grass and reeds, wrstone.js) */
     if(m.cliff){const t0=performance.now(),out={nb:0},it=wclGen({x0:m.x0,z0:m.z0,ti:m.ti,tk:m.tk},m.lod,out,m.st);while(!it.next().done);out.ms=performance.now()-t0;
       const tr=[];for(const k of['pos','nrm','blk','crev','rk','pal','idx','stones'])if(out[k])tr.push(out[k].buffer);postMessage({id:m.id,g:out},tr);}
     if(m.hyd){if(m.seed!==WG.seed){postMessage({hyd:1,id:m.id,ep:m.ep,seed:m.seed,bi:m.bi,bj:m.bj,F:null,ms:0});return;}/* (a worker keeps its seed: its ground jobs carry none) */const t0=performance.now(),F=wgHydPack(m.bi,m.bj);

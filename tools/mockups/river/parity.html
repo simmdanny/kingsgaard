@@ -407,34 +407,13 @@ WRL.riverStones({r:mkRng(777),RIV,rivHalf:(z,u)=>rivHalf(z),rivBank,WLat:u=>WL,R
 const bankMeshes=[];BKI.forEach((list,si)=>{if(!list.length)return;const m=new THREE.InstancedMesh(BSH[si],bankMat,list.length);
   list.forEach((b,i)=>{m.setMatrixAt(i,b.M);m.setColorAt(i,b.tint);});m.instanceMatrix.needsUpdate=true;m.instanceColor.needsUpdate=true;m.castShadow=m.receiveShadow=true;scene.add(m);bankMeshes.push(m);});
 /* ===================== ivy: small leaf cards in strands, hanging down the water side of a few taller bank stones (ray-cast onto the stone) ===================== */
-const ivyMat=new THREE.ShaderMaterial({side:THREE.DoubleSide,fog:true,uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uSun:{value:SUN.clone()}}]),
-  vertexShader:`varying vec2 vUv;varying vec3 vC;varying float vL;uniform vec3 uSun;
-    #include <fog_pars_vertex>
-    void main(){vUv=uv;vC=instanceColor;vec3 n=normalize(mat3(modelMatrix*instanceMatrix)*vec3(0.0,0.0,1.0));vL=0.55+0.45*abs(dot(n,normalize(uSun)));
-      vec4 mvPosition=viewMatrix*modelMatrix*instanceMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mvPosition;
-      #include <fog_vertex>
-    }`,
-  fragmentShader:`varying vec2 vUv;varying vec3 vC;varying float vL;
-    #include <fog_pars_fragment>
-    void main(){vec2 q=vUv-vec2(0.5,0.55);float w=0.42*(1.0-pow(abs(q.y*1.9),1.6))*(1.0-0.35*(q.y));if(abs(q.x)>w||abs(q.y)>0.5)discard;/* a pointed leaf */
-      float vein=1.0-smoothstep(0.0,0.035,abs(q.x));vec3 col=mix(vec3(0.16,0.33,0.07),vec3(0.42,0.62,0.16),vC.y)*(0.9+0.25*vUv.y);col=mix(col,col*1.25,vein*0.35);
-      gl_FragColor=vec4(col*vL,1.0);
-      #include <fog_fragment>
-    }`});
+/* parity lab: the ivy's material is the game's (WRL) */
+const ivyMat=WRL.ivyMaterial(SUN);
 const leafSpots=[];
-{const rc=new THREE.Raycaster(),tmp=new THREE.Mesh(BSH[0],new THREE.MeshBasicMaterial()),r=mkRng(4242);
- for(const [st,nx,nz] of bankTops){if(st.kind!==1||st.top<WL+.55||r()>.35)continue;
-   tmp.geometry=BSH[st.si];tmp.matrixAutoUpdate=false;tmp.matrix.copy(st.M);tmp.matrixWorld.copy(st.M);tmp.geometry.computeBoundingSphere();
-   const nS=2+Math.floor(r()*3);
-   for(let k=0;k<nS;k++){const j=(r()-.5)*st.rw*1.3,len=.35+.6*r();
-     for(let y=st.top-.02;y>st.top-len&&y>WL+.05;y-=.055+.02*r()){const sw=.05*Math.sin(y*9+k);
-       const o=new THREE.Vector3(st.x-nx*st.rw*2.5-nz*(j+sw),y,st.z-nz*st.rw*2.5+nx*(j+sw));rc.set(o,new THREE.Vector3(nx,0,nz));
-       const h=rc.intersectObject(tmp,false)[0];if(!h)continue;const fn=h.face.normal.clone().transformDirection(st.M);
-       leafSpots.push([h.point.clone().addScaledVector(fn,.025),fn,r()]);}}}}
+/* parity lab: the ivy's leaves are the game's (WRL.ivySpots), three.js's own ray cast */
+WRL.ivySpots({BSH,bankTops,WLof:st=>WL,r:mkRng(4242),leafSpots,cast:(rc,tmp)=>rc.intersectObject(tmp,false)[0]});
 const ivy=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1).translate(0,-.38,0),ivyMat,Math.max(1,leafSpots.length));
-{const M=new THREE.Matrix4(),C=new THREE.Color(),up=new THREE.Vector3(0,1,0);
- leafSpots.forEach(([pt,fn,rr],i)=>{const tgt=pt.clone().add(fn);const L=new THREE.Object3D();L.position.copy(pt);L.lookAt(tgt);L.rotateZ((rr-.5)*1.4);L.rotateX(.35);
-   const sz=.10+.06*rr;L.scale.set(sz,sz*1.25,sz);L.updateMatrix();ivy.setMatrixAt(i,L.matrix);C.setRGB(0,rr,0);ivy.setColorAt(i,C);});
+{const ik=WRL.ivyKit();leafSpots.forEach((s,i)=>{const [M,C]=ik(s);ivy.setMatrixAt(i,M);ivy.setColorAt(i,C);});/* (parity lab: the game's ivyKit) */
  ivy.count=leafSpots.length;ivy.instanceMatrix.needsUpdate=true;if(ivy.instanceColor)ivy.instanceColor.needsUpdate=true;ivy.castShadow=true;scene.add(ivy);}
 BINST.forEach((list,si)=>{if(!list.length)return;const m=new THREE.InstancedMesh(SHAPES[si],boulderNew,list.length);const C=new THREE.Color();
   list.forEach((b,i)=>{m.setMatrixAt(i,b.M);m.setColorAt(i,b.tint);solids.push([b.x,b.z,b.rw*0.95,1]);});m.instanceMatrix.needsUpdate=true;m.instanceColor.needsUpdate=true;
@@ -452,59 +431,23 @@ BINST.forEach((list,si)=>{if(!list.length)return;const m=new THREE.InstancedMesh
  const m=new THREE.Mesh(g,groundMat);m.receiveShadow=true;scene.add(m);}
 
 /* ===================== 3D grass: tufts of blades on crossed cards, drawn by the shader (no texture) ===================== */
-const grassMat=new THREE.ShaderMaterial({side:THREE.DoubleSide,fog:true,
-  uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{uSun:{value:SUN.clone()}}]),
-  vertexShader:`varying vec2 vUv;varying vec3 vC;varying float vSh;uniform vec3 uSun;
-    #include <fog_pars_vertex>
-    void main(){vUv=uv;vC=instanceColor;vec4 wp=modelMatrix*instanceMatrix*vec4(position,1.0);
-      vec3 nrm=normalize(mat3(modelMatrix*instanceMatrix)*vec3(0.0,0.0,1.0));vSh=0.78+0.22*abs(dot(nrm,uSun));
-      vec4 mvPosition=viewMatrix*wp;gl_Position=projectionMatrix*mvPosition;
-      #include <fog_vertex>
-    }`,
-  fragmentShader:`varying vec2 vUv;varying vec3 vC;varying float vSh;
-    #include <fog_pars_fragment>
-    float hs(float x){return fract(sin(x)*4375.7);}
-    void main(){float ty=-1.0;
-      for(int i=0;i<11;i++){float fi=float(i);float r1=hs(vC.z*91.7+fi*13.1),r2=hs(vC.z*17.3+fi*7.7),r3=hs(vC.z*51.9+fi*3.3);
-        float cx=(fi+0.5)/11.0+(r1-0.5)*0.10;float hg=0.55+0.45*r2;if(vUv.y>hg)continue;
-        float y=vUv.y/hg;float x=cx+(r3-0.5)*0.4*y*y;float w=0.052*(1.0-y*0.8)*(0.8+0.5*r1);
-        if(abs(vUv.x-x)<w)ty=max(ty,y);}
-      if(ty<0.0)discard;
-      vec3 col=mix(vec3(0.24,0.44,0.09),vec3(0.62,0.80,0.22),ty)*vC.y*vSh;
-      col=mix(col,col*vec3(1.08,1.0,0.78),vC.x*0.4);
-      gl_FragColor=vec4(col,1.0);
-      #include <fog_fragment>
-    }`});
-const tuftGeo=(()=>{const a=new THREE.PlaneGeometry(1,1);a.translate(0,.5,0);const b=a.clone();b.rotateY(Math.PI/2);
-  const g=new THREE.BufferGeometry(),pa=a.attributes.position.array,pb=b.attributes.position.array,ua=a.attributes.uv.array;
-  g.setAttribute('position',new THREE.Float32BufferAttribute([...pa,...pb],3));g.setAttribute('uv',new THREE.Float32BufferAttribute([...ua,...ua],2));
-  const ia=a.index.array;g.setIndex([...ia,...ia.map(i=>i+4)]);return g;})();
+/* parity lab: the grass material is the game's (WRL) */
+const grassMat=WRL.grassMaterial(SUN);
+const tuftGeo=WRL.tuftGeometry();/* (parity lab: the game's) */
 const tuftSpots=[];/* where tufts go: thick along the cliff foot, then the meadow (thinner with distance, none on the path) */
 for(let z=-47;z<32;z+=.09){const hp=plateauH(z);if(hp<.4)continue;const xf=footX(z),wl=gRun(z);for(let k=0;k<6;k++){const d=-wl*rnd()*rnd()-.45+1.9*Math.pow(rnd(),1.5);tuftSpots.push([xf+d,z,1.5-.3*d]);}}
 for(let i=0;i<90000;i++){const r=2+52*Math.sqrt(rnd()),a=rnd()*6.283,x=1.5+r*Math.cos(a),z=4+r*Math.sin(a);
-  if(rnd()>1.2-r/50)continue;const pmk=pathMask(x,z);if(pmk>0.08){const keep=pmk<0.5?1-pmk*1.7:(pmk<0.85?0.07:0.02);if(rnd()>keep)continue;}const hp=plateauH(z),xf=footX(z),gl=gLev(z),wl=gRun(z);if(hp>.3&&x<xf-wl+.2&&x>xf-wl-LEAN*(hp-gl)-1.6)continue;{const bk=rivBank(x,z);if(bk.dd<bk.w+bk.run+.5&&(bk.y<WL+.07||(bk.face&&bk.steep>.35&&bk.dd<bk.w+bk.run-.2)))continue;}/* (only at the river: in the water, or on a steep earth face) */tuftSpots.push([x,z,(.85+.4*rnd())*(1-.55*pmk)]);}
+  if(rnd()>1.2-r/50)continue;const pmk=pathMask(x,z);if(pmk>0.08){const keep=pmk<0.5?1-pmk*1.7:(pmk<0.85?0.07:0.02);if(rnd()>keep)continue;}const hp=plateauH(z),xf=footX(z),gl=gLev(z),wl=gRun(z);if(hp>.3&&x<xf-wl+.2&&x>xf-wl-LEAN*(hp-gl)-1.6)continue;{const bk=rivBank(x,z);if(WRB.meadowSkip(bk,WL))continue;}/* (parity lab: the game's meadowSkip) *//* (only at the river: in the water, or on a steep earth face) */tuftSpots.push([x,z,(.85+.4*rnd())*(1-.55*pmk)]);}
 /* the banks: a thick fringe of grass behind the stones, and tufts on the stone tops leaning out over the water */
-for(const [st,nx,nz] of bankTops){for(let k=0;k<7;k++){const d=st.rw*(.35+1.4*rnd()),j=(rnd()-.5)*st.rw*2.2;const x=st.x+nx*d-nz*j,z=st.z+nz*d+nx*j;if(rivMask(x,z,.3))continue;tuftSpots.push([x,z,1.0+.5*rnd()]);}
-  if(st.kind!==2&&st.top<WL+.85){for(let k=0;k<5;k++){const j=(rnd()-.5)*st.rw*1.6,d=st.rw*(.7+.25*rnd()),x=st.x+nx*d-nz*j,z=st.z+nz*d+nx*j;const gy=Math.max(H(x,z),st.top-.04);
-    tuftSpots.push([x,z,1.0+.4*rnd(),gy-.03,.75+.35*rnd(),-nx,-nz]);}}}/* (behind the stone, leaning out over its edge) */
+/* parity lab: the tufts behind the bank stones are the game's (WRB.bankTufts) */
+WRB.bankTufts({bankTops,rnd,rivMask:(x,z,m)=>rivMask(x,z,m),H:(x,z)=>H(x,z),WLof:st=>WL,tuftSpots});
 for(const [x,y,z] of cliffFine.geometry.userData.ledges)tuftSpots.push([x,z,.45+.3*rnd(),y-.04]);
 BINST.flat().forEach(b=>{if(b.sc<.3)return;const k=5+Math.floor(b.sc*7);for(let j=0;j<k;j++){const a=rnd()*6.283,d=b.rw*(.85+.5*rnd());tuftSpots.push([b.x+Math.cos(a)*d,b.z+Math.sin(a)*d,.8+.3*rnd()]);}});/* tufts around every boulder's base, overlapping it *//* small tufts and leafy bits on the ledges */
 /* the bank lip: grass right to the edge of the steep banks, drooping over it toward the water (not where a bank stone sits) */
-{const r=mkRng(515),nearStone=(x,z)=>bankSpots.some(b=>Math.hypot(b.x-x,b.z-z)<b.rw+.35);
- for(let i=0;i<RIV.length-1;i++)for(const side of[-1,1])for(let k=0;k<9;k++){const a=RIV[i],b=RIV[i+1],f=(k+r())/9,cx=a[0]+(b[0]-a[0])*f,cz=a[1]+(b[1]-a[1])*f,tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
-   let d=rivHalf(cz)+1.0,x=cx+nx*d,z=cz+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+bk.run-.12)-bk.dd;x=cx+nx*d;z=cz+nz*d;}/* (find the lip) */
-   const bk=rivBank(x,z);if(bk.steep<.22||nearStone(x,z))continue;const jx=(r()-.5)*.2;tuftSpots.push([x+nx*jx,z+nz*jx,1.0+.6*r(),bk.y-.03,.8+.6*r(),-nx,-nz]);/* (leaning out and down over the lip) */
-   if(r()<.5)tuftSpots.push([x+nx*.25,z+nz*.25,1.0+.4*r()]);}
- /* reeds: clusters at the waterline in the gaps, some standing in the shallows */
- for(let c=0;c<34;c++){const i=Math.floor(r()*(RIV.length-2)),side=r()<.5?-1:1,a=RIV[i],b=RIV[i+1],tx=b[0]-a[0],tz=b[1]-a[1],tl=Math.hypot(tx,tz),nx=-tz/tl*side,nz=tx/tl*side;
-   let d=rivHalf(a[1]),x=a[0]+nx*d,z=a[1]+nz*d;for(let it=0;it<3;it++){const bk=rivBank(x,z);d+=(bk.w+.15)-bk.dd;x=a[0]+nx*d;z=a[1]+nz*d;}
-   if(nearStone(x,z)||rivBank(x,z).steep>.5)continue;const m=8+Math.floor(r()*12);
-   for(let j=0;j<m;j++){const u=(r()-.5)*1.6,v=(r()-.6)*.7,px=x-nz*u+nx*v,pz=z+nx*u+nz*v;if(H(px,pz)<WL-.35)continue;tuftSpots.push([px,pz,.9+.4*r(),undefined,undefined,undefined,undefined,2.6+1.8*r()]);}}}
+/* parity lab: the lip grass and the reeds are the game's (WRB.lipReeds) */
+WRB.lipReeds({r:mkRng(515),RIV,rivHalf:(z,u)=>rivHalf(z),rivBank,bankSpots,H:(x,z)=>H(x,z),WLat:u=>WL,NREED:34,tuftSpots});
 const tufts=new THREE.InstancedMesh(tuftGeo,grassMat,tuftSpots.length);
-{const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),Pv=new THREE.Vector3(),Sv=new THREE.Vector3(),C=new THREE.Color();
- tuftSpots.forEach(([x,z,sc,yl,tilt,tx,tz,hs],i)=>{const h=yl!==undefined?yl:H(x,z)-.03;Pv.set(x,h,z);Q.setFromAxisAngle(new THREE.Vector3(0,1,0),rnd()*6.283);
-   if(tilt){const ax=new THREE.Vector3(tz,0,-tx).normalize();Q.premultiply(new THREE.Quaternion().setFromAxisAngle(ax,tilt));}/* (leaning out over the water) */
-   const w=.40+.22*rnd();Sv.set(w*sc*(hs?.6:1),(.16+.14*rnd())*sc*(hs||1),w*sc*(hs?.6:1));M.compose(Pv,Q,Sv);tufts.setMatrixAt(i,M);C.setRGB(hs?.45+.4*rnd():yl!==undefined?.1:rnd()*.6,hs?.62+.2*rnd():(yl!==undefined?.7:.85)+.3*rnd(),rnd());tufts.setColorAt(i,C);});
+{const tk=WRL.tuftKit();tuftSpots.forEach((s,i)=>{const [M,C]=tk(s,rnd,H);tufts.setMatrixAt(i,M);tufts.setColorAt(i,C);});/* (parity lab: the game's tuftKit) */
  tufts.instanceMatrix.needsUpdate=true;tufts.instanceColor.needsUpdate=true;scene.add(tufts);}
 
 
