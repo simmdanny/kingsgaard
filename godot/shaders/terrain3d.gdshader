@@ -65,6 +65,9 @@ uniform float cliff_angle = 50.0;
 uniform float snow_line = 470.0;
 // the old continent's stone, dirt, sand and snow (and its colour map's layout); off for the clean base terrain
 uniform bool biomes = true;
+// greybox: one flat colour for all the ground (while a region's landforms are being judged)
+uniform bool greybox = false;
+uniform vec3 greybox_col : source_color = vec3(0.47, 0.57, 0.38);
 // where the local origin is on the map (scripts/world/floating_origin.gd)
 global uniform vec2 world_offset;
 
@@ -312,6 +315,9 @@ void fragment() {
 		if (!land && wh < 0.0) col = vec3(0.12, 0.30, 0.60);
 	} else if (debug_view == 4) {
 		col = land ? mix(vec3(0.80, 0.82, 0.78) * (0.75 + 0.25 * w_normal.y), vec3(0.88, 0.10, 0.10), biomes ? 0.0 : cm.b) : vec3(0.12, 0.30, 0.60);
+	} else if (greybox) {
+		col = greybox_col;
+		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
 	} else if (!biomes) {
 		// the clean base terrain: one grass, a little uneven, and shaded by slope (the steeper, the deeper and warmer its green)
 		float n1 = vnoise(wp * 0.035);

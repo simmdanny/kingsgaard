@@ -76,6 +76,10 @@ var verbose := false
 ## the full heightmap cut into Terrain3D regions (index rz * regions_per_side + rx; null = open sea, no region)
 var region_heights: Array = []
 var region_colors: Array = []
+## Terrain3D control maps with holes (cut under a region's walls), per region; null = none
+var region_controls: Array = []
+## the region built on this terrain (tepui_region.gd), once applied
+var region = null
 
 var _hreg: Array = []
 var _sea_floor := -45.0

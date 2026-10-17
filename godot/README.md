@@ -38,6 +38,7 @@ bust, waist, hips and thighs reshaped, and narrower, gently sloping shoulders - 
 | F | fly over the land (Space up, Ctrl down, Shift x5, Alt x25); F again lands the hero under the camera |
 | F1 | info: fps, position, tier and slope underfoot |
 | F2 / F3 / F4 / F5 | terrain maps: heights / tiers / slopes / steep-edge mask (again = back) |
+| F6 / F7 / F8 / F9 | the tepui region's camera bookmarks ref1-ref4 (fly mode there; F again lands the hero) |
 | Esc | pause menu / back |
 
 ## Terrain
@@ -85,9 +86,41 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
   `poi_profile.gd` (ground along the screenshot views), `t3d_probe.gd` (Terrain3D's API); `shot.gd` options `--overview`,
   `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`. (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
+## Tepui region (phase 1 of 4: landform blockout)
+
+The first region, built on the base terrain: a tepui / plateau land of sheer-walled table mountains
+(`scripts/world/tepui_region.gd`, every key value in `region_settings.gd` - a `RegionSettings` resource; seeded, same seed +
+settings = same region). Greybox for now: flat grass-green ground and pale grey walls, no grass, no paths or buildings.
+- **Where:** a 4 x 4 km square centred on map (4000, -1496), picked automatically: the most highland / high-plateau ground
+  (56% / 43%) with mountains in view, its floor at ~402 m. The base terrain stays as the floor - flattened toward the region's
+  median height inside and back to the base terrain across a 380 m noisy border, so the edge blends in.
+- **Plateaus:** three levels about 150 / 300 / 450 m above the floor (shares of the region: floor 42%, 21%, 26%, 11%), 4 + 3 + 3
+  plateau pieces, stacked as terraces; outlines domain-warped with bays and peninsulas; flat tops with gentle rolling hills. A
+  wide valley (650-1050 m) runs across the region and 3 canyons (110-300 m wide) cut into the plateaus.
+- **Walls:** separate meshes along every level's edge contour (marching squares, 8 m columns, 10 m rows, 48 columns a piece):
+  42.9 km of wall, 186 pieces, 173k vertices / 323k triangles; heights median 169 m, 10% under 140, 90% under 311, tallest
+  451 m. Large-scale variation: curvature, buttresses, grooves, setbacks, a slight taper. Trimesh collision. Under each wall the
+  terrain is pulled down steeply to its foot rather than cut with Terrain3D holes: holes remove whole coarse triangles at far
+  clipmap levels and showed gaps from afar (`cut_holes` still switches them on).
+- **Walking routes:** rock spurs leaning on the walls - a 52 m wide grassy crest climbing at 25 degrees from the ground below to
+  a plateau's top, with sheer sides - at least 2 per plateau piece (20 in all), placed level by level only where the walker
+  already arrives. The generator checks itself: each spur walked over 8 m cells, every plateau of every level reached on foot
+  from the floor (all 20 spurs and all 10 plateaus pass).
+- **Bookmarks:** 4 cameras that recreate the 4 reference paintings' compositions (`bookmark_views`: position, height above
+  ground, target, field of view) - ref1 stacked terraces seen from a ledge, ref2 over plateaus across the valley, ref3 down a
+  canyon, ref4 from the air. F6-F9 in the game; `shot.gd --bookmark=ref1`.
+- **Cost:** ~32 s to generate on the laptop the first time, then cached in `user://terrain/region_*.bin`; 61-82 fps at the
+  bookmarks (greybox, laptop).
+- **Tools:** `scripts/tools/region_test.gd` (generator alone: report, spurs, canyons, bookmarks, writes the game's cache and
+  `shots/region/region_map.png`), `region_walk_test.gd` (the hero walks up a spur onto a plateau and into a 441 m wall),
+  `region_scan.gd` (scores 4 km windows for the region's place); `shot.gd --overview=region`.
+- **Next phases:** 2 overhangs, arches, pillars, sinkholes; 3 rivers, waterfalls, lakes, mist; 4 materials, vegetation, sky,
+  performance.
+
 ## Layout
 
 - `scripts/world/base_terrain_config.gd`, `base_terrain_gen.gd`, `terrain_world.gd`, `floating_origin.gd`: the terrain (above);
+  `region_settings.gd`, `tepui_region.gd`: the tepui region (above; its walls drawn with `shaders/region_wall.gdshader`);
   `terrain_config.gd`, `terrain_gen.gd`: the old continent (off)
 - `scripts/world/foliage.gd`: trees per 256 m cell (instanced, 3 distance levels; off for now); `proc_meshes.gd` builds the meshes
 - `scripts/world/grass.gd`: grass blades round the hero; `ocean.gd`: the sea

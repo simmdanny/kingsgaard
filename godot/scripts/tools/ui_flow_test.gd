@@ -73,7 +73,9 @@ func _process(dt: float) -> bool:
 				S.set_option("grass", 0)
 				_check(not main.grass.visible, "Grass Off hides the grass")
 				S.set_option("grass", saved.grass)
-				_check(main.grass.visible == (saved.grass > 0), "Grass back on")
+				# (a greybox region keeps the grass off whatever the setting)
+				var grey: bool = main.region_cfg != null and main.region_cfg.greybox
+				_check(main.grass.visible == (saved.grass > 0 and not grey), "Grass back on" + (" (stays off: greybox region)" if grey else ""))
 				S.set_option("render_scale", 0)
 				_check(is_equal_approx(main.get_viewport().scaling_3d_scale, 0.5), "Render scale 50 %")
 				S.set_option("render_scale", saved.render_scale)

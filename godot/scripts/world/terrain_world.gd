@@ -18,10 +18,15 @@ const TerrainConfig := preload("res://scripts/world/terrain_config.gd")
 const TerrainGen := preload("res://scripts/world/terrain_gen.gd")
 const BaseConfig := preload("res://scripts/world/base_terrain_config.gd")
 const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
+const TepuiRegion := preload("res://scripts/world/tepui_region.gd")
 const CACHE_DIR := "user://terrain"
 
 var cfg
 var gen
+## the region built on the base terrain (tepui_region.gd) and its settings (region_settings.gd); null = none
+var region_cfg
+var region
+var walls: Node3D
 var terrain: Terrain3D
 var camera: Camera3D
 var ground := {}
@@ -69,15 +74,28 @@ func _build() -> void:
 	var prefix := "base_" if base else "world_"
 	var path := "%s/%s%d_%s.bin" % [CACHE_DIR, prefix, cfg.seed_value, key]
 	stage = "loading the cached island"
-	if gen.load_cache(path):
-		return
-	stage = "shaping the island"
-	gen.generate()
-	# keep the cache small: only this world's file stays
-	for f in DirAccess.get_files_at(CACHE_DIR):
-		if f.begins_with(prefix) and f.ends_with(".bin"):
-			DirAccess.remove_absolute(ProjectSettings.globalize_path(CACHE_DIR + "/" + f))
-	gen.save(path)
+	if not gen.load_cache(path):
+		stage = "shaping the island"
+		gen.generate()
+		# keep the cache small: only this world's file stays
+		for f in DirAccess.get_files_at(CACHE_DIR):
+			if f.begins_with(prefix) and f.ends_with(".bin"):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(CACHE_DIR + "/" + f))
+		gen.save(path)
+	# the region on top of it (cached on its own: its settings + the island's)
+	if base and region_cfg != null and region_cfg.enabled:
+		region = TepuiRegion.new(region_cfg, gen)
+		var rpath := "%s/region_%d_%s.bin" % [CACHE_DIR, cfg.seed_value, region_cfg.cache_key(TepuiRegion.VERSION, key)]
+		stage = "loading the region"
+		if not region.load_cache(rpath):
+			stage = "building the region"
+			region.generate()
+			for f in DirAccess.get_files_at(CACHE_DIR):
+				if f.begins_with("region_") and f.ends_with(".bin"):
+					DirAccess.remove_absolute(ProjectSettings.globalize_path(CACHE_DIR + "/" + f))
+			region.save(rpath)
+		region.apply()
+		region.prepare_faces()
 
 
 func is_idle() -> bool:
@@ -91,6 +109,8 @@ func _process(_dt: float) -> void:
 	_thread = null
 	if base:
 		_import_regions()
+		if region != null:
+			_build_walls()
 	else:
 		terrain.data.import_images([gen.height_img, null, gen.color_img], Vector3(gen.origin, 0.0, gen.origin), 0.0, 1.0)
 		gen.height_img = null
@@ -100,6 +120,7 @@ func _process(_dt: float) -> void:
 		m.set_shader_param(k, ground[k])
 	m.set_shader_param("walk_angle", cfg.max_walk_angle)
 	m.set_shader_param("biomes", not base)
+	m.set_shader_param("greybox", region != null and region_cfg.greybox)
 	if not base:
 		m.set_shader_param("cliff_angle", cfg.cliff_threshold)
 	m.set_shader_param("debug_view", debug_view)
@@ -124,11 +145,48 @@ func _import_regions() -> void:
 		r.location = Vector2i(ri % per - half, ri / per - half)
 		r.height_map = hi
 		r.color_map = gen.region_colors[ri]
+		# (holes cut under a region's walls)
+		if ri < gen.region_controls.size() and gen.region_controls[ri] != null:
+			r.control_map = gen.region_controls[ri]
 		data.add_region(r, false)
 	data.update_maps(Terrain3DRegion.TYPE_MAX, true, true)
 	data.calc_height_range(true)
 	gen.region_colors = []
 	print("terrain: %d regions into Terrain3D in %.1f s" % [data.get_region_count(), (Time.get_ticks_msec() - t) / 1000.0])
+
+
+## the region's walls: one mesh and one trimesh collision body per piece, under a node at the region's centre (which the
+## floating origin moves with the terrain)
+func _build_walls() -> void:
+	var t := Time.get_ticks_msec()
+	walls = Node3D.new()
+	walls.name = "RegionWalls"
+	add_child(walls)
+	walls.position = Vector3(region.center.x - gen.offset.x, 0.0, region.center.y - gen.offset.y)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/region_wall.gdshader")
+	mat.set_shader_parameter("debug_view", debug_view)
+	for w in region.walls:
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = w.verts
+		arrays[Mesh.ARRAY_NORMAL] = w.normals
+		arrays[Mesh.ARRAY_INDEX] = w.indices
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mat
+		walls.add_child(mi)
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(w.faces)
+		var body := StaticBody3D.new()
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		body.add_child(cs)
+		walls.add_child(body)
+	walls.set_meta("material", mat)
+	print("terrain: %d wall pieces in %.1f s" % [region.walls.size(), (Time.get_ticks_msec() - t) / 1000.0])
 
 
 ## the floating origin: every region re-filed dk regions over (a whole-region shift of the world). Only Terrain3D's region map
@@ -151,12 +209,16 @@ func shift_regions(dk: Vector2i) -> void:
 		if not r.is_deleted():
 			locs.append(nl)
 	data.set_region_locations(locs)
+	if walls != null:
+		walls.position += Vector3(dk.x, 0.0, dk.y) * gen.region_m
 
 
 func set_debug_view(v: int) -> void:
 	debug_view = v
 	if terrain != null:
 		terrain.material.set_shader_param("debug_view", v)
+	if walls != null:
+		(walls.get_meta("material") as ShaderMaterial).set_shader_parameter("debug_view", v)
 
 
 func _exit_tree() -> void:

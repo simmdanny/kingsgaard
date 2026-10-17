@@ -2,9 +2,11 @@ extends Node3D
 ## KINGSGAARD - THE ISLAND (scripts/main.gd): builds the scene in code - the sky, the sun, the terrain (Terrain3D, generated:
 ## scripts/world/terrain_world.gd), the grass, the sea, the hero and his camera - and wires them together each frame (everything
 ## streams round the camera; the grass round the hero). The hero is placed once the terrain is ready. The floating origin
-## (scripts/world/floating_origin.gd) keeps the camera near (0, 0, 0) on the 30 km island. Also the input map, the HUD (F1), the
-## terrain's debug maps (F2 heights, F3 tiers, F4 slopes, F5 the steep-edge mask), the menus (scripts/ui/menu.gd) and applying
-## the player's settings (Settings).
+## (scripts/world/floating_origin.gd) keeps the camera near (0, 0, 0) on the 30 km island. The first region - tepui plateaus
+## (scripts/world/tepui_region.gd, settings in region_settings.gd) - sits on it; the hero starts there, and F6 - F9 fly the
+## camera to its four bookmark views (after the reference pictures). Also the input map, the HUD (F1), the terrain's debug maps
+## (F2 heights, F3 tiers, F4 slopes, F5 the steep-edge mask), the menus (scripts/ui/menu.gd) and applying the player's
+## settings (Settings).
 
 ## the old continent (terrain_gen.gd: cliffs, passes and rivers on a 10 km map) instead of the clean base terrain - kept, off
 const CLASSIC_TERRAIN := false
@@ -15,6 +17,8 @@ const BIOME_SPAWNERS := false
 const TerrainWorld := preload("res://scripts/world/terrain_world.gd")
 const TerrainConfig := preload("res://scripts/world/terrain_config.gd")
 const BaseConfig := preload("res://scripts/world/base_terrain_config.gd")
+const RegionSettings := preload("res://scripts/world/region_settings.gd")
+const BOOKMARKS := ["ref1", "ref2", "ref3", "ref4"]
 const FloatingOrigin := preload("res://scripts/world/floating_origin.gd")
 const Foliage := preload("res://scripts/world/foliage.gd")
 const Grass := preload("res://scripts/world/grass.gd")
@@ -38,6 +42,7 @@ var ocean
 var player
 var rig
 var origin
+var region_cfg
 
 var menu
 var _hud: Label
@@ -59,6 +64,9 @@ func _ready() -> void:
 	terrain = TerrainWorld.new()
 	terrain.name = "Terrain"
 	terrain.cfg = cfg
+	if not CLASSIC_TERRAIN:
+		region_cfg = RegionSettings.new()
+		terrain.region_cfg = region_cfg
 	terrain.camera = rig.camera
 	terrain.ground = GROUND
 	add_child(terrain)
@@ -143,7 +151,8 @@ func apply_settings() -> void:
 	get_viewport().scaling_3d_scale = sc
 	_sun.shadow_enabled = Settings.shadows > 0
 	RenderingServer.directional_shadow_atlas_set_size(1024 if Settings.shadows == 1 else 2048, true)
-	grass.set_density([0.0, 0.5, 1.0][Settings.grass])
+	# (no grass while a region's landforms are greybox)
+	grass.set_density(0.0 if region_cfg != null and region_cfg.greybox else [0.0, 0.5, 1.0][Settings.grass])
 	foliage.set_reach([0.6, 1.0][Settings.trees])
 	rig.sensitivity = Settings.sensitivity
 	_hud.visible = Settings.info
@@ -212,6 +221,10 @@ func _input_map() -> void:
 	_bind("view_tiers", [KEY_F3])
 	_bind("view_slope", [KEY_F4])
 	_bind("view_steep", [KEY_F5])
+	_bind("bookmark_1", [KEY_F6])
+	_bind("bookmark_2", [KEY_F7])
+	_bind("bookmark_3", [KEY_F8])
+	_bind("bookmark_4", [KEY_F9])
 
 
 func _bind(action: String, keys: Array) -> void:
@@ -271,6 +284,31 @@ func _unhandled_input(e: InputEvent) -> void:
 	for v in [["view_height", 1], ["view_tiers", 2], ["view_slope", 3], ["view_steep", 4]]:
 		if e.is_action_pressed(v[0]):
 			_set_view(0 if terrain.debug_view == v[1] else v[1])
+	for k in 4:
+		if e.is_action_pressed("bookmark_%d" % (k + 1)):
+			go_bookmark(BOOKMARKS[k], true)
+
+
+## put the camera at one of the region's bookmark views (map coordinates): flying from there (keys F6 - F9) or pinned
+## (screenshots, with the view's own field of view)
+func go_bookmark(name: String, flying: bool) -> bool:
+	if terrain.region == null or not terrain.region.bookmarks.has(name):
+		return false
+	var b: Dictionary = terrain.region.bookmarks[name]
+	var pos: Vector3 = origin.to_local_pos(b.pos)
+	var look: Vector3 = origin.to_local_pos(b.look)
+	if flying:
+		var d := (look - pos).normalized()
+		if not rig.fly:
+			rig._toggle_fly()
+		rig.pinned = false
+		rig._fly_pos = pos
+		rig.yaw = atan2(-d.x, -d.z)
+		rig.pitch = asin(clampf(d.y, -1.0, 1.0))
+	else:
+		rig.camera.fov = float(b.get("fov", 65.0))
+		rig.pin(pos, look)
+	return true
 
 
 ## a terrain debug map (0 = the game look); the maps colour the sea themselves, so the water is hidden while one shows
@@ -292,6 +330,20 @@ func _spawn() -> void:
 	var cam_up := 1.7
 	var cam_side := 0.0
 	var tilt := 0.0
+	# the region: the hero starts on its plateaus, beside the long canyon, facing down it (else at another of its views)
+	var face_to := Vector3.INF
+	if terrain.region != null and Shot.spawn.x == INF and Shot.poi == "":
+		for name in ["ref3", "ref1", "ref2", "ref4"]:
+			if terrain.region.bookmarks.has(name):
+				var b: Dictionary = terrain.region.bookmarks[name]
+				var bp: Vector3 = b.pos
+				var bl: Vector3 = b.look
+				sp = Vector3(bp.x, 0.0, bp.z)
+				face_to = bl
+				if name == "ref2" or name == "ref4":
+					sp = Vector3(bl.x, 0.0, bl.z)
+					face_to = Vector3.INF
+				break
 	match Shot.poi:
 		"low":
 			# out in the lowlands, looking up at a high plateau's rim: the camera low behind the hero, tilted up part of the way
@@ -324,6 +376,11 @@ func _spawn() -> void:
 	origin.recenter(origin.to_local_pos(sp))
 	sp = origin.to_local_pos(sp)
 	player.place(sp.x, sp.z)
+	if face_to != Vector3.INF:
+		var fl: Vector3 = origin.to_local_pos(face_to)
+		var fd := Vector3(fl.x - sp.x, 0.0, fl.z - sp.z).normalized()
+		player.face(fd)
+		rig.yaw = atan2(-fd.x, -fd.z)
 	if look != Vector3.INF:
 		look = origin.to_local_pos(look)
 		var d := Vector3(look.x - sp.x, 0.0, look.z - sp.z).normalized()
@@ -340,13 +397,22 @@ func _spawn() -> void:
 		var a0: Vector3 = origin.to_local_pos(Vector3(cc[0], 0.0, cc[1]))
 		var a1: Vector3 = origin.to_local_pos(Vector3(cc[3], 0.0, cc[4]))
 		rig.pin(Vector3(a0.x, maxf(gen.height(a0.x, a0.z), 0.0) + cc[2], a0.z), Vector3(a1.x, maxf(gen.height(a1.x, a1.z), 0.0) + cc[5], a1.z))
+	if Shot.bookmark != "":
+		go_bookmark(Shot.bookmark, false)
+	if Shot.fov > 0.0:
+		rig.camera.fov = Shot.fov
 	if Shot.overview:
-		# straight down over the middle of the map, orthographic, the whole map in the frame; no fog from up there
-		origin.recenter(origin.to_local_pos(Vector3.ZERO))
-		var mid: Vector3 = origin.to_local_pos(Vector3(0.0, 6000.0, 0.0))
+		# straight down over the middle of the map (or the region), orthographic, all of it in the frame; no fog from up there
+		var over_c := Vector3.ZERO
+		var over_size: float = gen.map_size
+		if Shot.overview_target == "region" and terrain.region != null:
+			over_c = Vector3(terrain.region.center.x, 0.0, terrain.region.center.y)
+			over_size = terrain.region.half * 2.0 + 200.0
+		origin.recenter(origin.to_local_pos(over_c))
+		var mid: Vector3 = origin.to_local_pos(over_c + Vector3(0.0, 6000.0, 0.0))
 		rig.pinned = true
 		rig.camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-		rig.camera.size = gen.map_size
+		rig.camera.size = over_size
 		rig.camera.far = 20000.0
 		rig.camera.global_transform = Transform3D(Basis(Vector3(1.0, 0.0, 0.0), -PI * 0.5), mid)
 		_env.fog_enabled = false
@@ -373,7 +439,8 @@ func _process(dt: float) -> void:
 		var p: Vector3 = player.position
 		var m: Vector3 = origin.to_map_pos(p)
 		var t: int = gen.tier_at(p.x, p.z)
+		var lv: int = terrain.region.level_at(p.x, p.z) if terrain.region != null else -1
 		_hud.text = "%d fps   x %.0f  z %.0f  height %.1f m   %s   slope %.0f deg\n%s   origin %+.1f %+.1f km" % [Engine.get_frames_per_second(),
-			m.x, m.z, p.y, "sea" if t == 255 else str(gen.cfg.tier_names[t]), gen.slope(p.x, p.z), stats_line(), origin.offset.x / 1000.0,
+			m.x, m.z, p.y, ("region floor" if lv == 0 else "plateau level %d" % lv) if lv >= 0 else ("sea" if t == 255 else str(gen.cfg.tier_names[t])), gen.slope(p.x, p.z), stats_line(), origin.offset.x / 1000.0,
 			origin.offset.y / 1000.0]
 	Shot.tick(self, dt)
