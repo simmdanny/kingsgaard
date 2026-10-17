@@ -1,13 +1,19 @@
 extends RefCounted
 ## THE FEMALE HERO (scripts/player/feminize.gd): turns alicewithalex's male model into a woman in code, at load.
 ## His body and shorts are split 1 -> 4 triangles (same shape, more points to move), then reshaped in their bind pose by the
-## same field (so the shorts still fit): a bust, a narrower waist, wider hips and a fuller seat, slimmer arms and neck, a softer
-## jaw. The hair is drawn longer at the sides and back, a ponytail is added on the head bone, and a crop top is cut from her own
+## same field (so the shorts still fit): a bust, a narrower waist, wider hips, a fuller seat and fuller thighs, slimmer arms and
+## neck, a softer jaw, and narrower, gently sloping shoulders (the arm bones themselves move in and down: _narrow_shoulders). The hair is drawn longer at the sides and back, a ponytail is added on the head bone, and a crop top is cut from her own
 ## chest surface between two heights (clean edges, the same skinning, a few mm proud). Faces stay flat-shaded (low-poly).
 ## Mesh space here: +Y up, +Z front, +X her left, units of the model file (about 0.27 m; she is about 6.8 tall).
 ##   Feminize.new().apply(model_root)
 
 const TOP_COL := Color(0.16, 0.42, 0.50)
+## how far each arm's joint moves in towards her middle (model units, ~0.25 m each): narrower shoulders. The arm bones move
+## (the arms then hang and swing from the new joints); the shoulders, the slope up to the neck and the upper ribcage are
+## pulled in by the mesh reshape to meet them (_reshape), each point by as much as it does not already follow the arm.
+const SHOULDER_IN := 0.16
+## and down a little (a woman's shoulders slope more than they square off): the joints, and the shoulders' top with them
+const SHOULDER_DOWN := 0.05
 
 var _hair_mat: Material
 
@@ -26,11 +32,19 @@ func apply(model: Node3D) -> void:
 			shorts = mi
 	if body == null:
 		return
-	var sub := _remesh(body, _reshape, 2)
+	# the binds of the arms (upper arm, forearm, palm, fingers): how much a point follows the arm decides how much of the
+	# shoulders' narrowing the mesh itself has to make
+	var arm_binds := {}
+	for b in body.skin.get_bind_count():
+		var bn: String = body.skin.get_bind_name(b)
+		if bn.begins_with("UpArm") or bn.begins_with("LowArm") or bn.begins_with("Palm") or bn.begins_with("f"):
+			arm_binds[b] = true
+	var sub := _remesh(body, _reshape, 2, arm_binds)
 	if shorts != null:
 		_remesh(shorts, _reshape)
 	if hair != null:
 		_remesh(hair, _reshape_hair)
+	_narrow_shoulders(body)
 	# the crop top: her chest between two heights, lifted along the smooth normals
 	var top := MeshInstance3D.new()
 	top.name = "CropTop"
@@ -57,9 +71,10 @@ func apply(model: Node3D) -> void:
 			pt.skeleton = body.skeleton
 
 
-## split a mesh instance's mesh 1 -> 4 (levels times), move every point by fn, put it back flat-shaded; returns the reshaped
-## indexed data. The splits keep the shape exactly (flat parts stay flat); they only give the reshaping points to move.
-static func _remesh(mi: MeshInstance3D, fn: Callable, levels := 1) -> Dictionary:
+## split a mesh instance's mesh 1 -> 4 (levels times), move every point by fn(point, how much it follows the arms - the
+## weights of the binds in arm_binds), put it back flat-shaded; returns the reshaped indexed data. The splits keep the shape
+## exactly (flat parts stay flat); they only give the reshaping points to move.
+static func _remesh(mi: MeshInstance3D, fn: Callable, levels := 1, arm_binds := {}) -> Dictionary:
 	var d := _subdivide(mi.mesh.surface_get_arrays(0))
 	for k in levels - 1:
 		var a := []
@@ -72,14 +87,19 @@ static func _remesh(mi: MeshInstance3D, fn: Callable, levels := 1) -> Dictionary
 		d = _subdivide(a)
 	var vv: PackedVector3Array = d.v
 	for i in vv.size():
-		vv[i] = fn.call(vv[i])
+		var arm := 0.0
+		if not arm_binds.is_empty():
+			for k in 4:
+				if arm_binds.has(d.bo[i * 4 + k]):
+					arm += d.we[i * 4 + k]
+		vv[i] = fn.call(vv[i], arm)
 	d.v = vv
 	mi.mesh = _flat_mesh(d, PackedInt32Array(), 0.0, mi.mesh.surface_get_material(0))
 	return d
 
 
 ## the hair longer and fuller at the sides and back: its lower rim drawn down towards the jaw and nape, a little outwards
-static func _reshape_hair(p: Vector3) -> Vector3:
+static func _reshape_hair(p: Vector3, _arm := 0.0) -> Vector3:
 	var q := p
 	var low := smoothstep(6.5, 6.15, p.y) * smoothstep(0.35, 0.05, p.z)
 	q.y -= 0.22 * low
@@ -88,8 +108,8 @@ static func _reshape_hair(p: Vector3) -> Vector3:
 	return q
 
 
-## the shape changes, as smooth offsets of the bind-pose position
-static func _reshape(p: Vector3) -> Vector3:
+## the shape changes, as smooth offsets of the bind-pose position (armw: how much the point follows the arm bones, 0..1)
+static func _reshape(p: Vector3, armw := 0.0) -> Vector3:
 	var q := p
 	var torso := 1.0 - smoothstep(0.6, 0.74, absf(p.x))
 	# the bust: two rounded domes (no peak) on the front of the chest, turned slightly outwards - a long gentle slope up into
@@ -109,8 +129,18 @@ static func _reshape(p: Vector3) -> Vector3:
 	q.z = lerpf(q.z, q.z * 0.93, w)
 	# the hips out, a fuller seat
 	var h := exp(-pow((p.y - 3.55) / 0.4, 2.0))
-	q.x *= 1.0 + 0.10 * h
-	q.z -= 0.08 * h * smoothstep(-0.05, -0.3, p.z)
+	q.x *= 1.0 + 0.19 * h
+	q.z -= 0.11 * h * smoothstep(-0.05, -0.3, p.z)
+	# fuller thighs: each thigh's cross-section grown about its own middle line - most on the outside, front and back, little
+	# on the inside (the gap between them stays); nothing at the knee, blending into the hips at the top
+	var th := smoothstep(1.95, 2.55, p.y) * (1.0 - smoothstep(3.15, 3.55, p.y))
+	if th > 0.0 and absf(p.x) > 0.02:
+		var s := signf(p.x)
+		var cx := 0.40 * s
+		var cz := lerpf(-0.14, -0.09, smoothstep(2.2, 3.0, p.y))
+		var outer := (q.x - cx) * s > 0.0
+		q.x = cx + (q.x - cx) * (1.0 + (0.15 if outer else 0.05) * th)
+		q.z = cz + (q.z - cz) * (1.0 + 0.10 * th)
 	# slimmer arms (T-pose, along x): pull towards the arm's line
 	if absf(p.x) > 0.62 and p.y > 4.5:
 		var k := 0.86 if absf(p.x) < 2.8 else 0.92
@@ -127,7 +157,40 @@ static func _reshape(p: Vector3) -> Vector3:
 	var j := exp(-pow((p.y - 5.88) / 0.17, 2.0)) * smoothstep(-0.1, 0.2, p.z)
 	q.x *= 1.0 - 0.10 * j
 	q.z -= 0.03 * j
+	# narrower shoulders: the arm bones move in by SHOULDER_IN (_narrow_shoulders); the shoulders, the slope up to the neck and
+	# the upper ribcage come in with them - nothing in the middle of the chest, all of it at the shoulder line, less and less
+	# down the sides to the bust's lower edge - each point by as much as it does not already follow the arm
+	var side := smoothstep(0.28, 0.74, absf(p.x))
+	var up := smoothstep(4.35, 5.0, p.y)
+	q.x -= signf(p.x) * SHOULDER_IN * side * up * (1.0 - armw)
+	q.y -= SHOULDER_DOWN * side * smoothstep(4.7, 5.2, p.y) * (1.0 - armw)
 	return q
+
+
+## the arms' joints moved in towards her middle by SHOULDER_IN and down by SHOULDER_DOWN (in the mesh's bind space, +X her
+## left, +Y up): each upper arm's rest
+## position in its parent's frame, so the whole arm - and every point of the mesh by as much as it follows the arm - comes in,
+## and the arms hang and swing from the new joints (rig_anim.gd only turns bones; it reads the rest after this)
+static func _narrow_shoulders(body: MeshInstance3D) -> void:
+	var sk := body.get_node_or_null(body.skeleton) as Skeleton3D
+	if sk == null:
+		return
+	for b in body.skin.get_bind_count():
+		var bn: String = body.skin.get_bind_name(b)
+		if not bn.begins_with("UpArm."):
+			continue
+		var bi := sk.find_bone(bn)
+		var par := sk.get_bone_parent(bi)
+		if bi < 0 or par < 0:
+			continue
+		# mesh space -> skeleton space for this bone (its global rest times its bind pose), and the move into the parent's frame
+		var m := sk.get_bone_global_rest(bi) * body.skin.get_bind_pose(b)
+		var mesh_head := body.skin.get_bind_pose(b).affine_inverse().origin
+		var d := m.basis * Vector3(-signf(mesh_head.x) * SHOULDER_IN, -SHOULDER_DOWN, 0.0)
+		var rest := sk.get_bone_rest(bi)
+		rest.origin += sk.get_bone_global_rest(par).basis.inverse() * d
+		sk.set_bone_rest(bi, rest)
+		sk.set_bone_pose_position(bi, rest.origin)
 
 
 ## 1 -> 4 split of every triangle; midpoints shared per edge (no cracks), their skin weights merged

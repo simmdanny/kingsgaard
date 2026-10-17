@@ -22,8 +22,10 @@ The game lives in the `godot/` folder of github.com/simmdanny/kingsgaard (apart 
 Double-click `Play Kingsgaard.bat` (it finds Godot 4.7.2 as above). The title screen has Play,
 Settings (window, vsync, render scale, shadows, grass, tree distance, mouse sensitivity, info overlay - saved in
 `user://settings.cfg`), Controls, Credits and Quit; Esc in the game opens the pause menu. Play asks for the hero: Male is alicewithalex's Low Poly Male Character (see
-`assets/characters/male01/SOURCE.md`), Female is the same model made feminine in code (`scripts/player/feminize.gd`). Both are
-animated in code, hands and fingers included (`scripts/player/rig_anim.gd`).
+`assets/characters/male01/SOURCE.md`), Female is the same model made feminine in code (`scripts/player/feminize.gd`: her
+bust, waist, hips and thighs reshaped, and narrower, gently sloping shoulders - her arm joints moved in and down by
+`SHOULDER_IN` / `SHOULDER_DOWN`, about 4 cm and 1 cm). Both are animated in code, hands and fingers included
+(`scripts/player/rig_anim.gd`). `scripts/tools/shape_probe.gd` measures the body's joints and widths by height.
 
 | Key | Action |
 | --- | --- |
