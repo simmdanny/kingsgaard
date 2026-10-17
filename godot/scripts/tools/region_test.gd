@@ -57,7 +57,18 @@ func _initialize() -> void:
 			var pos: Vector3 = b.pos
 			var look: Vector3 = b.look
 			bms[name] = [pos.x, pos.y, pos.z, look.x, look.y, look.z, b.fov]
-		var data := {"table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
+		# the arches' three views each, as the screenshot tool's --cam wants them (map x, z, height above the ground there)
+		var avs := []
+		for ai in region.arches.size():
+			var ar: Dictionary = region.arches[ai]
+			var vw := {}
+			for vk in ar.views:
+				var pv: Vector3 = ar.views[vk][0]
+				var lv: Vector3 = ar.views[vk][1]
+				vw[vk] = [pv.x, pv.z, pv.y - region.height_at(Vector2(pv.x, pv.z)), lv.x, lv.z, lv.y - region.height_at(Vector2(lv.x, lv.z))]
+			avs.append({"name": "arch%d" % (ai + 1), "views": vw, "wo": ar.wo, "ho": ar.ho, "bake_s": ar.bake_s, "tris": ar.tris,
+				"top": ar.top, "ground": ar.ground, "c": [(ar.c as Vector2).x, (ar.c as Vector2).y]})
+		var data := {"arches": avs, "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
 			"floor": region.floor_h, "levels": Array(rcfg.level_heights), "bookmarks": bms, "axis": [region.axis_u.x, region.axis_u.y]}
 		var f := FileAccess.open(out + "/region_data.json", FileAccess.WRITE)
 		f.store_string(JSON.stringify(data))
@@ -115,12 +126,12 @@ func _map(region, out: String) -> void:
 		for s in 90:
 			var c: Vector2i = to_px.call(Vector2(pos.x, pos.z) + dir * s * 8.0)
 			if c.x >= 0 and c.y >= 0 and c.x < n and c.y < n:
-				img.set_pixel(c.x, c.y, cols[name])
+				img.set_pixel(c.x, c.y, cols.get(name, Color(0.1, 0.9, 0.9)))
 		for dy in range(-5, 6):
 			for dx in range(-5, 6):
 				var cc := c0 + Vector2i(dx, dy)
 				if cc.x >= 0 and cc.y >= 0 and cc.x < n and cc.y < n and dx * dx + dy * dy <= 25:
-					img.set_pixel(cc.x, cc.y, cols[name])
+					img.set_pixel(cc.x, cc.y, cols.get(name, Color(0.1, 0.9, 0.9)))
 	img.save_png(out + "/region_map.png")
 
 

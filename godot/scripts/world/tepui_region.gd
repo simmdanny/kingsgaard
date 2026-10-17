@@ -15,8 +15,9 @@ extends RefCounted
 ##      the long walls are lit from the side. The floor: the island's middle height there, flat (gentle swells of a few metres),
 ##      blending back into the island's ground across the border band.
 ##   2. plateaus: from the settings' list - each an ellipse in layout coordinates, its outline bent by a domain warp, big bays
-##      and headlands and small wiggles; neighbours kept apart along their (power) Voronoi border by a canyon or a wider gap.
-##      Stacked terraces: the level below's shape set back by terrace_min .. terrace_max.
+##      and headlands and small wiggles; neighbours kept apart along their (power) Voronoi border (bent gently) by a canyon or
+##      a wider gap. Stacked terraces: the level below's shape set back by terrace_min .. terrace_max. The fins and necks the
+##      arches are carved through join the fields here; one canyon's floor is marked to sink below the valley's.
 ##   3. levels: one field per level (A, B, C), pieces smaller than min_plateau_km2 dropped.
 ##   4. ways up: ravines cut into the plateaus' edges (two per plateau piece and level), their floors climbing at notch_angle
 ##      from the ground in front to the top, out of the bookmarks' views where possible.
@@ -26,10 +27,13 @@ extends RefCounted
 ##      the ground at the foot, with slow curvature, buttresses, vertical grooves and setbacks at rock layers; trimesh collision.
 ##   8. walk check: every plateau piece reached on foot from the floor (slopes under 35 degrees), every ravine walked.
 ##   9. the plateau table: each piece's top height, the ground at its walls' feet, its walls' heights, its area.
+## The arches (after the walls): round each opening the rock is a signed distance volume (the fin as the walls have it, minus
+## the opening), meshed by surface nets at bake time and handed to the walls' list (same material, trimesh collision); the
+## walls stop at its box and it reaches on behind them, so the two meet on the same plain face.
 ## Everything stored is in map coordinates (walls relative to the region's centre). Cached in user://terrain.
 
 const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
-const VERSION := 2
+const VERSION := 3
 ## which way the game's sun (main.gd) shines across the ground
 const SUN_TRAVEL := Vector2(0.573, -0.820)
 ## two levels' edges closer than this are one wall (from the lower level's foot up into the upper level)
@@ -39,6 +43,8 @@ const STEP := 6.0
 ## the terrain shader may move a far vertex this far (m) onto the edge of its terrace
 const SNAP_REACH := 400.0
 const BIG := 1e9
+## the arch carving reaches this far (m) past its box along the fin, behind the wall meshes there (a seamless hand-over)
+const ARCH_OV := 18.0
 
 var cfg
 var gen
@@ -82,6 +88,14 @@ var _comps: Array = []
 var _jit: Array = []
 ## per layout cell: the ravine there + 1
 var _nid := PackedInt32Array()
+## per layout cell: the sunk canyon's field (positive where its floor is sunk), the fin / neck there + 1 and how far along it
+var _sink := PackedFloat32Array()
+var _fid := PackedByteArray()
+var _ft := PackedFloat32Array()
+## the fins and necks from the settings (map coordinates, their owners)
+var _feat: Array = []
+## the arches: each one's geometry (axis, opening, box), its bookmark views, its bake time and size
+var arches: Array = []
 var _views := {}
 var _t0 := 0
 
@@ -106,6 +120,10 @@ func _init(config, base_gen) -> void:
 	_n.border = _mk(s + 10, 1.0 / 900.0, 2)
 	_n.curve = _mk(s + 11, 1.0 / cfg.wall_curve_wavelength, 2)
 	_n.wall = _mk(s + 12, 1.0, 1)
+	_n.bend = _mk(s + 13, 1.0 / cfg.canyon_bend_wavelength, 2)
+	_n.edge = _mk(s + 14, 1.0 / 300.0, 2)
+	_n.rock = _mk(s + 15, 1.0 / 14.0, 2)
+	_n.rock2 = _mk(s + 16, 1.0 / 5.0, 1)
 
 
 static func _mk(s: int, freq: float, octaves: int) -> FastNoiseLite:
@@ -130,11 +148,13 @@ func generate() -> void:
 	_step("place", _place)
 	_step("plateaus", _plateaus)
 	_step("levels", _levels)
+	_step("arches", _arches_define)
 	_views_from_settings()
 	_step("ways up", _notches)
 	_step("heights", _heights)
 	_step("snap map", _snap)
 	_step("walls", _walls)
+	_step("arch bake", _arches_bake)
 	_step("bookmarks", _bookmarks)
 	_step("walk check", _walk_check)
 	_step("table", _table)
@@ -234,6 +254,27 @@ func _floor_at(p: Vector2, ground: float) -> float:
 	return lerpf(ground, flat, smoothstep(0.0, 1.0, clampf(_core(p), 0.0, 1.0)))
 
 
+## the ground at a point: the floor, sunk_depth lower in the sunk canyon (fading out across the border band)
+func _ground_at(p: Vector2, island: float) -> float:
+	var h := _floor_at(p, island)
+	if not _sink.is_empty() and _gbil(_sink, p) >= 0.0:
+		h -= cfg.sunk_depth * smoothstep(0.0, 1.0, clampf(_core(p), 0.0, 1.0))
+	return h
+
+
+## a level's top at a point: its plateau's, or along a neck from one plateau's top to the other's
+func _level_top(p: Vector2, k: int) -> float:
+	var c := _gcell(p)
+	var q := c.y * n + c.x
+	var fidx := int(_fid[q]) - 1
+	if fidx >= 0:
+		var f: Dictionary = _feat[fidx]
+		if int(f.kind) == 0 and k >= int(f.k_lo) and k <= int(f.k_hi):
+			return lerpf(_top_at(p, int(f.own0), k), _top_at(p, int(f.own1), k), smoothstep(0.15, 0.85, _ft[q]))
+	var own: PackedByteArray = _own[k]
+	return _top_at(p, maxi(int(own[q]) - 1, 0), k)
+
+
 ## a plateau's top at a point: the floor's height + its level + its own offset + gentle hills
 func _top_at(p: Vector2, plateau: int, k: int) -> float:
 	var nh: FastNoiseLite = _n.hill
@@ -326,7 +367,22 @@ func _plateaus() -> void:
 		for lv in range(1, 4):
 			jl.append(cfg.level_jitter * (2.0 * _hash01(seed_value, k, lv) - 1.0))
 		_jit.append(jl)
+	# the fins and necks: their axis in map coordinates, their owners (the plateau each end belongs to)
+	_feat = []
+	for k in cfg.arches.size():
+		var a: PackedFloat32Array = cfg.arches[k]
+		var p0 := _from_uv(Vector2(a[1], a[2]))
+		var p1 := _from_uv(Vector2(a[3], a[4]))
+		_feat.append({"kind": int(a[0]), "p0": p0, "p1": p1, "hw": a[5] * 0.5, "k_lo": int(a[6]), "k_hi": int(a[7]), "at": a[8],
+			"ow": a[9], "oh": a[10], "own0": _owner_near(p0), "own1": _owner_near(p1) if int(a[0]) == 0 else _owner_near(p0)})
 	var parts := _bands(_plateau_rows, n)
+	_sink = PackedFloat32Array()
+	_fid = PackedByteArray()
+	_ft = PackedFloat32Array()
+	for p in parts:
+		_sink.append_array(p[2])
+		_fid.append_array(p[3])
+		_ft.append_array(p[4])
 	_d = [PackedFloat32Array()]
 	_own = [PackedByteArray()]
 	for k in range(1, 4):
@@ -351,7 +407,18 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 	var canyon := {}
 	for pr in cfg.canyon_pairs:
 		canyon[Vector2i(mini(pr.x, pr.y), maxi(pr.x, pr.y))] = true
+	var nbend: FastNoiseLite = _n.bend
+	var nedge: FastNoiseLite = _n.edge
+	var sunk := Vector2i(-1, -1)
+	if cfg.sunk_canyon >= 0 and cfg.sunk_canyon < cfg.canyon_pairs.size():
+		sunk = cfg.canyon_pairs[cfg.sunk_canyon]
 	var cnt := (j1 - j0) * n
+	var sk := PackedFloat32Array()
+	var fi := PackedByteArray()
+	var ft := PackedFloat32Array()
+	sk.resize(cnt)
+	fi.resize(cnt)
+	ft.resize(cnt)
 	var d1 := PackedFloat32Array()
 	var d2 := PackedFloat32Array()
 	var d3 := PackedFloat32Array()
@@ -376,9 +443,14 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 			var q: Vector2 = p + axis_u * wv.x + axis_v * wv.y
 			var shape_n: float = cfg.bay_amp * nbay.get_noise_2d(lp.x, lp.y) + cfg.wiggle_amp * nwig.get_noise_2d(lp.x, lp.y)
 			var gn := 0.5 + 0.5 * ngap.get_noise_2d(lp.x, lp.y)
-			var lim: float = (_core(p) - 1.0) * cfg.border - 40.0
+			# (the trim at the border band wanders too: no long straight edge along it)
+			var lim: float = (_core(p) - 1.0) * cfg.border - 40.0 + cfg.edge_bend_amp * nedge.get_noise_2d(lp.x, lp.y)
+			# (and every border between neighbours bends gently: no long straight canyon side)
+			var bend: float = cfg.canyon_bend_amp * nbend.get_noise_2d(lp.x, lp.y)
 			var best := [-BIG, -BIG, -BIG]
 			var who := [0, 0, 0]
+			var ds_i := -BIG
+			var ds_j := -BIG
 			for a in np:
 				var sa: Dictionary = _sh[a]
 				var r: Vector2 = q - (sa.s as Vector2)
@@ -395,11 +467,15 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 					var sab: Vector2 = (sb.s as Vector2) - (sa.s as Vector2)
 					var pa: float = r.length_squared() - float(sa.w)
 					var pb: float = (q - (sb.s as Vector2)).length_squared() - float(sb.w)
-					var bis: float = (pb - pa) / (2.0 * sab.length())
+					var bis: float = (pb - pa) / (2.0 * sab.length()) + (bend if a < b else -bend)
 					var key := Vector2i(mini(a, b), maxi(a, b))
 					var m: float = lerpf(cfg.gap_canyon_min, cfg.gap_canyon_max, gn) if canyon.has(key) else lerpf(cfg.gap_min, cfg.gap_max, gn)
 					d = minf(d, bis - m)
 				d = minf(d, lim)
+				if a == sunk.x:
+					ds_i = d
+				elif a == sunk.y:
+					ds_j = d
 				# its levels: the base level and below take its shape, each stacked terrace that shape set back further
 				var base: int = sa.base
 				var cur := d
@@ -417,6 +493,33 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 					if float(lv_field[k]) > float(best[k]):
 						best[k] = lv_field[k]
 						who[k] = a + 1
+			# the fins and necks: a ridge along their axis (a neck widening into the plateaus at its ends, a fin narrowing a little
+			# to its round tip), its sides a little uneven
+			var fwin := 0
+			var fpar := 0.0
+			for fk in _feat.size():
+				var f: Dictionary = _feat[fk]
+				var f0: Vector2 = f.p0
+				var f1: Vector2 = f.p1
+				var fax: Vector2 = f1 - f0
+				var tt := clampf((p - f0).dot(fax) / fax.length_squared(), 0.0, 1.0)
+				var hw: float = f.hw
+				if int(f.kind) == 0:
+					hw *= 1.0 + 0.5 * (1.0 - smoothstep(0.0, 0.22, minf(tt, 1.0 - tt)))
+				else:
+					hw *= 1.0 - 0.15 * tt
+				var fd: float = minf(hw - p.distance_to(f0 + fax * tt) + 3.0 * nwig.get_noise_2d(lp.x * 3.0, lp.y * 3.0), lim)
+				for k in range(int(f.k_lo), int(f.k_hi) + 1):
+					if fd > float(best[k - 1]):
+						best[k - 1] = fd
+						who[k - 1] = (int(f.own0) if tt < 0.5 else int(f.own1)) + 1
+						if k == int(f.k_hi):
+							fwin = fk + 1
+							fpar = tt
+			fi[o] = fwin
+			ft[o] = fpar
+			# the sunk canyon: the floor within sunk_reach of both its plateaus
+			sk[o] = minf(ds_i, ds_j) + cfg.sunk_reach if sunk.x >= 0 else -BIG
 			d1[o] = maxf(float(best[0]), -2000.0)
 			d2[o] = maxf(float(best[1]), -2000.0)
 			d3[o] = maxf(float(best[2]), -2000.0)
@@ -424,10 +527,23 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 			o2[o] = who[1]
 			o3[o] = who[2]
 			o += 1
-	return [[d1, d2, d3], [o1, o2, o3]]
+	return [[d1, d2, d3], [o1, o2, o3], sk, fi, ft]
 
 
 # ---- 3. the levels -------------------------------------------------------------------------------------------------------
+
+## the plateau a map point belongs to (the nearest seed, by the same power distance the borders use)
+func _owner_near(p: Vector2) -> int:
+	var best := 0
+	var bd := INF
+	for a in _sh.size():
+		var sa: Dictionary = _sh[a]
+		var dd: float = (p - (sa.s as Vector2)).length_squared() - float(sa.w)
+		if dd < bd:
+			bd = dd
+			best = a
+	return best
+
 
 func _levels() -> void:
 	var nn := n * n
@@ -453,13 +569,17 @@ func _levels() -> void:
 			mask[q] = 1 if dk[q] >= 0.0 else 0
 		var lb: Dictionary = BaseGen._label(mask, n)
 		var labels: PackedInt32Array = lb.labels
-		var ok := PackedInt32Array()
 		var keep := []
 		var small := {}
 		var own: PackedByteArray = _own[k]
-		for r in lb.regions:
-			if int(r.cells) < min_cells:
-				small[int(r.id)] = true
+		var counts := {}
+		for q in nn:
+			if labels[q] > 0:
+				labels[q] = labels[q] * 8 + int(own[q])
+				counts[labels[q]] = int(counts.get(labels[q], 0)) + 1
+		for l in counts:
+			if int(counts[l]) < min_cells:
+				small[l] = true
 		for q in nn:
 			var l := labels[q]
 			if l > 0 and small.has(l):
@@ -624,8 +744,10 @@ func _place_notches(c: Dictionary, k: int, loops: Array, length: float, w: float
 			var inside := _gcell(p - nrm * 24.0)
 			if labk[inside.y * n + inside.x] != int(c.id):
 				continue
-			# 100 m of the ground below in front of it, and some to either side
+			# 100 m of the ground below in front of it, and some to either side (not the sunk canyon's floor, nowhere near an arch)
 			var side := Vector2(-nrm.y, nrm.x)
+			if (below == 0 and _gbil(_sink, p + nrm * 40.0) >= 0.0) or _in_arch_box(p, 60.0):
+				continue
 			if _lvl(p + nrm * 40.0) != below or _lvl(p + nrm * 100.0) != below or _lvl(p + nrm * 60.0 + side * 50.0) != below or _lvl(p + nrm * 60.0 - side * 50.0) != below:
 				continue
 			for a in [0.0, 20.0, -20.0, 40.0, -40.0, 60.0, -60.0, 72.0, -72.0]:
@@ -692,7 +814,7 @@ func _strip_ok(p: Vector2, dir: Vector2, length: float, w: float, k: int, tight 
 	while s <= length + 40.0:
 		for l in [-w * 0.5 - margin, 0.0, w * 0.5 + margin]:
 			var q: Vector2 = p + dir * s + side * float(l)
-			if _edge(q) < 50.0:
+			if _edge(q) < 50.0 or _in_arch_box(q, 40.0):
 				return false
 			if s >= 40.0 and _gbil(dk, q) < (4.0 if tight else 10.0):
 				return false
@@ -739,7 +861,7 @@ func _cut_notch(cd: Dictionary, length: float, w: float, k: int, below: int, pla
 			if sd < 0.0:
 				_nid[q] = idx + 1
 	var front := p + nrm * 40.0
-	var low := _floor_at(front, _base_h(front.x, front.y)) if below == 0 else _top_at(front, plateau, below)
+	var low := _ground_at(front, _base_h(front.x, front.y)) if below == 0 else _top_at(front, plateau, below)
 	var top := _top_at(p + dir * (start + length + 60.0), plateau, k)
 	notches.append({"level": k, "from": below, "plateau": plateau, "at": p, "dir": dir, "out": nrm, "length": length,
 		"start": start, "width": w, "low": low, "top": top})
@@ -765,7 +887,8 @@ func _heights_rows(j0: int, j1: int) -> PackedFloat32Array:
 		for i in fn:
 			var x: float = gen.origin + (fx0 + i) * sp
 			var p := Vector2(x, z)
-			var h := _floor_at(p, gen._px(fx0 + i, fz0 + j))
+			var island: float = gen._px(fx0 + i, fz0 + j)
+			var h := _ground_at(p, island)
 			var lc := 0
 			var lu := 0
 			for k in range(1, 4):
@@ -774,9 +897,7 @@ func _heights_rows(j0: int, j1: int) -> PackedFloat32Array:
 				if _gbil(_du[k], p) >= 0.0:
 					lu = k
 			if lc > 0:
-				var c := _gcell(p)
-				var own: PackedByteArray = _own[lc]
-				h = _top_at(p, maxi(int(own[c.y * n + c.x]) - 1, 0), lc)
+				h = _level_top(p, lc)
 			if lu > lc:
 				# in a ravine: its ramp, from the ground in front to the top
 				var c := _gcell(p)
@@ -791,6 +912,11 @@ func _heights_rows(j0: int, j1: int) -> PackedFloat32Array:
 					var nt: Dictionary = notches[id - 1]
 					var s: float = (p - (nt.at as Vector2)).dot(nt.dir) - float(nt.start)
 					h = clampf(float(nt.low) + maxf(s, 0.0) * tan_a, minf(h, float(nt.low)), float(nt.top))
+			# under an arch's opening: the ground below (the arch's bridge above it is its carved mesh)
+			for ar in arches:
+				var al := _arch_local(p, ar)
+				if absf(al.x) <= float(ar.strip) and absf(al.y) <= float(ar.B) and h > float(ar.ground) + 10.0:
+					h = _arch_ground_at(p, ar, island)
 			out[o] = h
 			o += 1
 	return out
@@ -1003,13 +1129,21 @@ func _out_normal(dk: PackedFloat32Array, p: Vector2) -> Vector2:
 
 func _walls() -> void:
 	walls = []
+	_rims = []
 	var cols_all := []
 	var total_len := 0.0
 	var verts := 0
 	var tris := 0
 	var loop_id := 0
-	for k in range(1, 4):
-		var dk: PackedFloat32Array = _d[k]
+	# (level 0: the step down into the sunk canyon, where its floor meets the valley's)
+	var neg_sink := PackedFloat32Array()
+	neg_sink.resize(n * n)
+	for q in n * n:
+		neg_sink[q] = -_sink[q]
+	for k in range(0, 4):
+		if k == 0 and cfg.sunk_canyon < 0:
+			continue
+		var dk: PackedFloat32Array = neg_sink if k == 0 else _d[k]
 		var dlow: PackedFloat32Array = _d[k - 1] if k > 1 else PackedFloat32Array()
 		for lp in _contours(dk):
 			loop_id += 1
@@ -1028,7 +1162,7 @@ func _walls() -> void:
 				# wall) and that level's own wall is left out here
 				var kt: int = k
 				var reach := 12.0
-				while kt < 3:
+				while kt < 3 and k > 0:
 					var dn := _gbil(_d[kt + 1], p)
 					if dn > -LEDGE_CLOSE:
 						reach = 12.0 + maxf(-dn, 0.0)
@@ -1052,10 +1186,15 @@ func _walls() -> void:
 						var qn := clampi(pc.y + dj, 0, n - 1) * n + clampi(pc.x + di, 0, n - 1)
 						near_notch = near_notch or _nid[qn] > 0
 				var oc := _gcell(p - nrm * reach)
-				var own: PackedByteArray = _own[kt]
+				var own: PackedByteArray = _own[maxi(kt, 1)]
 				all.append({"p": p, "n": nrm, "top": top, "foot": foot, "s": c * cfg.wall_column + loop_id * 10007.0,
-					"amp": 0.15 if near_notch else 1.0, "key": "%d:%d" % [maxi(int(own[oc.y * n + oc.x]) - 1, 0), kt], "notch": in_notch})
+					"amp": (0.15 if near_notch else 1.0) * _arch_fade(p), "key": "%d:%d" % [maxi(int(own[oc.y * n + oc.x]) - 1, 0), kt],
+					"notch": in_notch})
 				var coincide := k > 1 and _gbil(dlow, p) < LEDGE_CLOSE
+				# (the sunk canyon's step only across open floor - under a plateau's wall it is that wall's foot; inside an arch's box
+				# the carved mesh is the wall)
+				if (k == 0 and _gbil(_d[1], p) > -(LEDGE_CLOSE + 15.0)) or _in_arch_box(p, 0.0):
+					coincide = true
 				flag[c] = 1 if (top - foot >= cfg.wall_min_height and not coincide) else 0
 			# a steady on / off pattern round the loop: gaps of up to 2 columns between walls filled, walls shorter than 4 dropped
 			for pass_i in 2:
@@ -1144,6 +1283,8 @@ func _walls() -> void:
 
 
 var _cols: Array = []
+## the walls' visible top edges, per piece: the face's top edge points (map), their outward normals, the rock's top height
+var _rims: Array = []
 
 
 static func _chunks(run: Array, size: int) -> Array:
@@ -1257,16 +1398,375 @@ func _wall_mesh(cols: Array) -> Dictionary:
 			else:
 				idx.append_array(PackedInt32Array([a, b, a + 1, b, b + 1, a + 1]))
 	mid = (m / 2) * bl
+	# (the face's top edge, for cameras standing at the visible rim)
+	var rim_p := PackedVector2Array()
+	var rim_n := PackedVector2Array()
+	for c in m:
+		var e3 := pos[c * bl + 2]
+		rim_p.append(Vector2(e3.x + center.x, e3.z + center.y))
+		rim_n.append(outs[c])
+	_rims.append({"p": rim_p, "n": rim_n, "top": float(cols[m / 2].top)})
 	return {"verts": pos, "normals": nor, "indices": idx, "probe": PackedVector3Array([pos[mid + 3], pos[mid + 3 + rows]]),
 		"height": float(cols[m / 2].top) - float(cols[m / 2].foot)}
+
+
+# ---- 7b. the arches --------------------------------------------------------------------------------------------------------
+
+## a map point in an arch's frame: (along its fin or neck, through it)
+func _arch_local(p: Vector2, ar: Dictionary) -> Vector2:
+	var rel: Vector2 = p - (ar.c as Vector2)
+	return Vector2(rel.dot(ar.axis), rel.dot(ar.t))
+
+
+func _in_arch_box(p: Vector2, margin: float) -> bool:
+	for ar in arches:
+		var al := _arch_local(p, ar)
+		if absf(al.x) < float(ar.A) + margin and absf(al.y) < float(ar.B) + margin:
+			return true
+	return false
+
+
+## how much of its shapes a wall column keeps beside an arch: none where the carving overlaps it, all from 30 m further on
+## (so the wall and the carved rock meet on the same plain face)
+func _arch_fade(p: Vector2) -> float:
+	var f := 1.0
+	for ar in arches:
+		var al := _arch_local(p, ar)
+		if absf(al.y) < float(ar.B) + 30.0:
+			f = minf(f, clampf((absf(al.x) - float(ar.A) - ARCH_OV) / 30.0, 0.0, 1.0))
+	return f
+
+
+## the top of a fin's or neck's level at a point (along a neck, blending from one plateau's top to the other's)
+func _feat_top(p: Vector2, f: Dictionary) -> float:
+	var k: int = f.k_hi
+	if int(f.kind) == 0:
+		var f0: Vector2 = f.p0
+		var fax: Vector2 = (f.p1 as Vector2) - f0
+		var tt := clampf((p - f0).dot(fax) / fax.length_squared(), 0.0, 1.0)
+		return lerpf(_top_at(p, int(f.own0), k), _top_at(p, int(f.own1), k), smoothstep(0.15, 0.85, tt))
+	return _top_at(p, int(f.own0), k)
+
+
+## the ground under an arch at a point: the floor (with the sunk canyon), or the top of the level below the fin
+func _arch_ground_at(p: Vector2, ar: Dictionary, island: float) -> float:
+	var f: Dictionary = _feat[int(ar.feat)]
+	if int(f.k_lo) <= 1:
+		return _ground_at(p, island)
+	return _top_at(p, int(f.own0), int(f.k_lo) - 1)
+
+
+## each arch from its fin or neck: where the opening is (on the axis, at the settings' fraction along it), the ground under
+## it and the rock's top, the opening's size (never leaving less than 30 m of rock above it), the box the carving fills
+## (along the axis: the opening at its widest + 25 m of rock either side; through: the fin's width + its walls + 30 m) and
+## the strip of ground lowered under the opening
+func _arches_define() -> void:
+	arches = []
+	for k in _feat.size():
+		var f: Dictionary = _feat[k]
+		var p0: Vector2 = f.p0
+		var p1: Vector2 = f.p1
+		var ax := (p1 - p0).normalized()
+		var c := p0.lerp(p1, float(f.at))
+		var top := _feat_top(c, f)
+		var ar := {"feat": k, "kind": f.kind, "c": c, "axis": ax, "t": Vector2(-ax.y, ax.x), "lo": f.k_lo, "hi": f.k_hi, "hw": f.hw}
+		var ground := _arch_ground_at(c, ar, _base_h(c.x, c.y))
+		var wo: float = f.ow
+		var ho := minf(float(f.oh), top - ground - 30.0)
+		var wmax: float = wo * 0.5 * (1.0 + cfg.arch_flare) + cfg.arch_rough
+		ar.merge({"top": top, "ground": ground, "wo": wo, "ho": ho, "A": wmax + 25.0, "B": float(f.hw) + 30.0, "strip": wmax + 3.0})
+		arches.append(ar)
+	report.arches_planned = arches.size()
+
+
+func _arches_bake() -> void:
+	var lines := []
+	for ai in arches.size():
+		var t0 := Time.get_ticks_msec()
+		var ar: Dictionary = arches[ai]
+		var mesh := _arch_mesh(ar)
+		walls.append(mesh)
+		ar.bake_s = (Time.get_ticks_msec() - t0) / 1000.0
+		ar.tris = (mesh.indices as PackedInt32Array).size() / 3
+		ar.vertices = (mesh.verts as PackedVector3Array).size()
+		lines.append("arch%d (%s): opening %.0f m wide x %.0f m tall, %.0f m of rock above it, top %.0f m above the ground below; bake %.1f s, %d triangles, %d vertices" % [
+			ai + 1, "neck" if int(ar.kind) == 0 else "fin", ar.wo, ar.ho, float(ar.top) - float(ar.ground) - float(ar.ho), float(ar.top) - float(ar.ground), ar.bake_s, ar.tris, ar.vertices])
+	report.arches = lines
+
+
+## smooth minimum (a fillet of radius about k where two shapes meet)
+static func _smin(a: float, b: float, k: float) -> float:
+	var h := maxf(k - absf(a - b), 0.0) / k
+	return minf(a, b) - h * h * k * 0.25
+
+
+## one arch's carved rock: a signed distance volume over its box (positive inside the rock) - the fin or neck as the walls
+## have it (its plan from its level's edge, the face wall_face_offset out, the rock's top with its lip over the edge, its
+## foot under the ground), rough on its faces away from the box's ends, minus the opening (a tall, rounded profile, leaning
+## a little, flaring towards both mouths, its edges rough) - meshed by surface nets, smoothed, normals from the volume
+func _arch_mesh(ar: Dictionary) -> Dictionary:
+	var vs: float = cfg.arch_voxel
+	var A: float = float(ar.A) + ARCH_OV
+	var B: float = ar.B
+	var c: Vector2 = ar.c
+	var ax: Vector2 = ar.axis
+	var tv: Vector2 = ar.t
+	var G: float = ar.ground
+	var T: float = ar.top
+	var wo: float = ar.wo
+	var ho: float = ar.ho
+	var hw: float = ar.hw
+	var f: Dictionary = _feat[int(ar.feat)]
+	var y0 := G - 9.0
+	var y1 := T + 4.0
+	var na := int(ceil(2.0 * A / vs)) + 1
+	var nb := int(ceil(2.0 * B / vs)) + 1
+	var ny := int(ceil((y1 - y0) / vs)) + 1
+	var nr: FastNoiseLite = _n.rock
+	var off0: float = cfg.wall_face_offset
+	var rough: float = cfg.arch_rough
+	# the level's edge round the arch: its contour's segments within reach
+	var dk: PackedFloat32Array = _d[int(ar.hi)]
+	var segs := PackedVector2Array()
+	var reach := A + B + 60.0
+	for lp in _contours(dk):
+		var m: int = lp.size()
+		for q in m:
+			var pa: Vector2 = lp[q]
+			var pb: Vector2 = lp[(q + 1) % m]
+			if pa.distance_to(pb) < 30.0 and (pa.distance_to(c) < reach or pb.distance_to(c) < reach):
+				segs.append(pa)
+				segs.append(pb)
+	# per column of the volume: the signed distance to that edge in plan, the top, the ground, the rock's top surface, how far
+	# into the hand-over zone at the box's ends, how rough
+	var nc := na * nb
+	var cD := PackedFloat32Array()
+	var cTop := PackedFloat32Array()
+	var cFoot := PackedFloat32Array()
+	var cIn := PackedFloat32Array()
+	var cR := PackedFloat32Array()
+	var cP := PackedVector2Array()
+	for arr in [cD, cTop, cFoot, cIn, cR]:
+		pass
+	cD.resize(nc)
+	cTop.resize(nc)
+	cFoot.resize(nc)
+	cIn.resize(nc)
+	cR.resize(nc)
+	cP.resize(nc)
+	for ib in nb:
+		var bq := -B + ib * vs
+		for ia in na:
+			var aq := -A + ia * vs
+			var p: Vector2 = c + ax * aq + tv * bq
+			var dmin := INF
+			for s2 in range(0, segs.size(), 2):
+				dmin = minf(dmin, _pt_seg(p, segs[s2], segs[s2 + 1]))
+			var d: float = dmin if _gbil(dk, p) >= 0.0 else -dmin
+			var top := _feat_top(p, f)
+			var ci := ib * na + ia
+			cD[ci] = d
+			# (over the lowered strip the rock's top is the walkable top, and stays level until well past the terrain's step at the
+			# strip's edge before it dips under the grass - no curb where they meet)
+			cTop[ci] = top - 2.0 + 2.15 * maxf(1.0 - smoothstep(5.0, 11.0, absf(aq) - float(ar.strip)), 1.0 - smoothstep(8.0, 12.0, d))
+			cFoot[ci] = _arch_ground_at(p, ar, _base_h(p.x, p.y)) - 6.0
+			cIn[ci] = 0.15 * smoothstep(float(ar.A) - 2.0, float(ar.A) + 2.0, absf(aq))
+			cR[ci] = 1.0 - smoothstep(float(ar.A) - 32.0, float(ar.A) - 4.0, absf(aq))
+			cP[ci] = p
+	# the volume
+	var V := PackedFloat32Array()
+	V.resize(nc * ny)
+	var lean_ph := _hash01(seed_value, int(ar.feat), 21) * TAU
+	for iy in ny:
+		var y := y0 + iy * vs
+		var yh := y - G
+		for ib in nb:
+			var bq := -B + ib * vs
+			var bb := absf(bq)
+			# (the opening widens and rises towards its mouths, narrowest in the fin's middle)
+			var fl: float = smoothstep(hw * 0.3, hw + 14.0, bb) * cfg.arch_flare
+			var wf := wo * 0.5 * (1.0 + fl)
+			var hf := ho * (1.0 + 0.5 * fl)
+			var lean := wo * (0.07 * sin(yh / maxf(ho, 1.0) * 2.2 + lean_ph) + 0.04 * sin(bq * 0.03 + lean_ph * 2.0))
+			for ia in na:
+				var ci := ib * na + ia
+				var aq := -A + ia * vs
+				var p: Vector2 = cP[ci]
+				var face: float = cD[ci] + off0
+				if absf(face) < 14.0 and cR[ci] > 0.0:
+					face += cR[ci] * 0.6 * rough * nr.get_noise_3d(p.x * 0.5, y * 0.08, p.y * 0.5)
+				var rock: float = minf(minf(face, cTop[ci] - y), y - cFoot[ci]) - cIn[ci]
+				# the opening (positive inside it)
+				var aa := absf(aq - lean * clampf(yh / maxf(ho, 1.0), 0.0, 1.0))
+				var tun: float
+				if yh <= 0.0:
+					tun = wf - aa
+				else:
+					var sq: float = pow(aa / wf, 2.4) + pow(yh / hf, 2.0)
+					tun = (1.0 - sqrt(sq)) * minf(wf, hf)
+				if absf(tun) < 12.0:
+					tun += rough * nr.get_noise_3d(p.x * 0.8 + 300.0, y * 0.6, p.y * 0.8)
+				V[(iy * nb + ib) * na + ia] = _smin(rock, -tun, 3.0)
+	return _surface_nets(V, na, nb, ny, vs, Vector3(-A, y0, -B), c, ax, tv)
+
+
+## surface nets over a sampled volume (positive inside): one vertex per cell the surface passes through (the mean of its
+## edges' crossings), a quad round every grid edge it crosses, two passes of smoothing, normals down the volume's gradient
+## Grid axes: along the arch (a), through it (b), up (y); origin = the grid's first corner in that frame.
+func _surface_nets(V: PackedFloat32Array, na: int, nb: int, ny: int, vs: float, org: Vector3, c: Vector2, ax: Vector2, tv: Vector2) -> Dictionary:
+	var ca := na - 1
+	var cb := nb - 1
+	var cy := ny - 1
+	var cell := PackedInt32Array()
+	cell.resize(ca * cb * cy)
+	cell.fill(-1)
+	var loc := PackedVector3Array()
+	var grad := PackedVector3Array()
+	var offs := [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 1, 0), Vector3i(1, 1, 0), Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(0, 1, 1), Vector3i(1, 1, 1)]
+	var cv := PackedFloat32Array()
+	cv.resize(8)
+	for iy in cy:
+		for ib in cb:
+			for ia in ca:
+				var inside := 0
+				for k in 8:
+					var o: Vector3i = offs[k]
+					var v := V[((iy + o.z) * nb + ib + o.y) * na + ia + o.x]
+					cv[k] = v
+					if v > 0.0:
+						inside += 1
+				if inside == 0 or inside == 8:
+					continue
+				var acc := Vector3.ZERO
+				var cnt := 0
+				for k in 8:
+					for bit in [1, 2, 4]:
+						if k & bit:
+							continue
+						var k2: int = k | bit
+						var va := cv[k]
+						var vb := cv[k2]
+						if (va > 0.0) == (vb > 0.0):
+							continue
+						var t := va / (va - vb)
+						var oa: Vector3i = offs[k]
+						var ob: Vector3i = offs[k2]
+						acc += Vector3(oa).lerp(Vector3(ob), t)
+						cnt += 1
+				acc /= cnt
+				cell[(iy * cb + ib) * ca + ia] = loc.size()
+				loc.append(Vector3(ia, ib, iy) + acc)
+				# the gradient across the cell (a, b, y)
+				var g := Vector3((cv[1] + cv[3] + cv[5] + cv[7]) - (cv[0] + cv[2] + cv[4] + cv[6]),
+					(cv[2] + cv[3] + cv[6] + cv[7]) - (cv[0] + cv[1] + cv[4] + cv[5]),
+					(cv[4] + cv[5] + cv[6] + cv[7]) - (cv[0] + cv[1] + cv[2] + cv[3]))
+				grad.append(g)
+	# quads round every crossed grid edge; each triangle facing out of the rock (Godot's front faces wind clockwise)
+	var quads := PackedInt32Array()
+	var outs := PackedVector3Array()
+	for iy in ny:
+		for ib in nb:
+			for ia in na:
+				var v0 := V[(iy * nb + ib) * na + ia]
+				for axis in 3:
+					var ja := ia + (1 if axis == 0 else 0)
+					var jb := ib + (1 if axis == 1 else 0)
+					var jy := iy + (1 if axis == 2 else 0)
+					if ja >= na or jb >= nb or jy >= ny:
+						continue
+					var v1 := V[(jy * nb + jb) * na + ja]
+					if (v0 > 0.0) == (v1 > 0.0):
+						continue
+					var cs := []
+					if axis == 0:
+						if ib < 1 or iy < 1 or ib >= cb or iy >= cy:
+							continue
+						cs = [Vector3i(ia, ib - 1, iy - 1), Vector3i(ia, ib, iy - 1), Vector3i(ia, ib, iy), Vector3i(ia, ib - 1, iy)]
+					elif axis == 1:
+						if ia < 1 or iy < 1 or ia >= ca or iy >= cy:
+							continue
+						cs = [Vector3i(ia - 1, ib, iy - 1), Vector3i(ia, ib, iy - 1), Vector3i(ia, ib, iy), Vector3i(ia - 1, ib, iy)]
+					else:
+						if ia < 1 or ib < 1 or ia >= ca or ib >= cb:
+							continue
+						cs = [Vector3i(ia - 1, ib - 1, iy), Vector3i(ia, ib - 1, iy), Vector3i(ia, ib, iy), Vector3i(ia - 1, ib, iy)]
+					var ids := PackedInt32Array()
+					for cc in cs:
+						var q3: Vector3i = cc
+						ids.append(cell[(q3.z * cb + q3.y) * ca + q3.x])
+					if ids.has(-1):
+						continue
+					quads.append_array(ids)
+					var dirv := Vector3(1.0 if axis == 0 else 0.0, 1.0 if axis == 1 else 0.0, 1.0 if axis == 2 else 0.0)
+					outs.append(dirv if v0 > 0.0 else -dirv)
+	# smoothing: each vertex halfway to the mean of its neighbours, twice
+	var nv := loc.size()
+	var nbr := []
+	nbr.resize(nv)
+	for i in nv:
+		nbr[i] = PackedInt32Array()
+	for qi in range(0, quads.size(), 4):
+		for e in 4:
+			var a := quads[qi + e]
+			var b := quads[qi + (e + 1) % 4]
+			var na_: PackedInt32Array = nbr[a]
+			if not na_.has(b):
+				na_.append(b)
+				nbr[a] = na_
+			var nb_: PackedInt32Array = nbr[b]
+			if not nb_.has(a):
+				nb_.append(a)
+				nbr[b] = nb_
+	var home := loc.duplicate()
+	for it in 2:
+		var sm := loc.duplicate()
+		for i in nv:
+			var ns: PackedInt32Array = nbr[i]
+			if ns.is_empty():
+				continue
+			var m := Vector3.ZERO
+			for j in ns:
+				m += loc[j]
+			var lo := home[i].floor()
+			sm[i] = loc[i].lerp(m / ns.size(), 0.5).clamp(lo + Vector3(0.05, 0.05, 0.05), lo + Vector3(0.95, 0.95, 0.95))
+		loc = sm
+	# into the region's frame (relative to its centre, like the walls)
+	var to_world := func(l: Vector3) -> Vector3:
+		var aq: float = org.x + l.x * vs
+		var bq: float = org.z + l.y * vs
+		var p: Vector2 = c + ax * aq + tv * bq
+		return Vector3(p.x - center.x, org.y + l.z * vs, p.y - center.y)
+	var dir_world := func(d: Vector3) -> Vector3:
+		var h: Vector2 = ax * d.x + tv * d.y
+		return Vector3(h.x, d.z, h.y)
+	var verts := PackedVector3Array()
+	verts.resize(nv)
+	var nors := PackedVector3Array()
+	nors.resize(nv)
+	for i in nv:
+		verts[i] = to_world.call(loc[i])
+		nors[i] = (dir_world.call(-grad[i]) as Vector3).normalized()
+	var idx := PackedInt32Array()
+	for qi in range(0, quads.size(), 4):
+		var out: Vector3 = dir_world.call(outs[qi / 4])
+		for tri in [[0, 1, 2], [0, 2, 3]]:
+			var i0 := quads[qi + int(tri[0])]
+			var i1 := quads[qi + int(tri[1])]
+			var i2 := quads[qi + int(tri[2])]
+			if (verts[i1] - verts[i0]).cross(verts[i2] - verts[i0]).dot(out) > 0.0:
+				idx.append_array(PackedInt32Array([i0, i2, i1]))
+			else:
+				idx.append_array(PackedInt32Array([i0, i1, i2]))
+	return {"verts": verts, "normals": nors, "indices": idx, "probe": PackedVector3Array([Vector3.ZERO, Vector3.ZERO]), "height": 0.0, "arch": true}
 
 
 # ---- 8. the bookmarks, the walk check and the table ----------------------------------------------------------------------
 
 ## the four views from the settings, on the finished ground: each camera over the highest ground within 20 m of its spot.
-## With an eighth number the camera stands exactly that far (m) in from the nearest edge of the plateau it is on; with a
-## ninth it also looks along that edge (towards the side of the given target), turned that many degrees in over the plateau
-## (negative: out over the drop), at a point 1200 m away the given height above the camera's own ground.
+## With an eighth number the camera stands at the visible rim nearest its spot (the top edge of the wall's face, on the
+## plateau the spot is on), that far (m) in from it; with a ninth it looks along that rim (towards the side of the given
+## target), turned that many degrees in over the plateau (negative: out over the drop), at a point 1200 m away the given
+## height above the plateau's top.
 func _bookmarks() -> void:
 	bookmarks = {}
 	for name in cfg.bookmark_views:
@@ -1274,32 +1774,72 @@ func _bookmarks() -> void:
 		var cam := _from_uv(Vector2(v[0], v[1]))
 		var tgt := _from_uv(Vector2(v[3], v[4]))
 		var look_h := NAN
+		var ground_h := NAN
 		if v.size() > 7:
-			var e := _edge_near(cam)
-			# (only at a rim - the ground beyond the edge lower: at a wall's foot the camera would stand in the rock)
-			if not e.is_empty() and height_at((e.at as Vector2) - (e.inward as Vector2) * 12.0) > height_at(e.at) - 20.0:
-				report["bookmark_" + name] = "not at a rim: the nearest edge is a wall's foot - placed as given"
-				e = {}
-			if not e.is_empty():
-				var ep: Vector2 = e.at
-				var nin: Vector2 = e.inward
-				cam = ep + nin * v[7]
+			var r := _rim_near(cam)
+			if r.is_empty():
+				report["bookmark_" + name] = "no wall rim near its spot - placed as given"
+			else:
+				var rp: Vector2 = r.p
+				var rn: Vector2 = r.n
+				var rt: Vector2 = r.t
+				cam = rp - rn * v[7]
+				ground_h = float(r.top)
 				if v.size() > 8:
-					var t := Vector2(-nin.y, nin.x)
-					if t.dot(tgt - cam) < 0.0:
-						t = -t
-					var d := (t * cos(deg_to_rad(v[8])) + nin * sin(deg_to_rad(v[8]))).normalized()
+					if rt.dot(tgt - cam) < 0.0:
+						rt = -rt
+					var d := (rt * cos(deg_to_rad(v[8])) - rn * sin(deg_to_rad(v[8]))).normalized()
 					tgt = cam + d * 1200.0
-					look_h = height_at(cam) + v[5]
+					look_h = ground_h + v[5]
 		var g := -INF
 		for dz in range(-20, 21, 5):
 			for dx in range(-20, 21, 5):
 				g = maxf(g, height_at(cam + Vector2(dx, dz)))
-		if v.size() > 7:
-			g = height_at(cam)
+		if not is_nan(ground_h):
+			g = ground_h
 		var th: float = look_h if not is_nan(look_h) else height_at(tgt) + v[5]
 		bookmarks[name] = {"pos": Vector3(cam.x, g + v[2], cam.y), "look": Vector3(tgt.x, th, tgt.y), "fov": v[6]}
+	# each arch from the side (low, looking up through the opening at the sky beyond), from below and from above
+	for ai in arches.size():
+		var ar: Dictionary = arches[ai]
+		var c: Vector2 = ar.c
+		var tv: Vector2 = ar.t
+		var ax: Vector2 = ar.axis
+		var G: float = ar.ground
+		var ho: float = ar.ho
+		var dist := float(ar.hw) + maxf(ho * 1.2, 40.0)
+		# (from the side the sun lights)
+		var sun_side := tv if tv.dot(-SUN_TRAVEL) > 0.0 else -tv
+		var side: Vector2 = c + sun_side * dist
+		if height_at(side) > G + 15.0:
+			side = c - sun_side * dist
+		bookmarks["arch%d" % (ai + 1)] = {"pos": Vector3(side.x, height_at(side) + 3.0, side.y), "look": Vector3(c.x, G + ho * 0.62, c.y), "fov": 75.0}
+		var below: Vector2 = c + ax * (float(ar.wo) * 0.08)
+		var above: Vector2 = c + tv * (float(ar.B) + 150.0) + ax * 70.0
+		ar.views = {"side": [Vector3(side.x, height_at(side) + 3.0, side.y), Vector3(c.x, G + ho * 0.62, c.y)],
+			"below": [Vector3(below.x, G + 2.5, below.y), Vector3(below.x + sun_side.x * (float(ar.hw) + 25.0), G + ho * 1.6, below.y + sun_side.y * (float(ar.hw) + 25.0))],
+			"top": [Vector3(above.x, float(ar.top) + 170.0, above.y), Vector3(c.x, float(ar.top), c.y)]}
 	report.bookmarks = bookmarks.keys()
+
+
+## the visible rim nearest a map point on the plateau it is on: the closest face-top point of a wall whose rock top is that
+## plateau's height, its outward normal and the rim's direction there (over a few columns either way)
+func _rim_near(p: Vector2) -> Dictionary:
+	var h := height_at(p)
+	var best := {}
+	var bd := INF
+	for rim in _rims:
+		if absf(float(rim.top) - h) > 20.0:
+			continue
+		var pts: PackedVector2Array = rim.p
+		for k in pts.size():
+			var dd := pts[k].distance_squared_to(p)
+			if dd < bd:
+				bd = dd
+				var k0 := maxi(k - 5, 0)
+				var k1 := mini(k + 5, pts.size() - 1)
+				best = {"p": pts[k], "n": (rim.n as PackedVector2Array)[k], "t": (pts[k1] - pts[k0]).normalized(), "top": rim.top}
+	return best
 
 
 ## the nearest edge of the terrace a map point stands on: the edge sample (from the snap map) and the edge's inward normal,
@@ -1605,6 +2145,7 @@ func _free() -> void:
 	_comps = []
 	_nid = PackedInt32Array()
 	_cols = []
+	_rims = []
 
 
 # ---- onto the island -----------------------------------------------------------------------------------------------------
@@ -1722,7 +2263,8 @@ func save(path: String) -> void:
 	if f == null:
 		return
 	f.store_var({"version": VERSION, "center": center, "axis_u": axis_u, "fx0": fx0, "fz0": fz0, "fn": fn, "n": n,
-		"floor_h": floor_h, "notches": notches, "objects": objects, "bookmarks": bookmarks, "report": report, "walls": walls})
+		"floor_h": floor_h, "notches": notches, "objects": objects, "bookmarks": bookmarks, "report": report, "walls": walls,
+		"arches": arches})
 	f.store_buffer(fh.to_byte_array())
 	f.store_buffer(snap.to_byte_array())
 	f.store_buffer(level)
@@ -1748,6 +2290,7 @@ func load_cache(path: String) -> bool:
 	report = meta.report
 	report.cached = true
 	walls = meta.walls
+	arches = meta.get("arches", [])
 	fh = f.get_buffer(fn * fn * 4).to_float32_array()
 	snap = f.get_buffer(fn * fn * 8).to_float32_array()
 	level = f.get_buffer(n * n)

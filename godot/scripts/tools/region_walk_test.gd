@@ -3,7 +3,9 @@ extends SceneTree
 ##  1. a way up: the hero is put on the ground in front of the ravine with the biggest rise and walks up its floor - it must
 ##     climb nearly all of it and come out on the plateau's top;
 ##  2. a wall: the hero walks straight at the tallest wall piece's face for 25 s - it must neither climb it nor get through it
-##     (the wall's trimesh collision; the terrain's own step is behind the face).
+##     (the wall's trimesh collision; the terrain's own step is behind the face);
+##  3. the biggest arch: the hero walks through its opening on the ground, from one side of the fin to the other;
+##  4. and across its top, over the opening, without falling (the carved mesh's collision carries it).
 ##   Godot_console.exe --path . --resolution 1280x720 --script res://scripts/tools/region_walk_test.gd
 
 var main
@@ -20,6 +22,7 @@ var wall_top := 0.0
 var deepest := 1e9
 var path_pts: Array = []
 var path_i := 0
+var low_h := 1e9
 
 
 func _initialize() -> void:
@@ -44,6 +47,14 @@ func _local(p: Vector2) -> Vector3:
 	main.origin.recenter(main.origin.to_local_pos(Vector3(p.x, 0.0, p.y)))
 	var l: Vector3 = main.origin.to_local_pos(Vector3(p.x, 0.0, p.y))
 	return Vector3(l.x, main.gen.height(l.x, l.z), l.z)
+
+
+func _big_arch(region) -> Dictionary:
+	var best: Dictionary = region.arches[0]
+	for ar in region.arches:
+		if float(ar.ho) > float(best.ho):
+			best = ar
+	return best
 
 
 func _process(dt: float) -> bool:
@@ -135,6 +146,51 @@ func _process(dt: float) -> bool:
 				Input.action_release("move_forward")
 				Input.action_release("sprint")
 				_check(best_h < start.y + 20.0 and deepest > -4.0, "walking into a sheer wall (%.0f m tall): got from %.0f m up to %.0f m, at most %.1f m past its foot line" % [wall_top - start.y, start.y, best_h, -deepest])
+				if region.arches.is_empty():
+					print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
+					return true
+				# 3. through the biggest arch's opening, on the ground
+				var ar: Dictionary = _big_arch(region)
+				var c: Vector2 = ar.c
+				var tv: Vector2 = ar.t
+				var s3 := _local(c + tv * (float(ar.B) + 25.0))
+				main.player.place(s3.x, s3.z)
+				start = main.player.position
+				var g3: Vector2 = c - tv * (float(ar.B) + 25.0)
+				goal = main.origin.to_local_pos(Vector3(g3.x, 0.0, g3.y))
+				best_h = -1e9
+				Input.action_press("move_forward")
+				Input.action_press("sprint")
+				step = 4
+				t = 0.0
+		4:
+			_walk_toward(goal)
+			best_h = maxf(best_h, main.player.position.y)
+			var ar4: Dictionary = _big_arch(main.terrain.region)
+			var gd := Vector2(main.player.position.x - goal.x, main.player.position.z - goal.z).length()
+			if t > 40.0 or gd < 10.0:
+				_check(gd < 10.0 and best_h < float(ar4.ground) + 12.0, "walking through the big arch's opening (%.0f m tall): %s, highest %.0f m above the ground there" % [ar4.ho, "came out the other side" if gd < 10.0 else "stopped %.0f m short" % gd, best_h - float(ar4.ground)])
+				# 4. across its top, over the opening
+				var c4: Vector2 = ar4.c
+				var ax: Vector2 = ar4.axis
+				var s4 := _local(c4 - ax * (float(ar4.strip) + 30.0))
+				main.player.place(s4.x, s4.z)
+				start = main.player.position
+				var g4: Vector2 = c4 + ax * (float(ar4.strip) + 12.0)
+				goal = main.origin.to_local_pos(Vector3(g4.x, 0.0, g4.y))
+				low_h = 1e9
+				step = 5
+				t = 0.0
+		5:
+			_walk_toward(goal)
+			if t > 1.0:
+				low_h = minf(low_h, main.player.position.y)
+			var ar5: Dictionary = _big_arch(main.terrain.region)
+			var gd5 := Vector2(main.player.position.x - goal.x, main.player.position.z - goal.z).length()
+			if t > 40.0 or gd5 < 8.0:
+				Input.action_release("move_forward")
+				Input.action_release("sprint")
+				_check(gd5 < 8.0 and low_h > float(ar5.top) - 4.0, "walking across the big arch's top (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(ar5.top) - float(ar5.ground), "crossed" if gd5 < 8.0 else "stopped %.0f m short" % gd5, float(ar5.top) - low_h])
 				print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 				return true
 	return false

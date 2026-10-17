@@ -48,6 +48,16 @@ extends Resource
 @export var gap_canyon_max := 125.0
 @export var gap_min := 110.0
 @export var gap_max := 220.0
+## the borders between neighbours bend gently (amplitude m, wavelength m): no long straight canyon side; the plateaus' trim
+## at the region's border band wanders by edge_bend_amp (m) the same way
+@export var canyon_bend_amp := 45.0
+@export var canyon_bend_wavelength := 380.0
+@export var edge_bend_amp := 30.0
+## one canyon's floor sunk below the region's floor (an index into canyon_pairs; -1 none): this deep (m), over the floor
+## within sunk_reach (m) of both its plateaus; a wall steps down into it where it opens on the valley
+@export var sunk_canyon := 0
+@export var sunk_depth := 85.0
+@export var sunk_reach := 190.0
 ## the outlines: domain warp (m, wavelength m), big bays and headlands (amplitude m, wavelength m), small wiggles (m, m)
 @export var warp_amp := 130.0
 @export var warp_wavelength := 1100.0
@@ -104,15 +114,33 @@ extends Resource
 @export var notch_angle := 30.0
 @export var notch_width := 90.0
 
+@export_group("Arches")
+## rock fins and necks with an opening carved through them. Each: [kind (0 a neck: a rock bridge between two plateau parts,
+## 1 a fin: a ridge sticking out from a wall), u0, v0, u1, v1 (layout coordinates: the neck's two ends inside the plateaus,
+## or the fin's root inside the plateau and its tip out over the ground), width (m), the lowest and highest level it fills
+## (1 - 3), where along it the opening is (0 .. 1), the opening's width and height at its narrowest (m)]
+@export var arches: Array[PackedFloat32Array] = [
+	PackedFloat32Array([1.0, -1000.0, -460.0, -1000.0, -40.0, 70.0, 1.0, 2.0, 0.76, 80.0, 130.0]),
+	PackedFloat32Array([1.0, 650.0, 560.0, 650.0, 200.0, 46.0, 1.0, 1.0, 0.78, 30.0, 48.0]),
+	PackedFloat32Array([1.0, 880.0, -60.0, 560.0, -60.0, 36.0, 1.0, 1.0, 0.53, 20.0, 28.0]),
+]
+## the carving: voxel size of the bake (m), how rough the rock and the opening's edges are (m), how much the opening widens
+## towards its mouths (0 .. 1)
+@export var arch_voxel := 2.5
+@export var arch_rough := 3.0
+@export var arch_flare := 0.35
+
 @export_group("Bookmarks")
-## the four camera views after the reference pictures (ref1 on a terrace's edge looking along the cliffs, ref2 high over a
-## plateau's edge down to the valley floor, ref3 on a plateau looking down a canyon, ref4 the aerial view): name -> [u, v,
-## height above the ground, look-at u, v, its height above the ground, vertical field of view] in layout coordinates (u along
-## the main valley, v across it, from the region's centre), framed by hand for this layout
+## the four camera views after the reference pictures (ref1 high on a plateau's edge looking along its cliff line, ref2 high
+## over a plateau's edge down to the valley floor, ref3 on a canyon's rim looking down it, ref4 the aerial view): name -> [u,
+## v, height above the ground, look-at u, v, its height above the ground, vertical field of view] in layout coordinates (u
+## along the main valley, v across it, from the region's centre), framed by hand for this layout; an 8th number puts the
+## camera at the visible rim nearest the spot (that far in from it), a 9th makes it look along the rim, turned that many
+## degrees in (negative: out over the drop) - see tepui_region.gd _bookmarks
 @export var bookmark_views := {
-	"ref1": PackedFloat32Array([-880.0, 240.0, 25.0, -300.0, 215.0, -70.0, 75.0]),
+	"ref1": PackedFloat32Array([-933.0, 730.0, 14.0, 200.0, -60.0, -120.0, 75.0, 4.0, -8.0]),
 	"ref2": PackedFloat32Array([1635.0, -95.0, 380.0, 179.0, 699.0, 60.0, 75.0]),
-	"ref3": PackedFloat32Array([-60.0, 1200.0, 25.0, -60.0, -500.0, -150.0, 75.0, 6.0, -14.0]),
+	"ref3": PackedFloat32Array([-60.0, 1200.0, 40.0, -60.0, -500.0, -300.0, 75.0, 4.0, -22.0]),
 	"ref4": PackedFloat32Array([-1700.0, 600.0, 700.0, 87.0, -73.0, 0.0, 75.0]),
 }
 

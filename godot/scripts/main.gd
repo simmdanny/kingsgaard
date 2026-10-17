@@ -225,6 +225,9 @@ func _input_map() -> void:
 	_bind("bookmark_2", [KEY_F7])
 	_bind("bookmark_3", [KEY_F8])
 	_bind("bookmark_4", [KEY_F9])
+	_bind("bookmark_arch_1", [KEY_F10])
+	_bind("bookmark_arch_2", [KEY_F11])
+	_bind("bookmark_arch_3", [KEY_F12])
 
 
 func _bind(action: String, keys: Array) -> void:
@@ -287,6 +290,9 @@ func _unhandled_input(e: InputEvent) -> void:
 	for k in 4:
 		if e.is_action_pressed("bookmark_%d" % (k + 1)):
 			go_bookmark(BOOKMARKS[k], true)
+	for k in 3:
+		if e.is_action_pressed("bookmark_arch_%d" % (k + 1)):
+			go_bookmark("arch%d" % (k + 1), true)
 
 
 ## put the camera at one of the region's bookmark views (map coordinates): flying from there (keys F6 - F9) or pinned

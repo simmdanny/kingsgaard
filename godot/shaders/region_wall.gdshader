@@ -35,6 +35,11 @@ vec3 height_ramp(float h) {
 }
 
 void fragment() {
+	// (both sides of a triangle shaded with the mesh's own normal: a carved arch's tiny folded triangles stay lit like their
+	// neighbours instead of showing their dark back)
+	if (!FRONT_FACING) {
+		NORMAL = -NORMAL;
+	}
 	vec3 col = rock_col;
 	bool top = v_up > 0.75;
 	if (top) col = top_col * mix(0.36, 1.3, clamp((v_h - greybox_floor) / greybox_span, 0.0, 1.0));
