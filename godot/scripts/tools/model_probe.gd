@@ -5,7 +5,7 @@ extends SceneTree
 
 
 func _init() -> void:
-	var path := "res://assets/characters/girl01/Low_poly_Girl_01v1.fbx"
+	var path := "res://assets/characters/male01/scene.gltf"
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		path = args[0]

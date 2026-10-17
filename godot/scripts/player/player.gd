@@ -1,10 +1,9 @@
 extends Node3D
 ## THE HERO (scripts/player/player.gd): walks the continent. W/A/S/D move relative to the camera, Shift runs, Alt sprints, Space
 ## jumps. Stands on the ground exactly as the terrain draws it (WorldGen.ground_at); the sea stops the hero at the waterline.
-## Looks (set_hero), all animated in code by rig_anim.gd: "female" = DBlob_UA's Low_poly_Girl_01v1 (assets/characters/girl01),
-## "male" = alicewithalex's Low Poly Male Character (assets/characters/male01, CC-BY-4.0 - credit in SOURCE.md),
-## "female-b" = a test: the male model made feminine in code (feminize.gd), "male-built" = the faceted man built in code after
-## the user's reference sheet (male_body.gd), "stand-in" = the old capsule.
+## Looks (set_hero), all animated in code by rig_anim.gd: "male" = alicewithalex's Low Poly Male Character
+## (assets/characters/male01, CC-BY-4.0 - credit in SOURCE.md), "female" = the same model made feminine in code (feminize.gd);
+## also "male-built" = the faceted man built in code after the user's reference sheet (male_body.gd), "stand-in" = a capsule.
 
 const WALK := 2.4
 const RUN := 5.5
@@ -12,7 +11,6 @@ const SPRINT := 9.0
 const GRAVITY := 22.0
 const JUMP := 6.5
 const RigAnim := preload("res://scripts/player/rig_anim.gd")
-const GIRL := "res://assets/characters/girl01/Low_poly_Girl_01v1.fbx"
 const MaleBody := preload("res://scripts/player/male_body.gd")
 const Feminize := preload("res://scripts/player/feminize.gd")
 const MAN := "res://assets/characters/male01/scene.gltf"
@@ -48,35 +46,22 @@ func _ready() -> void:
 		set_hero("female")
 
 
-## switch the look: "female", "male", "female-b", "male-built" or "stand-in"
+## switch the look: "female", "male", "male-built" or "stand-in" ("female-b", her old test name, is "female")
 func set_hero(kind: String) -> void:
-	# the female model is not in the public repo (no license): until her files are added, Female plays as Female B
-	if kind == "female" and not ResourceLoader.exists(GIRL):
-		kind = "female-b"
+	if kind == "female-b":
+		kind = "female"
 	hero = kind
 	if _body == null:
 		return
 	for ch in _body.get_children():
 		ch.queue_free()
 	_anim = null
-	if kind == "female":
-		var girl: Node3D = (load(GIRL) as PackedScene).instantiate()
-		_body.add_child(girl)
-		var sk: Skeleton3D = girl.find_children("*", "Skeleton3D", true, false)[0]
-		# her palette's skin swatch is pale cream: tone the whole material down a touch for the bright sun
-		for mi in girl.find_children("*", "MeshInstance3D", true, false):
-			var m: StandardMaterial3D = (mi as MeshInstance3D).mesh.surface_get_material(0).duplicate()
-			m.albedo_color = Color(0.86, 0.85, 0.84)
-			m.roughness = 0.9
-			(mi as MeshInstance3D).material_override = m
-		_anim = RigAnim.new()
-		_anim.setup(sk, 100.0)
-	elif kind == "male" or kind == "female-b":
+	if kind == "male" or kind == "female":
 		var man: Node3D = (load(MAN) as PackedScene).instantiate()
 		_body.add_child(man)
 		var sk: Skeleton3D = man.find_children("*", "Skeleton3D", true, false)[0]
 		var height := MAN_HEIGHT
-		if kind == "female-b":
+		if kind == "female":
 			Feminize.new().apply(man)
 			height = 1.70
 		# the file's units are arbitrary: scale to the height by the top of the head (Head_end) in the skeleton

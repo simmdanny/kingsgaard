@@ -1,5 +1,5 @@
 extends RefCounted
-## THE FEMININE VARIANT (scripts/player/feminize.gd) - a test: turns alicewithalex's male model into a woman in code, at load.
+## THE FEMALE HERO (scripts/player/feminize.gd): turns alicewithalex's male model into a woman in code, at load.
 ## His body and shorts are split 1 -> 4 triangles (same shape, more points to move), then reshaped in their bind pose by the
 ## same field (so the shorts still fit): a bust, a narrower waist, wider hips and a fuller seat, slimmer arms and neck, a softer
 ## jaw. The hair is drawn longer at the sides and back, a ponytail is added on the head bone, and a crop top is cut from her own

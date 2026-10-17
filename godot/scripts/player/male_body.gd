@@ -2,7 +2,7 @@ extends RefCounted
 ## THE MALE HERO'S BODY (scripts/player/male_body.gd): a faceted low-poly man built in code after the user's reference sheet (a
 ## grey base body: broad shoulders, chest and arms with clear planes, boot-like feet, an angular head with short swept hair).
 ## Every part is a loft of rings (10-point profiles for the torso and head, 8-point rings for the limbs) with flat-shaded faces,
-## skinned to a skeleton that uses the girl's Blender "metarig" bone names, axes and A-pose - so rig_anim.gd animates both alike.
+## skinned to a skeleton that uses Blender "metarig" bone names, axes and an A-pose - the names rig_anim.gd speaks natively.
 ## Skeleton frame: metres, +Z up, -Y forward, +X his left (the parent node turns it into Godot's Y-up, facing +Z).
 ##   var root: Node3D = MaleBody.new().build()
 

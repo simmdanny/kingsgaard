@@ -109,8 +109,7 @@ func _ready() -> void:
 	_body.add_child(_stack)
 	_screens.title = _nav([["Play", _open.bind("heroes")], ["Settings", _open_sub.bind("settings")], ["Controls", _open_sub.bind("controls")],
 		["Credits", _open_sub.bind("credits")], ["Quit", _quit]])
-	_screens.heroes = _panel("Your hero", _nav([["Female", _choose.bind("female")], ["Male", _choose.bind("male")],
-		["Female B (test)", _choose.bind("female-b")]]))
+	_screens.heroes = _panel("Your hero", _nav([["Female", _choose.bind("female")], ["Male", _choose.bind("male")]]))
 	_screens.settings = _panel("Settings", _settings())
 	_screens.controls = _panel("Controls", _controls())
 	_screens.credits = _panel("Credits", _credits())
@@ -125,7 +124,7 @@ func _ready() -> void:
 	_foot.offset_top = -38.0
 	root.add_child(_foot)
 	# the models' credits (the male model's CC-BY-4.0 license asks for it wherever the game is shared)
-	_credit = _text("HEROES BY DBLOB_UA AND ALICEWITHALEX (CC-BY-4.0)", _cormorant, 500, 11, 2, Color(SILVER, 0.3))
+	_credit = _text("HEROES BASED ON A MODEL BY ALICEWITHALEX (CC-BY-4.0)", _cormorant, 500, 11, 2, Color(SILVER, 0.3))
 	_credit.anchor_left = 1.0
 	_credit.anchor_right = 1.0
 	_credit.anchor_top = 1.0
@@ -467,8 +466,8 @@ func _credits() -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.custom_minimum_size = Vector2(480.0, 0.0)
 	box.add_theme_constant_override("separation", 6)
-	for row in [["Heroes", ["\"Low_poly_Girl_01v1\" by DBlob_UA (dblob-ua.itch.io)",
-			"\"Low Poly Male Character [Free Download]\" by alicewithalex (sketchfab.com/alicewithalex), CC-BY-4.0"]],
+	for row in [["Heroes", ["Based on \"Low Poly Male Character [Free Download]\" by alicewithalex (sketchfab.com/alicewithalex),",
+			"licensed under CC-BY-4.0. The female hero is the same model, reshaped in code."]],
 			["Title painting and type", ["The painting from the browser Kingsgaard, painted in code", "Cinzel and Cormorant Garamond, SIL Open Font License"]],
 			["Engine", ["Made with the Godot Engine (godotengine.org), MIT license, © the Godot Engine contributors"]]]:
 		var card := PanelContainer.new()
