@@ -1,0 +1,11 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://shaders/b/grass_b.gdshader" id="1_rkyuh"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_rkyuh")
+shader_parameter/grass_col = Color(0.37, 0.56, 0.13, 1)
+shader_parameter/meadow_col = Color(0.45, 0.63, 0.15, 1)
+shader_parameter/forest_col = Color(0.22, 0.4, 0.1, 1)
+shader_parameter/tip_col = Color(0.66, 0.76, 0.27, 1)

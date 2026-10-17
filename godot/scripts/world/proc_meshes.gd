@@ -157,6 +157,243 @@ static func conifer_far() -> ArrayMesh:
 	return _finish(st)
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------
+# STYLIZED TREES (art preset B_stylized, see ART_STYLE.md): the same sizes and shapes of tree as above (so placement, scale and the
+# shader's per-tree crown reshape all still fit), but crowns are clumps of rounded masses with smooth normals bent toward the
+# crown's middle, so a crown shades as one soft mass; colours run in gradients (darker low and inside, lighter on top); COLOR.a
+# carries baked ambient occlusion (inside the crown, the foot of the trunk) and UV.x marks leaves (1) and bark (0) for
+# shaders/b/tree_b.gdshader. Indexed meshes with shared vertices (smooth shading). Winding as above: clockwise from outside.
+
+const B_BARK_LO := Color(0.22, 0.16, 0.11)
+const B_BARK_HI := Color(0.33, 0.25, 0.18)
+const B_LEAF_LO := Color(0.09, 0.27, 0.15)
+const B_LEAF_MID := Color(0.22, 0.47, 0.15)
+const B_LEAF_HI := Color(0.45, 0.66, 0.20)
+const B_NEEDLE_LO := Color(0.08, 0.25, 0.20)
+const B_NEEDLE_HI := Color(0.30, 0.52, 0.27)
+
+static var _sph := {}  ## subdivided icospheres by frequency: [verts (unit), faces (Vector3i, clockwise from outside)]
+
+
+## a unit icosphere of 20 * 4^f faces, vertices shared
+static func _sphere(f: int) -> Array:
+	if _sph.has(f):
+		return _sph[f]
+	_ico()
+	var verts: Array[Vector3] = _ico_v.duplicate()
+	var faces: Array[Vector3i] = _ico_f.duplicate()
+	for _i in f:
+		var mid := {}
+		var nf: Array[Vector3i] = []
+		var midpoint := func(a: int, b: int) -> int:
+			var k := Vector2i(mini(a, b), maxi(a, b))
+			if mid.has(k):
+				return mid[k]
+			verts.append((verts[a] + verts[b]).normalized())
+			mid[k] = verts.size() - 1
+			return mid[k]
+		for t in faces:
+			var ab: int = midpoint.call(t.x, t.y)
+			var bc: int = midpoint.call(t.y, t.z)
+			var ca: int = midpoint.call(t.z, t.x)
+			nf.append_array([Vector3i(t.x, ab, ca), Vector3i(t.y, bc, ab), Vector3i(t.z, ca, bc), Vector3i(ab, bc, ca)])
+		faces = nf
+	for i in faces.size():
+		var t := faces[i]
+		var a := verts[t.x]
+		if (verts[t.y] - a).cross(verts[t.z] - a).dot(a) > 0.0:
+			faces[i] = Vector3i(t.x, t.z, t.y)
+	_sph[f] = [verts, faces]
+	return _sph[f]
+
+
+## an indexed smooth mesh being built: positions, normals, colours (a = AO), uv (x: 1 leaf, 0 bark)
+class SmoothBuilder:
+	var p := PackedVector3Array()
+	var n := PackedVector3Array()
+	var c := PackedColorArray()
+	var uv := PackedVector2Array()
+	var idx := PackedInt32Array()
+
+	func vert(pos: Vector3, nrm: Vector3, col: Color, leaf: float) -> int:
+		p.append(pos)
+		n.append(nrm.normalized())
+		c.append(col)
+		uv.append(Vector2(leaf, 0.0))
+		return p.size() - 1
+
+	## a triangle wound clockwise as seen from outside (out: a direction pointing out of the surface there)
+	func tri(a: int, b: int, d: int, out: Vector3) -> void:
+		if (p[b] - p[a]).cross(p[d] - p[a]).dot(out) > 0.0:
+			idx.append_array([a, d, b])
+		else:
+			idx.append_array([a, b, d])
+
+	func commit() -> ArrayMesh:
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = p
+		arrays[Mesh.ARRAY_NORMAL] = n
+		arrays[Mesh.ARRAY_COLOR] = c
+		arrays[Mesh.ARRAY_TEX_UV] = uv
+		arrays[Mesh.ARRAY_INDEX] = idx
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		return m
+
+
+static func _smoothstep(a: float, b: float, x: float) -> float:
+	var t := clampf((x - a) / (b - a), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+## one rounded leaf mass of a crown: an icosphere of frequency f, lumped a little by seeded bumps, its underside flattened, normals
+## bent toward the crown's centre cc (crown radii cr) by `bend`, coloured by its height in the crown, AO from how deep inside it sits
+static func _mass(sb: SmoothBuilder, c: Vector3, r: Vector3, f: int, cc: Vector3, cr: Vector3, lo: Color, mid: Color, hi: Color,
+		bend: float, rng: RandomNumberGenerator) -> void:
+	var s: Array = _sphere(f)
+	var verts: Array[Vector3] = s[0]
+	var faces: Array[Vector3i] = s[1]
+	var bumps := []
+	for _k in 5:
+		bumps.append([Vector3(rng.randf() * 2.0 - 1.0, rng.randf() * 1.6 - 0.6, rng.randf() * 2.0 - 1.0).normalized(), 0.05 + 0.08 * rng.randf()])
+	var base := sb.p.size()
+	for d in verts:
+		var k := 1.0
+		for b in bumps:
+			k += b[1] * maxf(d.dot(b[0]), 0.0) * maxf(d.dot(b[0]), 0.0)
+		var q := c + Vector3(d.x * r.x, d.y * r.y, d.z * r.z) * k
+		var floor_y := c.y - r.y * 0.62
+		if q.y < floor_y:
+			q.y = floor_y - (floor_y - q.y) * 0.5
+		var own := Vector3(d.x / r.x, d.y / r.y, d.z / r.z).normalized()
+		var rel := Vector3((q.x - cc.x) / cr.x, (q.y - cc.y) / cr.y, (q.z - cc.z) / cr.z)
+		var nrm := own.lerp(rel.normalized(), bend)
+		var h := clampf(rel.y * 0.5 + 0.5, 0.0, 1.0)
+		var col := lo.lerp(mid, _smoothstep(0.0, 0.55, h)).lerp(hi, _smoothstep(0.5, 1.05, h) * 0.85)
+		var ao := (0.35 + 0.65 * _smoothstep(0.2, 0.95, rel.length())) * (0.75 + 0.25 * _smoothstep(-0.8, 0.4, rel.y))
+		col.a = ao
+		sb.vert(q, nrm, col, 1.0)
+	for t in faces:
+		sb.tri(base + t.x, base + t.y, base + t.z, verts[t.x] + verts[t.y] + verts[t.z])
+
+
+## a smooth tapered trunk with a flared foot: `sides` round, rings along a gentle bend up to (top, r1)
+static func _smooth_trunk(sb: SmoothBuilder, sides: int, r0: float, r1: float, top: Vector3, rng: RandomNumberGenerator) -> void:
+	var rings := 6
+	var bend := Vector3(rng.randf() - 0.5, 0.0, rng.randf() - 0.5) * 0.35
+	var base := sb.p.size()
+	for j in rings + 1:
+		var t := float(j) / rings
+		var ctr := Vector3(0.0, -0.3, 0.0).lerp(top, t) + bend * sin(t * PI)
+		var r := lerpf(r0, r1, t) * (1.0 + 0.7 * pow(1.0 - _smoothstep(0.0, 0.18, t), 2.0))
+		var col := B_BARK_LO.lerp(B_BARK_HI, _smoothstep(0.0, 0.45, t))
+		col.a = (0.5 + 0.5 * _smoothstep(0.0, 0.2, t)) * (1.0 - 0.45 * _smoothstep(0.6, 1.0, t))
+		for i in sides + 1:
+			var a := TAU * i / sides
+			var d := Vector3(cos(a), 0.0, sin(a))
+			sb.vert(ctr + d * r, d + Vector3(0.0, 0.15, 0.0), col, 0.0)
+	for j in rings:
+		for i in sides:
+			var a := base + j * (sides + 1) + i
+			var b := a + sides + 1
+			var out := sb.p[a] - (Vector3(0.0, -0.3, 0.0).lerp(top, float(j) / rings) + bend * sin(float(j) / rings * PI))
+			sb.tri(a, a + 1, b, out)
+			sb.tri(a + 1, b + 1, b, out)
+
+
+## a broadleaf crown of masses round (cc, cr): a big middle one and `n` round it (detail: frequency f)
+static func _broad_crown(sb: SmoothBuilder, n: int, f: int, rng: RandomNumberGenerator) -> void:
+	var cc := Vector3(0.0, 4.15, 0.0)
+	var cr := Vector3(2.2, 1.95, 2.2)
+	_mass(sb, cc + Vector3(0.0, 0.15, 0.0), cr * Vector3(0.66, 0.7, 0.66), f, cc, cr, B_LEAF_LO, B_LEAF_MID, B_LEAF_HI, 0.5, rng)
+	for i in n:
+		var a := TAU * i / n + rng.randf() * 0.6
+		var e := -0.4 + 0.65 * rng.randf()
+		var rr := (0.36 + 0.12 * rng.randf()) * cr.x
+		var c := cc + Vector3(cos(a) * cr.x * 0.5, e * cr.y, sin(a) * cr.z * 0.5)
+		_mass(sb, c, Vector3(rr, rr * (0.82 + 0.12 * rng.randf()), rr), f, cc, cr, B_LEAF_LO, B_LEAF_MID, B_LEAF_HI, 0.5, rng)
+
+
+## the stylized broadleaf, three distance levels: 0 near (seven 80-face masses and an 8-sided trunk, about 650 triangles),
+## 1 mid (four 20-face masses, about 150), 2 far (one, about 30) - smooth normals make even the coarse ones read as round
+static func broadleaf_b(level: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var sb := SmoothBuilder.new()
+	match level:
+		0:
+			_smooth_trunk(sb, 8, 0.24, 0.13, Vector3(0.0, 3.6, 0.0), rng)
+			_broad_crown(sb, 6, 1, rng)
+		1:
+			_smooth_trunk(sb, 6, 0.24, 0.14, Vector3(0.0, 3.5, 0.0), rng)
+			_broad_crown(sb, 3, 0, rng)
+		_:
+			_smooth_trunk(sb, 4, 0.3, 0.2, Vector3(0.0, 3.4, 0.0), rng)
+			var cc := Vector3(0.0, 4.4, 0.0)
+			_mass(sb, cc, Vector3(2.4, 2.0, 2.4), 0, cc, Vector3(2.4, 2.0, 2.4), B_LEAF_LO, B_LEAF_MID, B_LEAF_HI, 0.3, rng)
+	return sb.commit()
+
+
+## one tier of a stylized conifer: a skirt from radius r at y0 up to a soft rounded top at y1, its side bulging a little, its rim
+## drooping; smooth normals leaning up so the tier shades as one soft cone; a dark underside
+static func _tier(sb: SmoothBuilder, sides: int, y0: float, y1: float, r: float, lo: Color, hi: Color, rng: RandomNumberGenerator) -> void:
+	var rows := 4
+	var base := sb.p.size()
+	var ph := rng.randf() * TAU
+	for j in rows + 1:
+		var t := float(j) / rows
+		var rr := r * (1.0 - t) * (1.0 + 0.22 * sin(t * PI)) + r * 0.06 * (1.0 - t)
+		var y := lerpf(y0, y1, t) - 0.25 * (1.0 - t) * (1.0 - t)
+		var col := lo.lerp(hi, _smoothstep(0.0, 1.0, t * 0.8 + 0.2))
+		col.a = 0.55 + 0.45 * _smoothstep(0.0, 0.7, t)
+		for i in sides + 1:
+			var a := TAU * i / sides
+			var wob := 1.0 + 0.07 * sin(a * 3.0 + ph)
+			var d := Vector3(cos(a), 0.0, sin(a))
+			var nrm := d * (1.0 - t * 0.6) + Vector3(0.0, 0.75 + t, 0.0)
+			sb.vert(Vector3(0.0, y, 0.0) + d * rr * wob, nrm, col, 1.0)
+	var apex := sb.vert(Vector3(0.0, y1 + 0.12, 0.0), Vector3.UP, hi, 1.0)
+	for j in rows:
+		for i in sides:
+			var a := base + j * (sides + 1) + i
+			var b := a + sides + 1
+			var out := Vector3(sb.p[a].x, 0.3, sb.p[a].z)
+			sb.tri(a, a + 1, b, out)
+			sb.tri(a + 1, b + 1, b, out)
+	var top := base + rows * (sides + 1)
+	for i in sides:
+		sb.tri(top + i, top + i + 1, apex, Vector3.UP)
+	var under := lo * 0.75
+	under.a = 0.35
+	var uc := sb.vert(Vector3(0.0, y0 + 0.05, 0.0), Vector3.DOWN, under, 1.0)
+	var ring := sb.p.size()
+	for i in sides + 1:
+		sb.vert(sb.p[base + i], Vector3.DOWN, under, 1.0)
+	for i in sides:
+		sb.tri(ring + i, ring + i + 1, uc, Vector3.DOWN)
+
+
+## the stylized conifer, three distance levels: 0 near (three tiers, 14 round), 1 mid (two, 8), 2 far (one, 6)
+static func conifer_b(level: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 23
+	var sb := SmoothBuilder.new()
+	match level:
+		0:
+			_smooth_trunk(sb, 7, 0.21, 0.1, Vector3(0.0, 2.2, 0.0), rng)
+			_tier(sb, 14, 1.3, 4.7, 2.0, B_NEEDLE_LO, B_NEEDLE_HI.lerp(B_NEEDLE_LO, 0.25), rng)
+			_tier(sb, 14, 3.2, 6.5, 1.5, B_NEEDLE_LO.lerp(B_NEEDLE_HI, 0.15), B_NEEDLE_HI.lerp(B_NEEDLE_LO, 0.1), rng)
+			_tier(sb, 12, 5.0, 8.2, 1.05, B_NEEDLE_LO.lerp(B_NEEDLE_HI, 0.3), B_NEEDLE_HI, rng)
+		1:
+			_smooth_trunk(sb, 5, 0.21, 0.12, Vector3(0.0, 1.8, 0.0), rng)
+			_tier(sb, 8, 1.3, 5.4, 1.95, B_NEEDLE_LO, B_NEEDLE_HI.lerp(B_NEEDLE_LO, 0.2), rng)
+			_tier(sb, 8, 4.2, 8.1, 1.25, B_NEEDLE_LO.lerp(B_NEEDLE_HI, 0.25), B_NEEDLE_HI, rng)
+		_:
+			_tier(sb, 6, 0.6, 8.0, 2.0, B_NEEDLE_LO, B_NEEDLE_HI, rng)
+	return sb.commit()
+
+
 ## a grass blade 1 m tall (scaled per instance): two quads and a tip, UV.y the height along it (0 root, 1 tip)
 static func blade() -> ArrayMesh:
 	var st := SurfaceTool.new()

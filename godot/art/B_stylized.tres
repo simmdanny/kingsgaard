@@ -1,0 +1,28 @@
+[gd_resource type="Resource" format=3]
+
+[ext_resource type="Environment" path="res://art/B_stylized/environment.tres" id="1_20faf"]
+[ext_resource type="Material" path="res://art/B_stylized/grass.tres" id="2_ftqqv"]
+[ext_resource type="Material" path="res://art/stone.tres" id="3_11ucw"]
+[ext_resource type="Script" path="res://scripts/world/art_preset.gd" id="4_dunxw"]
+[ext_resource type="Material" path="res://art/B_stylized/terrain.tres" id="5_ioeo2"]
+[ext_resource type="Material" path="res://art/B_stylized/trees.tres" id="6_jkqy8"]
+[ext_resource type="Material" path="res://art/B_stylized/water.tres" id="7_cdovx"]
+
+[resource]
+script = ExtResource("4_dunxw")
+title = "B_stylized"
+environment = ExtResource("1_20faf")
+sun_rotation_degrees = Vector3(-42, -62, 0)
+sun_color = Color(1, 0.89, 0.72, 1)
+sun_energy = 1.55
+sun_angular_distance = 1.2
+sun_shadow_blur = 1.2
+sun_shadow_bias = 0.06
+sun_shadow_normal_bias = 1.6
+sun_shadow_max_distance = 110.0
+terrain_material = ExtResource("5_ioeo2")
+tree_material = ExtResource("6_jkqy8")
+grass_material = ExtResource("2_ftqqv")
+water_material = ExtResource("7_cdovx")
+rock_material = ExtResource("3_11ucw")
+tree_meshes = 1

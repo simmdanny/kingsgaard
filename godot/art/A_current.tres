@@ -1,0 +1,19 @@
+[gd_resource type="Resource" format=3]
+
+[ext_resource type="Environment" path="res://art/A_current/environment.tres" id="1_jvbwj"]
+[ext_resource type="Material" path="res://art/A_current/grass.tres" id="2_5pqmf"]
+[ext_resource type="Material" path="res://art/stone.tres" id="3_jrick"]
+[ext_resource type="Script" path="res://scripts/world/art_preset.gd" id="4_r5p3g"]
+[ext_resource type="Material" path="res://art/A_current/terrain.tres" id="5_kvnl8"]
+[ext_resource type="Material" path="res://art/A_current/trees.tres" id="6_88hf8"]
+[ext_resource type="Material" path="res://art/A_current/water.tres" id="7_thesh"]
+
+[resource]
+script = ExtResource("4_r5p3g")
+title = "A_current"
+environment = ExtResource("1_jvbwj")
+terrain_material = ExtResource("5_kvnl8")
+tree_material = ExtResource("6_88hf8")
+grass_material = ExtResource("2_5pqmf")
+water_material = ExtResource("7_thesh")
+rock_material = ExtResource("3_jrick")

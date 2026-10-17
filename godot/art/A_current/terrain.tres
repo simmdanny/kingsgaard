@@ -1,0 +1,10 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://shaders/terrain.gdshader" id="1_xyf08"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_xyf08")
+shader_parameter/grass_col = Color(0.37, 0.55, 0.21, 1)
+shader_parameter/meadow_col = Color(0.52, 0.62, 0.25, 1)
+shader_parameter/forest_col = Color(0.23, 0.34, 0.15, 1)

@@ -33,6 +33,7 @@ animated in code, hands and fingers included (`scripts/player/rig_anim.gd`).
 | mouse drag, wheel | turn the camera, zoom |
 | F | fly over the land (Space up, Ctrl down, Shift x5, Alt x25); F again lands the hero under the camera |
 | F1 | info: fps, position, streaming counters |
+| F9 | switch the art preset: A_current / B_stylized (see `ART_STYLE.md`) |
 | Esc | pause menu / back |
 
 ## Layout
@@ -41,8 +42,15 @@ animated in code, hands and fingers included (`scripts/player/rig_anim.gd`).
 - `scripts/world/terrain.gd`: quadtree terrain chunks streamed round the camera, built on worker threads
 - `scripts/world/foliage.gd`: trees per 256 m cell (instanced, 3 distance levels); `proc_meshes.gd` builds the meshes
 - `scripts/world/grass.gd`: grass blades round the hero; `ocean.gd`: the sea
+- `scripts/world/boulders.gd`: the browser game's boulders (wboulder.js, rock look v59) - its fourteen stones (`art/stones/stones.res`,
+  from `tools/stones/make_stones.py`, its generator ported line for line, baked by `scripts/tools/bake_stones.gd`) in its stone material
+  (`shaders/stone.gdshader`, `art/stone.tres`), placed by its rules per 128 m tile, three levels by distance, a contact ring under each
 - `scripts/player/`: the hero, the camera, and `rig_anim.gd` (code-driven idle/walk/run/sprint/jump for metarig skeletons)
-- `shaders/`: terrain, trees, grass, water
+- `shaders/`: terrain, trees, grass, water (the current look); `shaders/b/`: the stylized look's terrain, trees, grass, sky and
+  the one rock material (`shaders/inc/rock.gdshaderinc`, shared by rock props and the terrain's steep slopes)
+- `art/`: the art presets (`scripts/world/art_preset.gd`): `A_current.tres` (the look as it was) and `B_stylized.tres` (the stylized
+  3D look of `ART_STYLE.md`), each with its Environment and materials in `art/<preset>/` - open them in the editor to tune;
+  F9 switches in game, `--preset=B_stylized` picks one for a screenshot run
 - `scripts/ui/`: the menus (`menu.gd`) and the saved settings (`settings.gd`, autoload `Settings`)
 - `scripts/tools/shot.gd`: automated screenshots and timing (see the file); `probe.gd`: prints places worth a look;
   `ui_flow_test.gd`: walks the menus by pressing their buttons and checks each step

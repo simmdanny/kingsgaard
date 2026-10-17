@@ -32,6 +32,14 @@ func is_idle() -> bool:
 	return _queue.is_empty() and _running.is_empty()
 
 
+## the art preset's grass material (main.gd apply_preset): every cell already placed takes it at once
+func set_material(m: Material) -> void:
+	material = m
+	for key in _cells:
+		if _cells[key].node != null:
+			_cells[key].node.material_override = m
+
+
 ## change the density (0 hides the grass): drops every cell, they rebuild round the hero at the new density
 func set_density(k: float) -> void:
 	if is_equal_approx(k, density_k):

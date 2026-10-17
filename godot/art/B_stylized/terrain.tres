@@ -1,0 +1,7 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://shaders/b/terrain_b.gdshader" id="1_ahq3m"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_ahq3m")

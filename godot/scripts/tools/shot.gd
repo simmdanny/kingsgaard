@@ -12,6 +12,10 @@ extends Node
 ## --ui=title|heroes|settings|controls|credits|loading|pause shows that menu screen instead of skipping the menus (--menu = title).
 ## --set=key:value,... applies settings for the run (keys as in scripts/ui/settings.gd, e.g. --set=render_scale:0,grass:0). --look=x,y,z (with --orbit) aims the camera at that
 ## point relative to the hero's feet instead of the head - for close-ups of the hands.
+## --preset=A_current|B_stylized picks the art preset (art/<name>.tres) for the run.
+## --compare=DIR renders the art preset comparison instead: three views (wide landscape, mid view, close to the ground with the
+## hero), each in every preset of main.gd PRESETS, saved as DIR/<view>_<preset>.png and side by side as DIR/<view>_A_vs_B.png:
+##   Godot_console.exe --path <project> --resolution 1280x720 -- --compare=C:/out
 ## Prints one line: SHOT <file> fps=... ms=... worst=<slowest frame, ms> plus the world's counters.
 
 var active := false
@@ -32,6 +36,18 @@ var hero := "female"
 var ui := ""
 var settings := {}
 var look := Vector3(INF, INF, INF)
+var preset := ""
+var compare := ""
+
+## the comparison views: [name, camera (x, z, height over the ground, target x, z, target height) or [] for the hero's own
+## camera, hero spot (x, z), orbit (distance, pitch down, yaw) degrees]; "rocks": the camera 9 m from the biggest boulder near the
+## hero's spot, looking at it, the hero beside it
+const VIEWS := [
+	["1_wide", [-160.0, -140.0, 38.0, -7.0, 330.0, 4.0], Vector2(-7.0, 26.0), Vector3.ZERO],
+	["2_mid", [-40.0, 75.0, 5.0, -5.0, 150.0, 5.0], Vector2(-7.0, 26.0), Vector3.ZERO],
+	["3_close", [], Vector2(-20.0, 112.0), Vector3(4.2, 6.0, 200.0)],
+	["4_rocks", ["rocks"], Vector2(-7.0, 26.0), Vector3.ZERO],
+]
 
 var _state := 0
 var _t := 0.0
@@ -82,10 +98,14 @@ func _ready() -> void:
 				for kv2 in val.split(","):
 					var pr := kv2.split(":")
 					settings[pr[0]] = float(pr[1]) if pr[1].contains(".") else int(pr[1])
+			"preset":
+				preset = val
+			"compare":
+				compare = val
 			"look":
 				var l := val.split(",")
 				look = Vector3(float(l[0]), float(l[1]), float(l[2]))
-	active = path != ""
+	active = path != "" or compare != ""
 	if active:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
@@ -93,6 +113,11 @@ func _ready() -> void:
 
 func tick(main: Node, dt: float) -> void:
 	if not active:
+		return
+	if compare != "":
+		if _state == 0:
+			_state = 9
+			_compare(main)
 		return
 	_t += dt
 	match _state:
@@ -137,3 +162,74 @@ func _capture(main: Node) -> void:
 	print("SHOT %s fps=%.1f ms=%.2f worst=%.1f waited=%.1fs %s" % [path, _n / _acc, 1000.0 * _acc / _n, 1000.0 * _worst, _t,
 		main.stats_line()])
 	get_tree().quit()
+
+
+## the art preset comparison (--compare): every view in every preset, one image each and one side by side per view
+func _compare(main: Node) -> void:
+	DirAccess.make_dir_recursive_absolute(compare)
+	var t0 := Time.get_ticks_msec()
+	for v in VIEWS:
+		var spot: Vector2 = v[2]
+		main.player.place(spot.x, spot.y)
+		var c: Array = v[1]
+		if not c.is_empty() and c[0] is String:
+			c = await _rock_view(main, spot)
+		if c.is_empty():
+			main.rig.pinned = false
+			var o: Vector3 = v[3]
+			main.rig.dist = o.x
+			main.rig.pitch = deg_to_rad(-o.y)
+			main.rig.yaw = deg_to_rad(o.z)
+		else:
+			var g = main.gen
+			main.rig.pin(Vector3(c[0], maxf(g.height(c[0], c[1]), 0.0) + c[2], c[1]), Vector3(c[3], maxf(g.height(c[3], c[4]), 0.0) + c[5], c[4]))
+		var imgs := []
+		for i in main.PRESETS.size():
+			main.apply_preset(i)
+			var idle := 0
+			var waited := 0.0
+			while idle < 15 and waited < max_wait:
+				await get_tree().process_frame
+				waited += get_process_delta_time()
+				idle = idle + 1 if main.world_idle() else 0
+			for k in maxi(settle, 2):
+				await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			var img := get_viewport().get_texture().get_image()
+			img.save_png(compare.path_join("%s_%s.png" % [v[0], main.preset.title]))
+			imgs.append(img)
+			print("COMPARE %s %s at %.0fs  %s" % [v[0], main.preset.title, (Time.get_ticks_msec() - t0) / 1000.0, main.stats_line()])
+		var w: int = imgs[0].get_width()
+		var h: int = imgs[0].get_height()
+		var gap := 8
+		var side := Image.create(w * imgs.size() + gap * (imgs.size() - 1), h, false, imgs[0].get_format())
+		side.fill(Color(0.05, 0.05, 0.06))
+		for i in imgs.size():
+			side.blit_rect(imgs[i], Rect2i(0, 0, w, h), Vector2i(i * (w + gap), 0))
+		side.save_png(compare.path_join("%s_A_vs_B.png" % v[0]))
+	print("COMPARE done in %.0fs" % ((Time.get_ticks_msec() - t0) / 1000.0))
+	get_tree().quit()
+
+
+## a camera for the "rocks" view: waits for the boulders round spot, takes the biggest within 160 m, and looks at it from 9 m off
+## (on the side the sun lights), the hero standing beside it
+func _rock_view(main: Node, spot: Vector2) -> Array:
+	main.rig.pin(Vector3(spot.x, main.gen.height(spot.x, spot.y) + 3.0, spot.y), Vector3(spot.x + 10.0, main.gen.height(spot.x + 10.0, spot.y), spot.y))
+	for _i in 60:
+		await get_tree().process_frame
+		if main.boulders.is_idle():
+			break
+	var best = null
+	for key in main.boulders._tiles:
+		var list = main.boulders._tiles[key]
+		if list == null:
+			continue
+		for b in list:
+			if Vector2(b.x, b.z).distance_to(spot) < 160.0 and (best == null or b.sc > best.sc):
+				best = b
+	if best == null:
+		return [spot.x - 9.0, spot.y, 2.5, spot.x, spot.y, 0.6]
+	var sd: Vector3 = main._sun.basis.z
+	var away: Vector2 = Vector2(sd.x, sd.z).normalized().rotated(0.7) * (3.2 + 2.2 * best.sc)
+	main.player.place(best.x - away.y * 0.25 + away.x * 0.35, best.z + away.x * 0.25 + away.y * 0.35)
+	return [best.x + away.x, best.z + away.y, 1.3 + 0.5 * best.sc, best.x, best.z, 0.25 * best.sc]

@@ -1,0 +1,9 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://shaders/water.gdshader" id="1_vh5mn"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_vh5mn")
+shader_parameter/shallow_col = Color(0.24, 0.82, 0.76, 1)
+shader_parameter/deep_col = Color(0.04, 0.4, 0.46, 1)

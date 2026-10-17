@@ -4,3 +4,6 @@
 
 # where Play Kingsgaard.bat found Godot on this computer
 godot-path.txt
+
+# made by tools/stones/make_stones.py, baked into art/stones/stones.res by scripts/tools/bake_stones.gd
+tools/stones/stones.json

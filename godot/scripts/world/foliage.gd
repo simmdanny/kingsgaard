@@ -18,6 +18,7 @@ var material: Material
 var focus := Vector3.ZERO
 var stats := {"cells": 0, "trees": 0, "jobs": 0}
 var reach := 1.0  ## the Tree distance setting: scales the radius and the three distance levels (set_reach)
+var style := 0  ## the art preset's tree meshes: 0 faceted (A_current), 1 stylized (B_stylized) - set_style()
 
 var _meshes := {}
 var _cells := {}
@@ -27,10 +28,33 @@ var _last := Vector2(INF, INF)
 
 
 func _ready() -> void:
-	_meshes = {
-		"broad": [ProcMeshes.broadleaf(true), ProcMeshes.broadleaf(false), ProcMeshes.broadleaf_far()],
-		"conif": [ProcMeshes.conifer(true), ProcMeshes.conifer(false), ProcMeshes.conifer_far()],
-	}
+	_build_meshes()
+
+
+func _build_meshes() -> void:
+	if style == 1:
+		_meshes = {
+			"broad": [ProcMeshes.broadleaf_b(0), ProcMeshes.broadleaf_b(1), ProcMeshes.broadleaf_b(2)],
+			"conif": [ProcMeshes.conifer_b(0), ProcMeshes.conifer_b(1), ProcMeshes.conifer_b(2)],
+		}
+	else:
+		_meshes = {
+			"broad": [ProcMeshes.broadleaf(true), ProcMeshes.broadleaf(false), ProcMeshes.broadleaf_far()],
+			"conif": [ProcMeshes.conifer(true), ProcMeshes.conifer(false), ProcMeshes.conifer_far()],
+		}
+
+
+## the art preset's look (main.gd apply_preset): swaps the meshes and the material of every tree already placed, in place
+func set_style(p_style: int, p_material: Material) -> void:
+	material = p_material
+	if p_style != style or _meshes.is_empty():
+		style = p_style
+		_build_meshes()
+	for key in _cells:
+		for n in _cells[key].nodes:
+			var mmi := n as MultiMeshInstance3D
+			mmi.multimesh.mesh = _meshes[mmi.get_meta("kind")][mmi.get_meta("lod")]
+			mmi.material_override = material
 
 
 func is_idle() -> bool:
@@ -177,6 +201,7 @@ func _place(cell: Dictionary, res: Array) -> void:
 			mmi.position = Vector3(cell.x0, 0.0, cell.z0)
 			mmi.custom_aabb = AABB(Vector3(-10.0, -60.0, -10.0), Vector3(CELL + 20.0, 260.0, CELL + 20.0))
 			mmi.set_meta("lod", lod)
+			mmi.set_meta("kind", kind)
 			_range(mmi)
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if lod == 0 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(mmi)

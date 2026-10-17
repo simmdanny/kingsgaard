@@ -45,6 +45,15 @@ func is_idle() -> bool:
 	return _queue.is_empty() and _running.is_empty() and _done.is_empty()
 
 
+## the art preset's ground material (main.gd apply_preset): every chunk already built takes it at once
+func set_material(m: Material) -> void:
+	material = m
+	for key in _chunks:
+		var c: Chunk = _chunks[key]
+		if c.mi != null:
+			c.mi.material_override = m
+
+
 func _process(_dt: float) -> void:
 	_frame += 1
 	var n := int(round(2.0 * gen.world_half / ROOT))

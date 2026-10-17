@@ -1,0 +1,39 @@
+[gd_resource type="Environment" format=3]
+
+[ext_resource type="Shader" path="res://shaders/b/sky_b.gdshader" id="1_wmsvl"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_aklie"]
+shader = ExtResource("1_wmsvl")
+
+[sub_resource type="Sky" id="Sky_kfa2k"]
+sky_material = SubResource("ShaderMaterial_aklie")
+radiance_size = 2
+
+[resource]
+background_mode = 2
+sky = SubResource("Sky_kfa2k")
+ambient_light_source = 3
+ambient_light_energy = 0.8
+reflected_light_source = 2
+tonemap_mode = 3
+ssao_enabled = true
+ssao_radius = 1.2
+ssao_intensity = 1.1
+ssao_power = 1.4
+ssao_light_affect = 0.1
+glow_enabled = true
+glow_intensity = 0.25
+glow_strength = 0.9
+glow_blend_mode = 2
+glow_hdr_threshold = 1.15
+fog_enabled = true
+fog_light_color = Color(0.74, 0.84, 0.94, 1)
+fog_sun_scatter = 0.12
+fog_density = 0.00018
+fog_aerial_perspective = 0.3
+fog_sky_affect = 0.12
+fog_height = 18.0
+fog_height_density = 0.012
+adjustment_enabled = true
+adjustment_contrast = 1.03
+adjustment_saturation = 1.03
