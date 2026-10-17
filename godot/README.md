@@ -88,32 +88,43 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
 
 ## Tepui region (phase 1 of 4: landform blockout)
 
-The first region, built on the base terrain: a tepui / plateau land of sheer-walled table mountains
-(`scripts/world/tepui_region.gd`, every key value in `region_settings.gd` - a `RegionSettings` resource; seeded, same seed +
-settings = same region). Greybox for now: flat grass-green ground and pale grey walls, no grass, no paths or buildings.
-- **Where:** a 4 x 4 km square centred on map (4000, -1496), picked automatically: the most highland / high-plateau ground
-  (56% / 43%) with mountains in view, its floor at ~402 m. The base terrain stays as the floor - flattened toward the region's
-  median height inside and back to the base terrain across a 380 m noisy border, so the edge blends in.
-- **Plateaus:** three levels about 150 / 300 / 450 m above the floor (shares of the region: floor 42%, 21%, 26%, 11%), 4 + 3 + 3
-  plateau pieces, stacked as terraces; outlines domain-warped with bays and peninsulas; flat tops with gentle rolling hills. A
-  wide valley (650-1050 m) runs across the region and 3 canyons (110-300 m wide) cut into the plateaus.
-- **Walls:** separate meshes along every level's edge contour (marching squares, 8 m columns, 10 m rows, 48 columns a piece):
-  42.9 km of wall, 186 pieces, 173k vertices / 323k triangles; heights median 169 m, 10% under 140, 90% under 311, tallest
-  451 m. Large-scale variation: curvature, buttresses, grooves, setbacks, a slight taper. Trimesh collision. Under each wall the
-  terrain is pulled down steeply to its foot rather than cut with Terrain3D holes: holes remove whole coarse triangles at far
-  clipmap levels and showed gaps from afar (`cut_holes` still switches them on).
-- **Walking routes:** rock spurs leaning on the walls - a 52 m wide grassy crest climbing at 25 degrees from the ground below to
-  a plateau's top, with sheer sides - at least 2 per plateau piece (20 in all), placed level by level only where the walker
-  already arrives. The generator checks itself: each spur walked over 8 m cells, every plateau of every level reached on foot
-  from the floor (all 20 spurs and all 10 plateaus pass).
-- **Bookmarks:** 4 cameras that recreate the 4 reference paintings' compositions (`bookmark_views`: position, height above
-  ground, target, field of view) - ref1 stacked terraces seen from a ledge, ref2 over plateaus across the valley, ref3 down a
-  canyon, ref4 from the air. F6-F9 in the game; `shot.gd --bookmark=ref1`.
-- **Cost:** ~32 s to generate on the laptop the first time, then cached in `user://terrain/region_*.bin`; 61-82 fps at the
-  bookmarks (greybox, laptop).
-- **Tools:** `scripts/tools/region_test.gd` (generator alone: report, spurs, canyons, bookmarks, writes the game's cache and
-  `shots/region/region_map.png`), `region_walk_test.gd` (the hero walks up a spur onto a plateau and into a 441 m wall),
-  `region_scan.gd` (scores 4 km windows for the region's place); `shot.gd --overview=region`.
+The first region, built on the base terrain: a land of tables - a flat floor, six big flat-topped plateaus standing on it
+(two of them stacked in terraces), sheer walls, narrow canyons and a wide valley (`scripts/world/tepui_region.gd`, every key
+value in `region_settings.gd` - a `RegionSettings` resource; seeded, same seed + settings = same region). Greybox for now:
+flat colours (the ground a little lighter the higher it is), pale grey walls, no grass, no paths or buildings.
+- **Where:** a 4 x 4 km square centred on map (4000, -1496), picked automatically: highland / high-plateau ground (56% / 43%)
+  with mountains in view. The floor is flat at the island's middle height there (408 m, gentle swells of +-3 m) and blends
+  back into the island's ground across a 280 m border band, so the region sits in the island without a seam. No 4 km
+  window on the island lies on a single tier (`region_scan.gd`), so the floor is levelled rather than taken as it is.
+- **A step function:** every 4 m height sample is on the floor or on a plateau's level, never between (except in the ways
+  up), so at each edge the heightmap jumps the whole wall height from one sample to the next - flat top, straight drop, flat
+  floor. Far from the camera Terrain3D's coarser rings would smear each step into a slope; the terrain shader moves those
+  vertices onto the edge of their own terrace (a snap map: per sample, the nearest sample at its terrace's edge), so the
+  steps stay steps at every distance; its normals ignore the jump, so tops and floors stay flat-shaded to the edge.
+- **Plateaus:** six, from a list in the settings (layout position, radii, base level, stacked terraces): ellipses whose
+  outlines are bent by a domain warp, big bays and headlands and smaller zig-zags; neighbours kept apart along their Voronoi
+  border by a canyon (canyon pairs, 120 - 300 m wide) or a wider gap. Levels about 150 / 280 / 430 m above the floor (A, B, C;
+  C only on B, so no wall is taller than about 290 m); stacked terraces at least 105 m deep (a true distance), measured 100 -
+  230 m. Areas 0.3 - 1.8 km2. The layout's axis comes from the sun (the walls the bookmark views look at face it).
+- **Walls:** separate meshes along every level's edge (marching squares, 8 m columns, 10 m rows, 48 columns a piece), each
+  column snapped onto the exact edge: the face stands 9 m out from the terrain's step (so the step is always behind it),
+  nearly vertical (3% batter), its foot 4 m into the ground, and a rock lip runs from the face's top edge back over the
+  plateau's edge and under the grass - the plateau's edge is the rock's edge. Shapes: slow curvature, buttresses, broad
+  flutes, fine grooves, setbacks at rock layers. Trimesh collision. Measured on every column: 136 - 282 m.
+- **Ways up:** ravines cut into the plateaus' edges, two per plateau piece and level (18 in all): a 90 m wide slot whose floor
+  climbs at 30 degrees from the ground in front to the top, between sheer sides; the ramp starts where the edge crosses the
+  slot's mouth furthest in, so the ground meets it level all across. Placed out of the bookmarks' views where possible. The
+  generator walks each one and checks every plateau piece is reached on foot from the floor.
+- **Bookmarks:** 4 cameras after the reference pictures (`bookmark_views`, in layout coordinates; an 8th number puts the
+  camera that far in from the nearest rim) - ref1 high on the stacked plateau's lowest terrace looking along its cliff line,
+  ref2 high over the island plateau looking across the valley at the stacked plateau, ref3 on a rim looking down the canyon,
+  ref4 from the air down the valley. F6-F9 in the game; `shot.gd --bookmark=ref1`.
+- **Cost:** ~28 s to generate on the laptop the first time, then cached in `user://terrain/region_*.bin`; 65-79 fps at the
+  bookmarks (greybox, laptop); walls 113k vertices.
+- **Tools:** `scripts/tools/region_test.gd` (generator alone: report with the plateau table, gaps, terrace depths and wall
+  heights; writes the game's cache, `region_map.png` and `region_data.json` with two height profiles), `region_walk_test.gd`
+  (the hero walks up a ravine onto a plateau and into the tallest wall), `region_probe.gd` (level, height and nearest edge
+  at layout points - for placing cameras), `region_scan.gd` (single-tier 4 km windows); `shot.gd --overview=region`.
 - **Next phases:** 2 overhangs, arches, pillars, sinkholes; 3 rivers, waterfalls, lakes, mist; 4 materials, vegetation, sky,
   performance.
 

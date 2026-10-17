@@ -11,6 +11,11 @@
 // The colour map is read raw (no source_color). Base terrain: r = (tier + 1) / 5 (0 = sea), g = valley, b = steep-edge mask,
 // a = escarpment. Old continent: r = tier / 4, g = river, b = pass, a = land.
 // Ground noise is painted in map coordinates (local + world_offset), so it stays put when the floating origin shifts.
+// Steps (a region's plateau walls, tepui_region.gd): the heightmap jumps by a whole wall's height from one 4 m sample to the
+// next, but Terrain3D's coarser rings far from the camera sample it every 8, 16, 32 ... m, which would smear each step into a
+// slope poking out in front of the wall. So every vertex near the edge of its own terrace (within 1.5 of its cell, more while
+// it morphs to the next ring) moves onto that edge - the nearest sample at the terrace's edge, read from snap_map - and takes
+// that sample's height: the triangles across a step stand straight up again, behind the wall, at every distance.
 // Base: Copyright © 2023-2026 Cory Petkovsek, Roope Palmroos, and Contributors (MIT).
 
 shader_type spatial;
@@ -68,8 +73,17 @@ uniform bool biomes = true;
 // greybox: one flat colour for all the ground (while a region's landforms are being judged)
 uniform bool greybox = false;
 uniform vec3 greybox_col : source_color = vec3(0.47, 0.57, 0.38);
+// (and lighter with height above the region's floor, greybox_floor, up to greybox_span m above it: the levels read apart)
+uniform float greybox_floor = 0.0;
+uniform float greybox_span = 450.0;
 // where the local origin is on the map (scripts/world/floating_origin.gd)
 global uniform vec2 world_offset;
+// the region's snap map: per 4 m sample, x / z (m) to the nearest sample at the edge of its own terrace (huge = none); the
+// map position of its first sample and its size in samples
+uniform bool snap_on = false;
+uniform highp sampler2D snap_map : filter_nearest, repeat_disable;
+uniform vec2 snap_origin = vec2(0.0);
+uniform float snap_texels = 1.0;
 
 // Varyings & Types
 // Some are required for editor functions
@@ -124,6 +138,19 @@ void vertex() {
 	vec2 end_pos = (v_vertex.xz - shift * scale) * _vertex_density;
 	v_vertex.xz -= shift * scale * vertex_lerp;
 
+	// onto the edge of its terrace, near a step (the same rule on both sides of every ring's seam: no cracks)
+	bool snapped = false;
+	if (snap_on) {
+		vec2 t = round((v_vertex.xz + world_offset - snap_origin) * _vertex_density);
+		if (t.x >= 0.0 && t.y >= 0.0 && t.x < snap_texels && t.y < snap_texels) {
+			vec2 o = texelFetch(snap_map, ivec2(t), 0).rg;
+			if (length(o) <= 1.5 * scale * (1.0 + vertex_lerp)) {
+				v_vertex.xz = t * _vertex_spacing + snap_origin - world_offset + o;
+				snapped = true;
+			}
+		}
+	}
+
 	// UV coordinates in world space. Values are 0 to _region_size within regions
 	UV = v_vertex.xz * _vertex_density;
 
@@ -144,6 +171,9 @@ void vertex() {
 		ivec3 uv_a = get_index_coord(start_pos, VERTEX_PASS);
 		ivec3 uv_b = get_index_coord(end_pos, VERTEX_PASS);
 		float h = mix(texelFetch(_height_maps, uv_a, 0).r, texelFetch(_height_maps, uv_b, 0).r, vertex_lerp);
+		if (snapped) {
+			h = texelFetch(_height_maps, get_index_coord(v_vertex.xz * _vertex_density, VERTEX_PASS), 0).r;
+		}
 		v_vertex.y = h;
 	}
 
@@ -200,6 +230,14 @@ vec3 tier_colour(float t) {
 // Fragment
 ////////////////////////
 
+// a height difference between neighbouring samples for the normals: across a region's step (more than 6 m between two
+// 4 m samples - nothing on the island is that steep otherwise) it counts as level, so flat tops and floors stay flat-shaded
+// right up to the edge (the step itself is behind a wall)
+float dh(float a, float b) {
+	float d = a - b;
+	return (snap_on && abs(d) > 6.0) ? 0.0 : d;
+}
+
 void fragment() {
 	// Recover UVs
 	vec2 uv = UV;
@@ -243,7 +281,7 @@ void fragment() {
 	h[3] = texelFetch(_height_maps, index[3], 0).r; // 0 (0,0)
 	h[2] = texelFetch(_height_maps, index[2], 0).r; // 1 (1,0)
 	h[0] = texelFetch(_height_maps, index[0], 0).r; // 2 (0,1)
-	index_normal[3] = normalize(vec3(h[3] - h[2] + u, _vertex_spacing, h[3] - h[0] + v));
+	index_normal[3] = normalize(vec3(dh(h[3], h[2]) + u, _vertex_spacing, dh(h[3], h[0]) + v));
 
 	// Set flat world normal - overriden if bilerp is true
 	vec3 w_normal = index_normal[3];
@@ -259,9 +297,9 @@ void fragment() {
 		float h_7 = texelFetch(_height_maps, get_index_coord(index_id + offsets.xz, FRAGMENT_PASS), 0).r; // 7 (0,2)
 
 		// Calculate the normal for the remaining index ids.
-		index_normal[0] = normalize(vec3(h[0] - h[1] + u, _vertex_spacing, h[0] - h_7 + v));
-		index_normal[1] = normalize(vec3(h[1] - h_5 + u, _vertex_spacing, h[1] - h_4 + v));
-		index_normal[2] = normalize(vec3(h[2] - h_6 + u, _vertex_spacing, h[2] - h[1] + v));
+		index_normal[0] = normalize(vec3(dh(h[0], h[1]) + u, _vertex_spacing, dh(h[0], h_7) + v));
+		index_normal[1] = normalize(vec3(dh(h[1], h_5) + u, _vertex_spacing, dh(h[1], h_4) + v));
+		index_normal[2] = normalize(vec3(dh(h[2], h_6) + u, _vertex_spacing, dh(h[2], h[1]) + v));
 
 		// Set interpolated world normal
 		w_normal =
@@ -316,7 +354,7 @@ void fragment() {
 	} else if (debug_view == 4) {
 		col = land ? mix(vec3(0.80, 0.82, 0.78) * (0.75 + 0.25 * w_normal.y), vec3(0.88, 0.10, 0.10), biomes ? 0.0 : cm.b) : vec3(0.12, 0.30, 0.60);
 	} else if (greybox) {
-		col = greybox_col;
+		col = greybox_col * mix(0.36, 1.3, clamp((wh - greybox_floor) / greybox_span, 0.0, 1.0));
 		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
 	} else if (!biomes) {
 		// the clean base terrain: one grass, a little uneven, and shaded by slope (the steeper, the deeper and warmer its green)

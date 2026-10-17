@@ -121,6 +121,13 @@ func _process(_dt: float) -> void:
 	m.set_shader_param("walk_angle", cfg.max_walk_angle)
 	m.set_shader_param("biomes", not base)
 	m.set_shader_param("greybox", region != null and region_cfg.greybox)
+	# the region's steps stay steps far away: the shader moves far vertices onto the edges of their terraces
+	m.set_shader_param("snap_on", region != null)
+	if region != null:
+		m.set_shader_param("snap_map", region.snap_texture())
+		m.set_shader_param("snap_origin", region.snap_origin())
+		m.set_shader_param("snap_texels", float(region.fn))
+		m.set_shader_param("greybox_floor", region.floor_h)
 	if not base:
 		m.set_shader_param("cliff_angle", cfg.cliff_threshold)
 	m.set_shader_param("debug_view", debug_view)
@@ -166,6 +173,8 @@ func _build_walls() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/region_wall.gdshader")
 	mat.set_shader_parameter("debug_view", debug_view)
+	mat.set_shader_parameter("greybox", region_cfg.greybox)
+	mat.set_shader_parameter("greybox_floor", region.floor_h)
 	for w in region.walls:
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)

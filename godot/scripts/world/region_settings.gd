@@ -1,8 +1,8 @@
 extends Resource
 ## REGION SETTINGS (scripts/world/region_settings.gd): every number the tepui / plateau region uses (tepui_region.gd), in one
 ## place. Change a value and the next start rebuilds the region (its cache key is made from all of them). Lengths in metres,
-## angles in degrees. The region sits on the base terrain: the base ground stays its floor (valleys and canyons), the
-## plateaus are built on top of it with sheer walls, so its border blends into the island by itself.
+## angles in degrees. The region is a set of tables: a flat floor, a few big flat-topped plateaus standing on it, sheer walls
+## between - the terrain itself steps straight up at every wall (and the wall meshes stand on that step).
 
 @export var enabled := true
 ## the region's own seed (mixed with the island's): same seeds + settings = the same region
@@ -14,101 +14,106 @@ extends Resource
 @export var center := Vector2(INF, INF)
 ## the region is a square this wide
 @export var size := 4000.0
-## no plateau comes nearer the region's edge than this: the region ends on the island's own ground; the line plateaus keep
-## behind is a rounded square, wandering in and out by border_noise (m)
-@export var border := 380.0
-@export var border_noise := 260.0
-## the layout's main direction (degrees, the main valley runs along it); INF = chosen from the sun so the long walls are lit
+## the floor blends back into the island's own ground across a band this wide inside the region's edge (wandering in and out
+## by border_noise); no plateau comes into that band
+@export var border := 280.0
+@export var border_noise := 120.0
+## the layout's main direction (degrees: the main valley runs along it); INF = chosen from the sun so the long walls are lit
 ## from the side
 @export var valley_angle := INF
 ## cell size of the region's layout grid (m)
 @export var grid_cell := 8.0
-## the region's floor: the island's ground pulled towards the region's middle height (0 = left as it is, 1 = dead flat) and
-## back to the island's own ground at the region's edge; valley and canyon floors sink this much more (m)
-@export var floor_flatten := 0.6
-@export var floor_drop := 30.0
+## the floor: flat at the island's middle height in the region, with gentle swells of this amplitude (m) and wavelength (m)
+@export var floor_amp := 3.0
+@export var floor_wavelength := 1400.0
 
 @export_group("Plateaus")
-## the plateau levels: heights above the ground under each plateau (m)
-@export var level_heights := PackedFloat32Array([150.0, 300.0, 450.0])
-## how much of the region each level and up covers (shares of the region inside its border)
-@export var level_shares := PackedFloat32Array([0.58, 0.36, 0.15])
-## each plateau's own height offset, up to this much either way (m) - so walls range from about 100 to 300 m
-@export var level_jitter := 22.0
-## the layout: on one side of the main valley the ground climbs in terraces away from it (each level a band, the top one this
-## far from the valley, m); the other side is one high block (its height in the field, 0 .. 1) cut by canyons into separate
-## plateaus; noise_weight is how much the natural noise bends all that (0 none .. 1 noise only)
-@export var terrace_depth := 1300.0
-@export var block_height := 0.72
-@export var noise_weight := 0.3
-## the plateau outlines' noise: wavelength of their shapes (m), domain warp (m), octaves
-@export var mesa_wavelength := 1250.0
-@export var mesa_warp := 800.0
-@export var mesa_octaves := 5
+## the plateau levels: heights above the floor (m) - A, B, C
+@export var level_heights := PackedFloat32Array([150.0, 280.0, 430.0])
+## the plateaus, in layout coordinates (u along the main valley, v across it, from the region's centre): each
+## [u, v, radius along u, radius along v, base level (1 = A, 2 = B), then the levels of its stacked terraces, if any (each
+## higher one set back inside the one below)]. Neighbouring plateaus are kept apart by at least two gap_min (a canyon or more).
+@export var plateaus: Array[PackedFloat32Array] = [
+	PackedFloat32Array([-680.0, 960.0, 900.0, 700.0, 1.0, 2.0, 3.0]),
+	PackedFloat32Array([820.0, 960.0, 800.0, 680.0, 1.0]),
+	PackedFloat32Array([-1000.0, -960.0, 640.0, 640.0, 2.0]),
+	PackedFloat32Array([150.0, -960.0, 680.0, 650.0, 2.0, 3.0]),
+	PackedFloat32Array([1200.0, -980.0, 420.0, 590.0, 1.0]),
+	PackedFloat32Array([1250.0, -60.0, 270.0, 230.0, 1.0]),
+]
+## pairs of plateaus (indices into plateaus) split only by a narrow canyon: half its width there, gap_canyon_min..max (m);
+## any other neighbours keep at least gap_min..gap_max apart (half the gap, m)
+@export var canyon_pairs: Array[Vector2i] = [Vector2i(0, 1), Vector2i(2, 3)]
+@export var gap_canyon_min := 60.0
+@export var gap_canyon_max := 125.0
+@export var gap_min := 110.0
+@export var gap_max := 220.0
+## the outlines: domain warp (m, wavelength m), big bays and headlands (amplitude m, wavelength m), small wiggles (m, m)
+@export var warp_amp := 130.0
+@export var warp_wavelength := 1100.0
+@export var bay_amp := 200.0
+@export var bay_wavelength := 760.0
+@export var wiggle_amp := 70.0
+@export var wiggle_wavelength := 320.0
+## a stacked terrace's setback inside the level below: between these two along its edge (in the outline's own units - its
+## warp shrinks them in places), and never less than terrace_min_depth (m, measured)
+@export var terrace_min := 160.0
+@export var terrace_max := 290.0
+@export var terrace_min_depth := 105.0
 ## plateau pieces smaller than this are dropped (km2)
-@export var min_plateau_km2 := 0.15
-## a ledge between two levels thinner than this is closed up: the walls above and below it become one wall (m)
-@export var ledge_min := 45.0
-## the highest level always keeps a ledge this wide round it (so no wall is taller than two levels)
-@export var top_ledge := 60.0
-## the plateau tops' gentle rolling hills: amplitude (m) and wavelength (m)
-@export var top_hill_amp := 4.0
-@export var top_hill_wavelength := 420.0
-
-@export_group("Valley and canyons")
-## the main valley: width range (m) and how far it swings sideways (m)
-@export var valley_width_min := 650.0
-@export var valley_width_max := 1050.0
-@export var valley_meander := 180.0
-## narrow canyons cutting through the plateaus: how many, width range (m), length (m), sideways swing (m)
-@export var canyons := 3
-@export var canyon_width_min := 110.0
-@export var canyon_width_max := 300.0
-@export var canyon_length := 2800.0
-@export var canyon_meander := 140.0
+@export var min_plateau_km2 := 0.1
+## each plateau's own height offset, up to this much either way (m), and the tops' gentle rolling hills (amplitude m,
+## wavelength m) - so no wall is taller than about 295 m
+@export var level_jitter := 6.0
+@export var top_hill_amp := 3.0
+@export var top_hill_wavelength := 500.0
 
 @export_group("Walls")
 ## wall mesh spacing: columns along the edge and rows down the face (m)
 @export var wall_column := 8.0
 @export var wall_row := 10.0
-## where a wall meets the ground: its top edge this far in on the plateau, its foot this far out (m) - both past the strip of
-## terrain cut away (holes) under the wall
-@export var wall_rim_inset := 11.0
-@export var wall_foot_outset := 12.0
+## the face stands this far out from the terrain's step (m), so the step (a near-vertical 4 m strip of terrain) is always
+## behind it; it leans out by wall_batter of its height towards its foot; its foot goes this far into the ground (m)
+@export var wall_face_offset := 9.0
+@export var wall_batter := 0.03
+@export var wall_sink := 4.0
+## the rock's top: a lip from the face's top edge back over the plateau's edge, its inner edge this far inside the step (m)
+## and just under the grass, so the edge of the plateau is the edge of the rock
+@export var wall_lip := 7.0
 ## an edge lower than this gets no wall (m)
-@export var wall_min_height := 8.0
-## under the walls: false = steep terrain shaped to stay just behind every wall's face (holds at every distance); true = the
-## terrain cut away (Terrain3D holes: exact up close, but Terrain3D's coarser far rings cut wider gaps than the walls cover)
-@export var cut_holes := false
-## large-scale shape: slow curvature (amplitude m, wavelength m), buttresses (spacing m, width m, how far out m), vertical
-## grooves (wavelength m, depth m), setbacks at rock layers (layer spacing m, step m)
-@export var wall_curve_amp := 9.0
-@export var wall_curve_wavelength := 320.0
-@export var buttress_spacing := 130.0
-@export var buttress_width := 42.0
-@export var buttress_depth := 16.0
+@export var wall_min_height := 2.0
+## large-scale shape: slow curvature (amplitude m, wavelength m), buttresses (spacing m, width m, how far out m), broad
+## flutes down the face (wavelength m, depth m), fine vertical grooves (wavelength m, depth m), setbacks at rock layers
+## (layer spacing m, step m)
+@export var wall_curve_amp := 18.0
+@export var wall_curve_wavelength := 260.0
+@export var buttress_spacing := 110.0
+@export var buttress_width := 50.0
+@export var buttress_depth := 24.0
+@export var flute_wavelength := 46.0
+@export var flute_depth := 6.0
 @export var groove_wavelength := 15.0
 @export var groove_depth := 2.6
-@export var setback_spacing := 55.0
-@export var setback_depth := 5.0
+@export var setback_spacing := 45.0
+@export var setback_depth := 8.0
 
 @export_group("Walking routes")
-## walking routes up each plateau (per plateau piece and level): rock spurs leaning on the wall, their grassy crest climbing at
-## ramp_angle (degrees) to the top, ramp_width wide (m), with sheer sides
-@export var ramps_per_plateau := 2
-@export var ramp_angle := 25.0
-@export var ramp_width := 52.0
+## the ways up: ravines cut into a plateau's edge, their floor climbing at notch_angle (degrees) from the ground in front to
+## the top, notch_width wide (m) between sheer sides; this many per plateau piece and level
+@export var notches_per_plateau := 2
+@export var notch_angle := 30.0
+@export var notch_width := 90.0
 
 @export_group("Bookmarks")
-## the four camera views after the reference pictures (ref1 stacked terraces, ref2 over the plateaus across a valley, ref3
-## down a canyon, ref4 the aerial view): name -> [x, z, height above the ground, look-at x, z, its height above the ground,
-## vertical field of view] in map coordinates, framed by hand for this seed and layout; a view not listed here is found
-## automatically (tepui_region.gd _bookmarks)
+## the four camera views after the reference pictures (ref1 on a terrace's edge looking along the cliffs, ref2 high over a
+## plateau's edge down to the valley floor, ref3 on a plateau looking down a canyon, ref4 the aerial view): name -> [u, v,
+## height above the ground, look-at u, v, its height above the ground, vertical field of view] in layout coordinates (u along
+## the main valley, v across it, from the region's centre), framed by hand for this layout
 @export var bookmark_views := {
-	"ref1": PackedFloat32Array([2475.0, -950.0, 45.0, 2530.0, -2200.0, 20.0, 66.0]),
-	"ref2": PackedFloat32Array([4900.0, -700.0, 260.0, 3600.0, -1250.0, -40.0, 66.0]),
-	"ref3": PackedFloat32Array([2930.0, -1320.0, 40.0, 3900.0, -1300.0, -40.0, 66.0]),
-	"ref4": PackedFloat32Array([4150.0, -3450.0, 700.0, 4100.0, -2100.0, 0.0, 66.0]),
+	"ref1": PackedFloat32Array([-880.0, 240.0, 25.0, -300.0, 215.0, -70.0, 75.0]),
+	"ref2": PackedFloat32Array([1635.0, -95.0, 380.0, 179.0, 699.0, 60.0, 75.0]),
+	"ref3": PackedFloat32Array([-60.0, 1200.0, 25.0, -60.0, -500.0, -150.0, 75.0, 6.0, -14.0]),
+	"ref4": PackedFloat32Array([-1700.0, 600.0, 700.0, 87.0, -73.0, 0.0, 75.0]),
 }
 
 @export_group("Look")

@@ -1,7 +1,8 @@
 extends SceneTree
 ## REGION SCAN (scripts/tools/region_scan.gd): loads the cached base terrain and scores every 4 x 4 km window (centres every
-## 500 m) as a place for a region: share of highlands / high plateaus inside, no mountains or sea in it or its blend band, how
-## level the ground round its border is (so it blends in), mountains in view 3 - 10 km away. Prints the best ten.
+## 250 m) as a place for a region: the window and a 600 m margin round it all on one tier (highlands or high plateaus - no
+## escarpment, sea or mountains in it, so the region's flat floor blends into the island gently), the ground in it as level as
+## can be (height spread), and mountains in view 3 - 10 km away. Prints the best ten per tier.
 ##   Godot_console.exe --headless --path . --script res://scripts/tools/region_scan.gd
 
 const Config := preload("res://scripts/world/base_terrain_config.gd")
@@ -15,43 +16,34 @@ func _initialize() -> void:
 		print("no cache")
 		quit()
 		return
-	var res := []
-	for cz in range(-12000, 12001, 500):
-		for cx in range(-12000, 12001, 500):
-			var inner := 0
-			var good := 0
+	var res := {2: [], 3: []}
+	for cz in range(-13000, 13001, 250):
+		for cx in range(-13000, 13001, 250):
+			var t0: int = gen.tier_at(cx, cz)
+			if t0 != 2 and t0 != 3:
+				continue
 			var bad := false
-			var ring := PackedFloat32Array()
-			for j in range(-26, 27):
-				for i in range(-26, 27):
-					var x := cx + i * 100.0
-					var z := cz + j * 100.0
+			var same := 0
+			var tot := 0
+			var hs := PackedFloat32Array()
+			for j in range(-13, 14):
+				for i in range(-13, 14):
+					var x := cx + i * 200.0
+					var z := cz + j * 200.0
 					var t: int = gen.tier_at(x, z)
-					var edge := maxi(absi(i), absi(j))
-					if t == 255 or t == 4 or t == 0:
+					if t == 255 or t == 0 or t == 4:
 						bad = true
 						break
-					if edge <= 20:
-						inner += 1
-						if t == 2 or t == 3:
-							good += 1
-					elif edge >= 21 and edge <= 25:
-						ring.append(gen.height(x, z))
+					tot += 1
+					same += 1 if t == t0 else 0
+					if absi(i) <= 10 and absi(j) <= 10:
+						hs.append(gen.height(x, z))
 				if bad:
 					break
-			if bad:
+			if bad or same < tot * 0.55:
 				continue
-			var share := float(good) / inner
-			if share < 0.75:
-				continue
-			var mean := 0.0
-			for h in ring:
-				mean += h
-			mean /= ring.size()
-			var sd := 0.0
-			for h in ring:
-				sd += (h - mean) * (h - mean)
-			sd = sqrt(sd / ring.size())
+			hs.sort()
+			var spread := hs[hs.size() * 95 / 100] - hs[hs.size() * 5 / 100]
 			var mnt := 0
 			for a in 36:
 				var d := Vector2.from_angle(a * TAU / 36.0)
@@ -59,10 +51,11 @@ func _initialize() -> void:
 					if gen.tier_at(cx + d.x * r, cz + d.y * r) == 4:
 						mnt += 1
 						break
-			var score := share * 2.0 - sd / 60.0 + mnt / 36.0
-			res.append([score, cx, cz, share, mean, sd, mnt])
-	res.sort_custom(func(a, b): return a[0] > b[0])
-	for k in mini(10, res.size()):
-		var r: Array = res[k]
-		print("score %.2f centre %d %d  high share %.2f  border mean %.0f sd %.0f  mountain dirs %d/36" % r)
+			res[t0].append([mnt / 36.0 - spread / 120.0 + float(same) / tot * 2.0, cx, cz, hs[hs.size() / 2], spread, mnt, float(same) / tot])
+	for t in [2, 3]:
+		var arr: Array = res[t]
+		arr.sort_custom(func(a, b): return a[0] > b[0])
+		print("tier %d: %d windows" % [t, arr.size()])
+		for k in mini(8, arr.size()):
+			print("  score %.2f centre %d %d  median %.0f m  spread %.0f m  mountain dirs %d/36  same tier %.2f" % arr[k])
 	quit()
