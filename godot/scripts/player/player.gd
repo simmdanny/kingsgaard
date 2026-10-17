@@ -1,6 +1,8 @@
-extends Node3D
+extends CharacterBody3D
 ## THE HERO (scripts/player/player.gd): walks the continent. W/A/S/D move relative to the camera, Shift runs, Alt sprints, Space
-## jumps. Stands on the ground exactly as the terrain draws it (WorldGen.ground_at); the sea stops the hero at the waterline.
+## jumps. A physics body (a capsule) on the terrain's own collision: it walks up slopes to MAX_WALK_ANGLE (35 degrees) and no
+## steeper - cliffs and steep mountain sides stop it and it slides back down them; the sea stops it at the waterline. While
+## the camera flies or a screenshot pins it far away (no collision is built there) the body waits.
 ## Looks (set_hero), all animated in code by rig_anim.gd: "male" = alicewithalex's Low Poly Male Character
 ## (assets/characters/male01, CC-BY-4.0 - credit in SOURCE.md), "female" = the same model made feminine in code (feminize.gd);
 ## also "male-built" = the faceted man built in code after the user's reference sheet (male_body.gd), "stand-in" = a capsule.
@@ -10,6 +12,7 @@ const RUN := 5.5
 const SPRINT := 9.0
 const GRAVITY := 22.0
 const JUMP := 6.5
+const MAX_WALK_ANGLE := 35.0
 const RigAnim := preload("res://scripts/player/rig_anim.gd")
 const MaleBody := preload("res://scripts/player/male_body.gd")
 const Feminize := preload("res://scripts/player/feminize.gd")
@@ -34,12 +37,25 @@ var gen
 var rig
 var vel := Vector3.ZERO
 var on_ground := true
+var frozen := true
 var hero := ""
 var _body: Node3D
 var _anim = null
 
 
 func _ready() -> void:
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.3
+	shape.height = 1.76
+	var col := CollisionShape3D.new()
+	col.shape = shape
+	col.position = Vector3(0.0, 0.88, 0.0)
+	add_child(col)
+	floor_max_angle = deg_to_rad(MAX_WALK_ANGLE)
+	floor_snap_length = 0.7
+	floor_stop_on_slope = true
+	floor_constant_speed = true
+	floor_block_on_wall = false
 	_body = Node3D.new()
 	add_child(_body)
 	if hero == "":
@@ -127,11 +143,15 @@ func _part(mesh: Mesh, mat: Material, at: Vector3) -> void:
 	_body.add_child(mi)
 
 
-func _process(dt: float) -> void:
-	dt = minf(dt, 0.1)
+func _physics_process(dt: float) -> void:
+	frozen = gen == null or not gen.ready or (rig != null and (rig.fly or rig.pinned))
+	if frozen:
+		velocity = Vector3.ZERO
+		vel = Vector3.ZERO
+		return
 	var input := Vector2.ZERO
 	# (in a screenshot run only the tool's scripted walk moves the hero, not keys pressed while its window has focus)
-	if (rig == null or not rig.fly) and (not Shot.active or Shot.walk > 0.0):
+	if not Shot.active or Shot.walk > 0.0:
 		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var speed := WALK
 	if Input.is_action_pressed("sprint"):
@@ -141,42 +161,43 @@ func _process(dt: float) -> void:
 	var yaw: float = rig.yaw if rig != null else 0.0
 	var dir := Vector3(input.x, 0.0, input.y).rotated(Vector3.UP, yaw)
 	var want := dir * speed
-	var k := 1.0 - exp(-(10.0 if on_ground else 1.5) * dt)
-	vel.x = lerpf(vel.x, want.x, k)
-	vel.z = lerpf(vel.z, want.z, k)
-	var nx := position.x + vel.x * dt
-	var nz := position.z + vel.z * dt
-	if gen.height(nx, nz) < -0.9:
-		vel.x = 0.0
-		vel.z = 0.0
+	var k := 1.0 - exp(-(10.0 if is_on_floor() else 1.5) * dt)
+	velocity.x = lerpf(velocity.x, want.x, k)
+	velocity.z = lerpf(velocity.z, want.z, k)
+	# the sea: no walking into deep water
+	if gen.height(position.x + velocity.x * dt * 4.0, position.z + velocity.z * dt * 4.0) < -0.9:
+		velocity.x = 0.0
+		velocity.z = 0.0
+	if is_on_floor():
+		if Input.is_action_just_pressed("jump"):
+			velocity.y = JUMP
 	else:
-		position.x = nx
-		position.z = nz
-	var g: float = gen.ground_at(position.x, position.z)
-	if on_ground and Input.is_action_just_pressed("jump") and (rig == null or not rig.fly):
-		vel.y = JUMP
-		on_ground = false
-	if on_ground:
-		if position.y - g < 0.35:
-			position.y = g
-			vel.y = 0.0
-		else:
-			on_ground = false
-	if not on_ground:
-		vel.y -= GRAVITY * dt
-		position.y += vel.y * dt
-		if position.y <= g:
-			position.y = g
-			vel.y = 0.0
-			on_ground = true
+		velocity.y -= GRAVITY * dt
+	move_and_slide()
+	# a safety net: never below the ground (e.g. before the collision round a new spot is built)
+	var g: float = gen.height(position.x, position.z)
+	if position.y < g - 1.5:
+		position.y = g + 0.05
+		velocity.y = 0.0
+	on_ground = is_on_floor()
+	vel = velocity
 	if dir.length() > 0.1:
 		_body.rotation.y = lerp_angle(_body.rotation.y, atan2(dir.x, dir.z), 1.0 - exp(-12.0 * dt))
+
+
+func _process(dt: float) -> void:
 	if _anim != null:
-		_anim.update(dt, vel, on_ground)
+		_anim.update(minf(dt, 0.1), vel, on_ground or frozen)
 
 
-## put him on the ground at (x, z)
+## turn the hero to face a direction (on the ground plane)
+func face(d: Vector3) -> void:
+	_body.rotation.y = atan2(d.x, d.z)
+
+
+## put the hero on the ground at (x, z)
 func place(x: float, z: float) -> void:
-	position = Vector3(x, gen.ground_at(x, z), z)
+	position = Vector3(x, gen.height(x, z) + 0.05, z)
+	velocity = Vector3.ZERO
 	vel = Vector3.ZERO
 	on_ground = true

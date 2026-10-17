@@ -55,6 +55,8 @@ func _range(mmi: MultiMeshInstance3D) -> void:
 
 
 func _process(_dt: float) -> void:
+	if gen == null or not gen.ready:
+		return
 	var f2 := Vector2(focus.x, focus.z)
 	if f2.distance_to(_last) > 24.0:
 		_last = f2
@@ -142,7 +144,7 @@ func _job(key: Vector2i, x0: float, z0: float, res: Array) -> void:
 			if r1 >= p:
 				continue
 			var h: float = g.height_c(x, z, c)
-			if h < 0.9:
+			if h < 0.9 or g.slope(x, z) > 30.0:
 				continue
 			var kind := "conif" if cv.r > 0.3 and r4 < g.conifer(x, z) else "broad"
 			var s := (0.7 + 0.7 * r3) * (1.0 if cv.r > 0.3 else 1.15)

@@ -10,6 +10,9 @@ extends Node
 ## (forward/back/left/right, relative to the camera), --gait walk/run/sprint. --orbit sets the third-person camera's distance (m)
 ## and pitch (degrees). --burst=K saves K frames 0.1 s apart (NAME_0.png ...) instead of one - to look at a walk cycle.
 ## --ui=title|heroes|settings|controls|credits|loading|pause shows that menu screen instead of skipping the menus (--menu = title).
+## --view=height|tiers|slope shows a terrain debug map; --overview looks straight down on the whole map (orthographic; use a
+## square --resolution); --poi=low|edge|pass puts the hero and camera at a place the terrain generator found (lowlands
+## looking up at a plateau, a plateau's edge looking down, a walkable pass between two tiers).
 ## --set=key:value,... applies settings for the run (keys as in scripts/ui/settings.gd, e.g. --set=render_scale:0,grass:0). --look=x,y,z (with --orbit) aims the camera at that
 ## point relative to the hero's feet instead of the head - for close-ups of the hands.
 ## Prints one line: SHOT <file> fps=... ms=... worst=<slowest frame, ms> plus the world's counters.
@@ -30,6 +33,9 @@ var orbit_yaw := 0.0
 var burst := 0
 var hero := "female"
 var ui := ""
+var view := ""
+var overview := false
+var poi := ""
 var settings := {}
 var look := Vector3(INF, INF, INF)
 
@@ -76,6 +82,12 @@ func _ready() -> void:
 				hero = val
 			"menu":
 				ui = "title"
+			"view":
+				view = val
+			"overview":
+				overview = true
+			"poi":
+				poi = val
 			"ui":
 				ui = val
 			"set":

@@ -1,8 +1,8 @@
 extends Node3D
 ## THE GRASS (scripts/world/grass.gd): blades round the hero, per 16 m cell within RADIUS, instanced (MultiMesh with custom data).
-## Each cell first samples the ground at the finest terrain chunks' own 2 m points (so every blade stands exactly on the drawn
-## ground) and the cover there; blades are kept by the cover - thick on grassland, taller on meadows, sparse under forest, none on
-## sand - and meadows get flowers. Custom data per blade: (meadow, random, flower kind, forest) for the shader's colours.
+## Each cell samples the cover on a 9 x 9 grid; every blade stands on the exact ground (the terrain's own heights, as Terrain3D
+## draws them) and none on steep rock; blades are kept by the cover - thick on grassland, taller on meadows, sparse under
+## forest, none on sand - and meadows get flowers. Custom data per blade: (meadow, random, flower kind, forest) for the shader's colours.
 ## The shader shrinks blades away towards RADIUS, so the edge of the grass never shows.
 
 const ProcMeshes := preload("res://scripts/world/proc_meshes.gd")
@@ -48,7 +48,7 @@ func set_density(k: float) -> void:
 
 
 func _process(_dt: float) -> void:
-	if density_k <= 0.0:
+	if density_k <= 0.0 or gen == null or not gen.ready:
 		return
 	var f2 := Vector2(focus.x, focus.z)
 	if f2.distance_to(_last) > 3.0:
@@ -111,7 +111,7 @@ func _pump() -> void:
 
 func _job(key: Vector2i, x0: float, z0: float, dens: float, res: Array) -> void:
 	var g = gen
-	# the cell's ground: 9 x 9 points 2 m apart, as the leaf terrain chunks draw it, and the cover at them
+	# the cover at 9 x 9 points 2 m apart over the cell
 	var hs := PackedFloat32Array()
 	var cf := PackedFloat32Array()
 	var cm := PackedFloat32Array()
@@ -146,12 +146,9 @@ func _job(key: Vector2i, x0: float, z0: float, dens: float, res: Array) -> void:
 		var sand := lerpf(lerpf(cs[q], cs[q + 1], fx), lerpf(cs[q + 9], cs[q + 10], fx), fz)
 		if r1 > (1.0 - 0.8 * forest) * (1.0 - smoothstep(0.25, 0.6, sand)):
 			continue
-		var h: float
-		if fx >= fz:
-			h = hs[q] + (hs[q + 1] - hs[q]) * fx + (hs[q + 10] - hs[q + 1]) * fz
-		else:
-			h = hs[q] + (hs[q + 10] - hs[q + 9]) * fx + (hs[q + 9] - hs[q]) * fz
-		if h < 0.4:
+		# the exact ground (as Terrain3D draws it); none on steep rock
+		var h: float = g.height(x0 + lx, z0 + lz)
+		if h < 0.4 or g.slope(x0 + lx, z0 + lz) > 38.0:
 			continue
 		var flower := 0.0
 		if meadow > 0.35 and r4 < 0.07 * meadow:

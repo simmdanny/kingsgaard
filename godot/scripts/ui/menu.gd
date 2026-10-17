@@ -449,7 +449,8 @@ func _controls() -> VBoxContainer:
 	box.custom_minimum_size = Vector2(480.0, 0.0)
 	box.add_theme_constant_override("separation", 6)
 	for row in [["W A S D", "Move"], ["Shift  /  Alt", "Run  /  sprint"], ["Space", "Jump"], ["Mouse drag", "Turn the camera"],
-			["Mouse wheel", "Zoom"], ["F", "Fly over the land"], ["F1", "Info: fps, position"], ["Esc", "Pause menu  /  back"]]:
+			["Mouse wheel", "Zoom"], ["F", "Fly over the land"], ["F1", "Info: fps, position"], ["F2  F3  F4", "Maps: heights / tiers / slopes"],
+			["Esc", "Pause menu  /  back"]]:
 		var k := _text(row[0].to_upper(), _cormorant, 600, 16, 3, GOLD)
 		k.custom_minimum_size = Vector2(150.0, 0.0)
 		var line := HBoxContainer.new()
@@ -469,7 +470,8 @@ func _credits() -> VBoxContainer:
 	for row in [["Heroes", ["Based on \"Low Poly Male Character [Free Download]\" by alicewithalex (sketchfab.com/alicewithalex),",
 			"licensed under CC-BY-4.0. The female hero is the same model, reshaped in code."]],
 			["Title painting and type", ["The painting from the browser Kingsgaard, painted in code", "Cinzel and Cormorant Garamond, SIL Open Font License"]],
-			["Engine", ["Made with the Godot Engine (godotengine.org), MIT license, © the Godot Engine contributors"]]]:
+			["Engine", ["Made with the Godot Engine (godotengine.org), MIT license, © the Godot Engine contributors",
+				"Terrain: Terrain3D by Cory Petkovsek, Roope Palmroos and contributors, MIT license"]]]:
 		var card := PanelContainer.new()
 		card.theme_type_variation = "GmCard"
 		var v := VBoxContainer.new()
