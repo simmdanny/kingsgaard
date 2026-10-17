@@ -38,6 +38,7 @@ var rig
 var vel := Vector3.ZERO
 var on_ground := true
 var frozen := true
+var _hold := 0
 var hero := ""
 var _body: Node3D
 var _anim = null
@@ -144,7 +145,9 @@ func _part(mesh: Mesh, mat: Material, at: Vector3) -> void:
 
 
 func _physics_process(dt: float) -> void:
-	frozen = gen == null or not gen.ready or (rig != null and (rig.fly or rig.pinned))
+	if _hold > 0:
+		_hold -= 1
+	frozen = gen == null or not gen.ready or _hold > 0 or (rig != null and (rig.fly or rig.pinned))
 	if frozen:
 		velocity = Vector3.ZERO
 		vel = Vector3.ZERO
@@ -193,6 +196,13 @@ func _process(dt: float) -> void:
 ## turn the hero to face a direction (on the ground plane)
 func face(d: Vector3) -> void:
 	_body.rotation.y = atan2(d.x, d.z)
+
+
+## the floating origin moved the world back by d: the hero moves with it (and waits two physics steps, while Terrain3D builds
+## the collision round the camera's new position)
+func shift_origin(d: Vector3) -> void:
+	position -= d
+	_hold = 3
 
 
 ## put the hero on the ground at (x, z)

@@ -10,6 +10,8 @@ uniform vec3 forest_col : source_color = vec3(0.25, 0.39, 0.17);
 uniform vec3 tip_col : source_color = vec3(0.78, 0.86, 0.42);
 uniform float fade_begin = 30.0;
 uniform float fade_end = 62.0;
+// where the local origin is on the map (scripts/world/floating_origin.gd): the wind keeps its pattern across a shift
+global uniform vec2 world_offset;
 
 varying vec3 v_col;
 varying float v_h;
@@ -22,7 +24,8 @@ void vertex() {
 	float keep = 1.0 - smoothstep(fade_begin, fade_end, d);
 	VERTEX = root + (VERTEX - root) * keep;
 	float t = TIME * 1.6;
-	float gust = sin(root.x * 0.11 + root.z * 0.07 + t) * 0.5 + 0.5;
+	vec2 wr = root.xz + world_offset;
+	float gust = sin(wr.x * 0.11 + wr.y * 0.07 + t) * 0.5 + 0.5;
 	float w = (0.10 + 0.22 * gust) * h * h * (VERTEX.y - root.y + 0.2);
 	VERTEX.x += w * (0.8 + 0.3 * sin(t * 2.3 + cd.y * 6.28));
 	VERTEX.z += w * 0.45;

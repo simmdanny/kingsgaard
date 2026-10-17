@@ -16,6 +16,13 @@ config/features=PackedStringArray("4.7", "Mobile")
 Shot="*res://scripts/tools/shot.gd"
 Settings="*res://scripts/ui/settings.gd"
 
+[shader_globals]
+
+world_offset={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+
 [display]
 
 window/size/viewport_width=1280

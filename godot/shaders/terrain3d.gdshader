@@ -1,12 +1,16 @@
 // THE TERRAIN'S LOOK (shaders/terrain3d.gdshader): Terrain3D's minimum shader (addons/terrain_3d/extras/shaders) - its vertex
 // stage, region lookups and smooth normals unchanged - with the game's own colouring instead of textures:
-//  - gentle ground: the game's grass, meadow and forest-floor colours (the same uniforms the grass blades use), broken up by
-//    soft world-space noise; greener and darker along river valleys (colour map g);
-//  - steep ground (from ~30 degrees): warm painted stone in a few soft tone steps, the boulders' feel - beige-brown, warmer in
-//    the recesses, never black; bare dirt in between; sand on the coast tier at the water; snow high on gentle peaks.
-//  - debug views (debug_view): 1 height (blue - green - yellow - brown - white, a contour every 50 m), 2 tiers (one colour
-//    each from the colour map's r, passes in cyan, rivers in blue), 3 slope (green walkable, red too steep, dark red cliffs).
-// The colour map is read raw (no source_color): r = tier, g = river, b = pass, a = land.
+//  - the clean base terrain (biomes off, the default): one grass everywhere - the game's grass colour (the same uniform the grass
+//    blades use), broken up a little by soft world-space noise, and shaded subtly by slope: the steeper the ground, the deeper
+//    and warmer its green; darker under the water.
+//  - the old continent's look (biomes on, kept for terrain_gen.gd): grass, meadows and forest floor on gentle ground, warm
+//    painted stone on steep ground (the boulders' feel), dirt between, sand on the coast tier, snow high on the peaks.
+//  - debug views (debug_view): 1 height (blue sea, green lowlands, yellow highlands, brown plateaus, grey-white mountains, a thin
+//    contour every 50 m and a stronger one every 250 m), 2 tiers (one colour each, the slopes between them shaded, valleys in
+//    blue), 3 slope (green walkable, red too steep, dark red over 40 degrees), 4 the steep-edge mask (red; data for cliffs later).
+// The colour map is read raw (no source_color). Base terrain: r = (tier + 1) / 5 (0 = sea), g = valley, b = steep-edge mask,
+// a = escarpment. Old continent: r = tier / 4, g = river, b = pass, a = land.
+// Ground noise is painted in map coordinates (local + world_offset), so it stays put when the floating origin shifts.
 // Base: Copyright © 2023-2026 Cory Petkovsek, Roope Palmroos, and Contributors (MIT).
 
 shader_type spatial;
@@ -59,6 +63,10 @@ uniform vec3 snow_col : source_color = vec3(0.94, 0.95, 0.97);
 uniform float walk_angle = 35.0;
 uniform float cliff_angle = 50.0;
 uniform float snow_line = 470.0;
+// the old continent's stone, dirt, sand and snow (and its colour map's layout); off for the clean base terrain
+uniform bool biomes = true;
+// where the local origin is on the map (scripts/world/floating_origin.gd)
+global uniform vec2 world_offset;
 
 // Varyings & Types
 // Some are required for editor functions
@@ -144,10 +152,12 @@ void vertex() {
 }
 
 
+// an integer hash: exact at any distance from the origin (a fract-of-a-product hash runs out of float precision kilometres out)
 float hash2(vec2 p) {
-	p = fract(p * vec2(123.34, 456.21));
-	p += dot(p, p + 45.32);
-	return fract(p.x * p.y);
+	uvec2 q = uvec2(ivec2(floor(p)) + ivec2(1 << 20));
+	q *= uvec2(1597334673u, 3812015801u);
+	uint n = (q.x ^ q.y) * 1597334673u;
+	return float(n >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 p) {
@@ -159,11 +169,20 @@ float vnoise(vec2 p) {
 
 vec3 height_ramp(float h) {
 	if (h < 0.0) return mix(vec3(0.05, 0.16, 0.42), vec3(0.20, 0.48, 0.78), clamp(1.0 + h / 30.0, 0.0, 1.0));
-	vec3 c = mix(vec3(0.20, 0.48, 0.78), vec3(0.24, 0.60, 0.24), smoothstep(0.0, 20.0, h));
-	c = mix(c, vec3(0.88, 0.82, 0.30), smoothstep(40.0, 160.0, h));
-	c = mix(c, vec3(0.52, 0.34, 0.18), smoothstep(160.0, 320.0, h));
-	c = mix(c, vec3(1.0), smoothstep(340.0, 600.0, h));
+	vec3 c = mix(vec3(0.20, 0.48, 0.78), vec3(0.30, 0.62, 0.30), smoothstep(0.0, 10.0, h));
+	c = mix(c, vec3(0.55, 0.75, 0.30), smoothstep(10.0, 80.0, h));
+	c = mix(c, vec3(0.88, 0.82, 0.30), smoothstep(80.0, 150.0, h));
+	c = mix(c, vec3(0.80, 0.52, 0.22), smoothstep(150.0, 350.0, h));
+	c = mix(c, vec3(0.62, 0.40, 0.22), smoothstep(350.0, 450.0, h));
+	c = mix(c, vec3(0.50, 0.36, 0.30), smoothstep(450.0, 700.0, h));
+	c = mix(c, vec3(0.62, 0.58, 0.58), smoothstep(700.0, 900.0, h));
+	c = mix(c, vec3(1.0), smoothstep(900.0, 1500.0, h));
 	return c;
+}
+
+// a contour line of a height every `step` metres: 0 on the line, 1 away from it (a pixel or so wide at any distance)
+float contour(float h, float step) {
+	return smoothstep(0.6, 1.6, abs(fract(h / step + 0.5) - 0.5) * step / max(fwidth(h), 0.001));
 }
 
 vec3 tier_colour(float t) {
@@ -262,26 +281,44 @@ void fragment() {
 		BINORMAL = normalize(cross(NORMAL, TANGENT));
 	}
 
-	// The colour map: tier, river, pass (bilinear over the four samples round the pixel)
+	// The colour map (bilinear over the four samples round the pixel)
 	vec4 cm = texelFetch(_color_maps, index[3], 0) * weights[3] + texelFetch(_color_maps, index[2], 0) * weights[2]
 		+ texelFetch(_color_maps, index[0], 0) * weights[0] + texelFetch(_color_maps, index[1], 0) * weights[1];
-	float tier = cm.r * 4.0;
+	float tier = biomes ? cm.r * 4.0 : cm.r * 5.0 - 1.0;
+	bool land = biomes ? cm.a >= 0.5 : cm.r >= 0.1;
 	float slope = degrees(acos(clamp(w_normal.y, 0.0, 1.0)));
 	float wh = v_vertex.y;
-	vec2 wp = v_vertex.xz;
+	vec2 wp = v_vertex.xz + world_offset;
 
 	vec3 col;
+	if (debug_view > 0) {
+		// the maps read the height of the heightmap itself under the pixel (not the coarser mesh far away)
+		float h1 = bilerp ? h[1] : texelFetch(_height_maps, index[1], 0).r;
+		wh = h[3] * weights[3] + h[2] * weights[2] + h[0] * weights[0] + h1 * weights[1];
+	}
 	if (debug_view == 1) {
-		col = height_ramp(wh);
-		float cl = abs(fract(wh / 50.0 + 0.5) - 0.5) * 50.0 / max(fwidth(wh), 0.001);
-		col *= mix(0.55, 1.0, smoothstep(0.6, 1.6, cl));
+		col = height_ramp(wh) * mix(0.72, 1.0, contour(wh, 50.0)) * mix(0.45, 1.0, contour(wh, 250.0));
 	} else if (debug_view == 2) {
-		col = cm.a < 0.5 ? vec3(0.12, 0.30, 0.60) : tier_colour(round(tier));
-		col = mix(col, vec3(0.10, 0.90, 0.95), smoothstep(0.25, 0.5, cm.b) * 0.75);
-		col = mix(col, vec3(0.10, 0.28, 0.90), smoothstep(0.2, 0.5, cm.g));
+		col = land ? tier_colour(round(tier)) : vec3(0.12, 0.30, 0.60);
+		if (biomes) {
+			col = mix(col, vec3(0.10, 0.90, 0.95), smoothstep(0.25, 0.5, cm.b) * 0.75);
+		} else if (land) {
+			// the slopes between tiers, shaded
+			col = mix(col, col * 0.62, smoothstep(0.25, 0.75, cm.a));
+		}
+		col = mix(col, vec3(0.10, 0.28, 0.90), smoothstep(0.25, 0.55, cm.g) * (land ? 0.8 : 0.0));
 	} else if (debug_view == 3) {
-		col = slope <= walk_angle ? vec3(0.20, 0.72, 0.28) : (slope < cliff_angle ? vec3(0.92, 0.24, 0.16) : vec3(0.55, 0.06, 0.06));
-		if (cm.a < 0.5 && wh < 0.0) col = vec3(0.12, 0.30, 0.60);
+		col = slope <= walk_angle ? vec3(0.20, 0.72, 0.28) : (slope <= (biomes ? cliff_angle : 40.0) ? vec3(0.92, 0.24, 0.16) : vec3(0.45, 0.04, 0.04));
+		if (!land && wh < 0.0) col = vec3(0.12, 0.30, 0.60);
+	} else if (debug_view == 4) {
+		col = land ? mix(vec3(0.80, 0.82, 0.78) * (0.75 + 0.25 * w_normal.y), vec3(0.88, 0.10, 0.10), biomes ? 0.0 : cm.b) : vec3(0.12, 0.30, 0.60);
+	} else if (!biomes) {
+		// the clean base terrain: one grass, a little uneven, and shaded by slope (the steeper, the deeper and warmer its green)
+		float n1 = vnoise(wp * 0.035);
+		float n3 = vnoise(wp * 0.004);
+		col = grass_col * (0.90 + 0.14 * n1 + 0.08 * n3);
+		col = mix(col, col * vec3(0.84, 0.86, 0.66), smoothstep(10.0, 38.0, slope) * 0.6);
+		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
 	} else {
 		float n1 = vnoise(wp * 0.035);
 		float n2 = vnoise(wp * 0.21);
@@ -316,7 +353,7 @@ void fragment() {
 	} else {
 		ALBEDO = col;
 		// stone keeps its warmth in the shade (a little of its own colour, as the boulders do): never cold grey
-		EMISSION = pow(col, vec3(2.2)) * 0.10 * smoothstep(29.0, 40.0, slope);
+		EMISSION = biomes ? pow(col, vec3(2.2)) * 0.10 * smoothstep(29.0, 40.0, slope) : vec3(0.0);
 	}
 	ROUGHNESS = 0.92;
 	SPECULAR = 0.2;

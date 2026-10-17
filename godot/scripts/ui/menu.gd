@@ -38,6 +38,7 @@ var _stack: Control
 var _foot: Label
 var _credit: Label
 var _veil: Control
+var _veil_note: Label
 var _screens := {}
 var _current := ""
 var _back_to := "title"
@@ -215,7 +216,9 @@ func _quit() -> void:
 func _process(dt: float) -> void:
 	if _loading:
 		_wait_t += dt
-		if main.world_idle() or _wait_t > 25.0:
+		# (the first start makes the island - a minute or so - later starts load it in seconds)
+		_veil_note.text = main.loading_text()
+		if main.world_idle() or _wait_t > 900.0:
 			_loading = false
 			in_game = true
 			visible = false
@@ -449,7 +452,7 @@ func _controls() -> VBoxContainer:
 	box.custom_minimum_size = Vector2(480.0, 0.0)
 	box.add_theme_constant_override("separation", 6)
 	for row in [["W A S D", "Move"], ["Shift  /  Alt", "Run  /  sprint"], ["Space", "Jump"], ["Mouse drag", "Turn the camera"],
-			["Mouse wheel", "Zoom"], ["F", "Fly over the land"], ["F1", "Info: fps, position"], ["F2  F3  F4", "Maps: heights / tiers / slopes"],
+			["Mouse wheel", "Zoom"], ["F", "Fly over the land"], ["F1", "Info: fps, position"], ["F2 - F5", "Maps: heights / tiers / slopes / steep edges"],
 			["Esc", "Pause menu  /  back"]]:
 		var k := _text(row[0].to_upper(), _cormorant, 600, 16, 3, GOLD)
 		k.custom_minimum_size = Vector2(150.0, 0.0)
@@ -508,6 +511,9 @@ func _make_veil() -> Control:
 	veil.draw.connect(func(): ring.queue_redraw())
 	box.add_child(ring)
 	box.add_child(_text("FORGING THE REALM", _cinzel, 500, 15, 4, Color(0.851, 0.792, 0.624)))
+	_veil_note = _text("", _cormorant, 400, 17, 1, Color(0.851, 0.792, 0.624, 0.7))
+	_veil_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(_veil_note)
 	veil.add_child(box)
 	veil.visible = false
 	return veil

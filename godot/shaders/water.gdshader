@@ -10,6 +10,8 @@ uniform vec3 foam_col : source_color = vec3(0.96, 0.98, 0.97);
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
 varying vec3 v_wpos;
+// where the local origin is on the map (scripts/world/floating_origin.gd): the waves keep their pattern across a shift
+global uniform vec2 world_offset;
 
 void vertex() {
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -20,7 +22,7 @@ void fragment() {
 	vec4 p = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, z, 1.0);
 	p.xyz /= p.w;
 	float depth = max(VERTEX.z - p.z, 0.0);
-	vec2 q = v_wpos.xz;
+	vec2 q = v_wpos.xz + world_offset;
 	float t = TIME;
 	vec2 g = vec2(cos(q.x * 0.21 + t * 1.1) * 0.6 + cos((q.x + q.y) * 0.13 + t * 0.8) * 0.5,
 		cos(q.y * 0.17 + t * 0.9) * 0.6 + cos((q.y - q.x) * 0.11 + t * 1.3) * 0.5);

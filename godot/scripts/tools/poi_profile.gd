@@ -1,20 +1,24 @@
 extends SceneTree
-## POI PROFILE (scripts/tools/poi_profile.gd): loads the cached world and prints the ground along each screenshot place's
-## line of sight (height, tier, slope every few metres) - to check the places the generator picked.
+## POI PROFILE (scripts/tools/poi_profile.gd): loads the cached base terrain and prints the ground along each screenshot place's
+## line of sight (height / tier / slope at 13 points) - to check the places the generator picked.
+##   Godot_console.exe --headless --path . --script res://scripts/tools/poi_profile.gd
 
-const TerrainConfig := preload("res://scripts/world/terrain_config.gd")
-const TerrainGen := preload("res://scripts/world/terrain_gen.gd")
+const Config := preload("res://scripts/world/base_terrain_config.gd")
+const Gen := preload("res://scripts/world/base_terrain_gen.gd")
 
 
 func _initialize() -> void:
-	var cfg = TerrainConfig.new()
-	var gen = TerrainGen.new(cfg)
-	var path := "user://terrain/world_%d_%s.bin" % [cfg.seed_value, cfg.cache_key(TerrainGen.VERSION)]
+	var cfg = Config.new()
+	var gen = Gen.new(cfg)
+	var path := "user://terrain/base_%d_%s.bin" % [cfg.seed_value, cfg.cache_key(Gen.VERSION)]
 	if not gen.load_cache(path):
 		print("no cache ", path)
 		quit()
 		return
-	for pair in [["edge_stand", "edge_look"], ["low_stand", "low_look"], ["pass_foot", "pass_top"]]:
+	print("pois: ", gen.pois)
+	for pair in [["low_stand", "low_look"], ["edge_stand", "edge_look"], ["mount_stand", "mount_look"]]:
+		if not gen.pois.has(pair[0]):
+			continue
 		var a: Vector3 = gen.pois[pair[0]]
 		var b: Vector3 = gen.pois[pair[1]]
 		var line := "%s -> %s (%.0f m):" % [pair[0], pair[1], Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))]

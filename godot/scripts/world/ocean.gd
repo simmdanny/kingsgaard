@@ -1,13 +1,18 @@
 extends MeshInstance3D
-## THE SEA (scripts/world/ocean.gd): one flat sheet at sea level, 60 km across, following the camera in 64 m steps.
+## THE SEA (scripts/world/ocean.gd): one flat sheet at sea level (60 km across, or `size`), following the camera in 64 m steps.
 ## All the look is in shaders/water.gdshader (depth from the depth buffer: clear shallows, foam on the beach, deep blue offshore).
 
 var focus := Vector3.ZERO
+var size := 60000.0:
+	set(v):
+		size = v
+		if mesh != null:
+			(mesh as PlaneMesh).size = Vector2(v, v)
 
 
 func _ready() -> void:
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(60000.0, 60000.0)
+	pm.size = Vector2(size, size)
 	pm.subdivide_width = 63
 	pm.subdivide_depth = 63
 	mesh = pm

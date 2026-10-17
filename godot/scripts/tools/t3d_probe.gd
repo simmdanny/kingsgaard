@@ -2,7 +2,7 @@ extends SceneTree
 ## TERRAIN3D PROBE (scripts/tools/t3d_probe.gd): prints the Terrain3D classes' properties and methods in this Godot.
 
 func _init() -> void:
-	for cls in ["Terrain3D", "Terrain3DData", "Terrain3DCollision", "Terrain3DMaterial", "Terrain3DMesher"]:
+	for cls in ["Terrain3D", "Terrain3DData", "Terrain3DRegion", "Terrain3DCollision", "Terrain3DMaterial", "Terrain3DMesher"]:
 		if not ClassDB.class_exists(cls):
 			print("MISSING ", cls)
 			continue

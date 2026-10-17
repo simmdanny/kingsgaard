@@ -54,6 +54,21 @@ func _range(mmi: MultiMeshInstance3D) -> void:
 	mmi.visibility_range_end = LOD_END[lod] * reach
 
 
+## the floating origin moved the world back: every cell is dropped and rebuilt round the focus (seeded by its place on the map,
+## so the same trees come back)
+func shift_origin(_d: Vector3) -> void:
+	for id in _running.keys():
+		WorkerThreadPool.wait_for_task_completion(id)
+	_running.clear()
+	for key in _cells:
+		for n in _cells[key].nodes:
+			n.queue_free()
+	_cells.clear()
+	_queue.clear()
+	stats.trees = 0
+	_last = Vector2(INF, INF)
+
+
 func _process(_dt: float) -> void:
 	if gen == null or not gen.ready:
 		return
@@ -81,7 +96,7 @@ func _refresh() -> void:
 			var nx := clampf(_last.x, x0, x0 + CELL) - _last.x
 			var nz := clampf(_last.y, z0, z0 + CELL) - _last.y
 			var d := sqrt(nx * nx + nz * nz)
-			if d > radius or absf(x0) > gen.world_half or absf(z0) > gen.world_half:
+			if d > radius or absf(x0 + gen.offset.x) > gen.world_half or absf(z0 + gen.offset.y) > gen.world_half:
 				continue
 			var key := Vector2i(ix, iz)
 			want[key] = true
@@ -116,7 +131,8 @@ func _pump() -> void:
 		var cell: Dictionary = _queue.pop_front()
 		var res := []
 		cell.busy = true
-		var id := WorkerThreadPool.add_task(_job.bind(cell.key, cell.x0, cell.z0, res), false, "trees")
+		var map_key: Vector2i = cell.key + Vector2i(int(gen.offset.x / CELL), int(gen.offset.y / CELL))
+		var id := WorkerThreadPool.add_task(_job.bind(map_key, cell.x0, cell.z0, res), false, "trees")
 		_running[id] = [cell, res]
 
 

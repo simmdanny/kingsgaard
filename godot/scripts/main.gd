@@ -1,12 +1,21 @@
 extends Node3D
-## KINGSGAARD - THE CONTINENT (scripts/main.gd): builds the scene in code - the sky, the sun, the terrain (Terrain3D, generated:
-## scripts/world/terrain_world.gd), the trees, the grass, the sea, the hero and his camera - and wires them together each frame
-## (everything streams round the camera; the grass round the hero). The hero is placed once the terrain is ready. Also the
-## input map, the HUD (F1), the terrain's debug maps (F2 heights, F3 tiers, F4 slopes), the menus (scripts/ui/menu.gd) and
-## applying the player's settings (Settings).
+## KINGSGAARD - THE ISLAND (scripts/main.gd): builds the scene in code - the sky, the sun, the terrain (Terrain3D, generated:
+## scripts/world/terrain_world.gd), the grass, the sea, the hero and his camera - and wires them together each frame (everything
+## streams round the camera; the grass round the hero). The hero is placed once the terrain is ready. The floating origin
+## (scripts/world/floating_origin.gd) keeps the camera near (0, 0, 0) on the 30 km island. Also the input map, the HUD (F1), the
+## terrain's debug maps (F2 heights, F3 tiers, F4 slopes, F5 the steep-edge mask), the menus (scripts/ui/menu.gd) and applying
+## the player's settings (Settings).
+
+## the old continent (terrain_gen.gd: cliffs, passes and rivers on a 10 km map) instead of the clean base terrain - kept, off
+const CLASSIC_TERRAIN := false
+## the old biome spawners on the mainland (forests, groves and lone trees: foliage.gd) - kept, off while the base terrain is a
+## clean canvas
+const BIOME_SPAWNERS := false
 
 const TerrainWorld := preload("res://scripts/world/terrain_world.gd")
 const TerrainConfig := preload("res://scripts/world/terrain_config.gd")
+const BaseConfig := preload("res://scripts/world/base_terrain_config.gd")
+const FloatingOrigin := preload("res://scripts/world/floating_origin.gd")
 const Foliage := preload("res://scripts/world/foliage.gd")
 const Grass := preload("res://scripts/world/grass.gd")
 const Ocean := preload("res://scripts/world/ocean.gd")
@@ -28,6 +37,7 @@ var grass
 var ocean
 var player
 var rig
+var origin
 
 var menu
 var _hud: Label
@@ -44,7 +54,7 @@ func _ready() -> void:
 	rig = CameraRig.new()
 	rig.name = "Camera"
 	add_child(rig)
-	var cfg = TerrainConfig.new()
+	var cfg = TerrainConfig.new() if CLASSIC_TERRAIN else BaseConfig.new()
 	cfg.seed_value = Shot.seed_value
 	terrain = TerrainWorld.new()
 	terrain.name = "Terrain"
@@ -54,11 +64,21 @@ func _ready() -> void:
 	add_child(terrain)
 	gen = terrain.gen
 	rig.gen = gen
+	origin = FloatingOrigin.new()
+	origin.name = "Origin"
+	origin.terrain = terrain
+	origin.gen = gen
+	origin.enabled = not CLASSIC_TERRAIN
+	origin.step = cfg.region_size * cfg.vertex_spacing
+	add_child(origin)
 	foliage = Foliage.new()
 	foliage.name = "Trees"
 	foliage.gen = gen
 	foliage.material = _shader("res://shaders/tree.gdshader", {})
 	add_child(foliage)
+	if not BIOME_SPAWNERS:
+		foliage.process_mode = Node.PROCESS_MODE_DISABLED
+		foliage.visible = false
 	grass = Grass.new()
 	grass.name = "Grass"
 	grass.gen = gen
@@ -74,12 +94,22 @@ func _ready() -> void:
 	add_child(player)
 	rig.target = player
 	player.rig = rig
+	origin.about_to_shift.connect(grass.finish_jobs)
+	origin.shifted.connect(player.shift_origin)
+	origin.shifted.connect(rig.shift_origin)
+	origin.shifted.connect(grass.shift_origin)
+	origin.shifted.connect(foliage.shift_origin)
+	if not CLASSIC_TERRAIN:
+		# a 30 km island: the view reaches across it, through a thinner haze
+		rig.camera.far = 60000.0
+		_env.fog_density = 0.00008
+		ocean.size = 100000.0
 	if Shot.orbit != Vector2.ZERO:
 		rig.dist = Shot.orbit.x
 		rig.pitch = deg_to_rad(-Shot.orbit.y)
 		rig.yaw = deg_to_rad(Shot.orbit_yaw)
 	if Shot.view != "":
-		_set_view({"height": 1, "tiers": 2, "slope": 3}.get(Shot.view, 0))
+		_set_view({"height": 1, "tiers": 2, "slope": 3, "steep": 4}.get(Shot.view, 0))
 	_ui()
 	menu = Menu.new()
 	menu.name = "Menu"
@@ -181,6 +211,7 @@ func _input_map() -> void:
 	_bind("view_height", [KEY_F2])
 	_bind("view_tiers", [KEY_F3])
 	_bind("view_slope", [KEY_F4])
+	_bind("view_steep", [KEY_F5])
 
 
 func _bind(action: String, keys: Array) -> void:
@@ -211,8 +242,17 @@ func _ui() -> void:
 	_help.anchor_bottom = 1.0
 	_help.offset_left = 12.0
 	_help.offset_top = -30.0
-	_help.text = "W A S D move   Shift run   Alt sprint   Space jump   drag mouse to look   wheel zoom   F fly   F2 F3 F4 maps   Esc menu"
+	_help.text = "W A S D move   Shift run   Alt sprint   Space jump   drag mouse to look   wheel zoom   F fly   F2-F5 maps   Esc menu"
 	layer.add_child(_help)
+
+
+## a line for the loading screen: what the terrain is doing (empty once the world is ready)
+func loading_text() -> String:
+	if terrain.is_idle():
+		return ""
+	if terrain.stage.begins_with("shaping"):
+		return "Shaping the island - only on the first start, about a minute (%s)" % gen.stage
+	return "Loading the island"
 
 
 func world_idle() -> bool:
@@ -228,7 +268,7 @@ func stats_line() -> String:
 func _unhandled_input(e: InputEvent) -> void:
 	if e.is_action_pressed("hud"):
 		_hud.visible = not _hud.visible
-	for v in [["view_height", 1], ["view_tiers", 2], ["view_slope", 3]]:
+	for v in [["view_height", 1], ["view_tiers", 2], ["view_slope", 3], ["view_steep", 4]]:
 		if e.is_action_pressed(v[0]):
 			_set_view(0 if terrain.debug_view == v[1] else v[1])
 
@@ -239,38 +279,41 @@ func _set_view(v: int) -> void:
 	ocean.visible = v == 0
 
 
-## once the terrain is ready: the hero onto it (the spawn in the lowlands, or a screenshot's place), screenshot cameras
+## once the terrain is ready: the hero onto it (the spawn in the lowlands, or a screenshot's place) and the screenshot cameras.
+## The generator's places are in map coordinates: the floating origin is first moved to the place, then it is made local.
 func _spawn() -> void:
 	_spawned = true
-	var sp: Vector3 = gen.find_spawn()
 	var pois: Dictionary = gen.pois
+	var sp: Vector3 = pois.get("spawn", Vector3.ZERO)
 	if Shot.spawn.x != INF:
 		sp = Vector3(Shot.spawn.x, 0.0, Shot.spawn.y)
 	var look := Vector3.INF
 	var cam_back := 4.5
 	var cam_up := 1.7
 	var cam_side := 0.0
+	var tilt := 0.0
 	match Shot.poi:
 		"low":
-			# well out in the lowlands, the camera tilted up about 14 degrees: the hero and the plateau's rim both in frame
-			var rim: Vector3 = pois.low_look
-			var stand: Vector3 = pois.low_stand
-			var away := Vector3(stand.x - rim.x, 0.0, stand.z - rim.z).normalized()
-			sp = stand + away * 160.0
-			var dist := Vector2(rim.x - sp.x, rim.z - sp.z).length()
-			look = Vector3(rim.x, gen.height(sp.x, sp.z) + 2.0 + tan(deg_to_rad(14.0)) * dist, rim.z)
+			# out in the lowlands, looking up at a high plateau's rim: the camera low behind the hero, tilted up part of the way
+			sp = pois.low_stand
+			look = pois.low_look
 			cam_back = 5.5
-			cam_up = 1.9
+			cam_up = 1.5
+			tilt = 0.6
 		"edge":
-			# behind and above the hero on the plateau's rim, looking out and down over the drop to the lowlands
+			# on the plateau's rim, behind and above the hero, looking out and down over the lowlands
 			sp = pois.edge_stand
-			var out := Vector3(pois.edge_look.x - sp.x, 0.0, pois.edge_look.z - sp.z).normalized()
-			var far := sp + out * 480.0
-			look = Vector3(far.x, gen.height(far.x, far.z), far.z)
-			cam_back = 8.0
-			cam_up = 7.0
+			look = pois.edge_look
+			cam_back = 9.0
+			cam_up = 6.0
+		"mount":
+			# on a mountain top, looking out across the island
+			sp = pois.mount_stand
+			look = pois.mount_look
+			cam_back = 9.0
+			cam_up = 5.0
 		"pass":
-			# from the side and below on the lower tier: the ramp cutting up through the cliff line, the hero on it
+			# (the old continent) from the side and below: a ramp cutting up through the cliff line, the hero on it
 			var foot: Vector3 = pois.pass_foot
 			var top: Vector3 = pois.pass_top
 			sp = foot.lerp(top, 0.4)
@@ -278,24 +321,38 @@ func _spawn() -> void:
 			cam_back = 230.0
 			cam_up = 60.0
 			cam_side = 170.0
+	origin.recenter(origin.to_local_pos(sp))
+	sp = origin.to_local_pos(sp)
 	player.place(sp.x, sp.z)
 	if look != Vector3.INF:
+		look = origin.to_local_pos(look)
 		var d := Vector3(look.x - sp.x, 0.0, look.z - sp.z).normalized()
 		player.face(d)
 		var c: Vector3 = player.position - d * cam_back + Vector3(-d.z, 0.0, d.x) * cam_side
 		c.y = maxf(gen.height(c.x, c.z), 0.0) + cam_up + maxf(player.position.y - gen.height(c.x, c.z), 0.0)
+		if tilt > 0.0:
+			# aim part of the way up towards the target, so the hero stays in the frame below it
+			var dist := Vector2(look.x - c.x, look.z - c.z).length()
+			look.y = c.y + tan(atan2(look.y - c.y, dist) * tilt) * dist
 		rig.pin(c, look)
 	if Shot.cam.size() == 6:
 		var cc := Shot.cam
-		rig.pin(Vector3(cc[0], maxf(gen.height(cc[0], cc[1]), 0.0) + cc[2], cc[1]), Vector3(cc[3], maxf(gen.height(cc[3], cc[4]), 0.0) + cc[5], cc[4]))
+		var a0: Vector3 = origin.to_local_pos(Vector3(cc[0], 0.0, cc[1]))
+		var a1: Vector3 = origin.to_local_pos(Vector3(cc[3], 0.0, cc[4]))
+		rig.pin(Vector3(a0.x, maxf(gen.height(a0.x, a0.z), 0.0) + cc[2], a0.z), Vector3(a1.x, maxf(gen.height(a1.x, a1.z), 0.0) + cc[5], a1.z))
 	if Shot.overview:
 		# straight down over the middle of the map, orthographic, the whole map in the frame; no fog from up there
+		origin.recenter(origin.to_local_pos(Vector3.ZERO))
+		var mid: Vector3 = origin.to_local_pos(Vector3(0.0, 6000.0, 0.0))
 		rig.pinned = true
 		rig.camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 		rig.camera.size = gen.map_size
 		rig.camera.far = 20000.0
-		rig.camera.global_transform = Transform3D(Basis(Vector3(1.0, 0.0, 0.0), -PI * 0.5), Vector3(0.0, 4000.0, 0.0))
+		rig.camera.global_transform = Transform3D(Basis(Vector3(1.0, 0.0, 0.0), -PI * 0.5), mid)
 		_env.fog_enabled = false
+		# open sea with no terrain region under it: the deep sea's colour
+		_env.background_mode = Environment.BG_COLOR
+		_env.background_color = Color(0.022, 0.07, 0.2)
 
 
 func _process(dt: float) -> void:
@@ -305,6 +362,8 @@ func _process(dt: float) -> void:
 		if terrain.is_idle():
 			Engine.max_fps = 0
 			_spawn()
+	if _spawned:
+		origin.update(rig.camera.global_position)
 	var cam: Vector3 = rig.camera.global_position
 	foliage.focus = cam
 	ocean.focus = cam
@@ -312,7 +371,9 @@ func _process(dt: float) -> void:
 	_help.visible = not menu.visible and not Shot.active
 	if _hud.visible and gen.ready:
 		var p: Vector3 = player.position
+		var m: Vector3 = origin.to_map_pos(p)
 		var t: int = gen.tier_at(p.x, p.z)
-		_hud.text = "%d fps   x %.0f  z %.0f  height %.1f m   %s   slope %.0f deg\n%s" % [Engine.get_frames_per_second(), p.x, p.z, p.y,
-			"sea" if t == 255 else str(gen.cfg.tier_names[t]), gen.slope(p.x, p.z), stats_line()]
+		_hud.text = "%d fps   x %.0f  z %.0f  height %.1f m   %s   slope %.0f deg\n%s   origin %+.1f %+.1f km" % [Engine.get_frames_per_second(),
+			m.x, m.z, p.y, "sea" if t == 255 else str(gen.cfg.tier_names[t]), gen.slope(p.x, p.z), stats_line(), origin.offset.x / 1000.0,
+			origin.offset.y / 1000.0]
 	Shot.tick(self, dt)

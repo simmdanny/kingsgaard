@@ -5,6 +5,8 @@ shader_type spatial;
 render_mode cull_back;
 
 varying vec3 v_col;
+// where the local origin is on the map (scripts/world/floating_origin.gd): each tree keeps its own look across a shift
+global uniform vec2 world_offset;
 
 float hash2(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -13,7 +15,7 @@ float hash2(vec2 p) {
 }
 
 void vertex() {
-	vec3 org = MODEL_MATRIX[3].xyz;
+	vec3 org = MODEL_MATRIX[3].xyz + vec3(world_offset.x, 0.0, world_offset.y);
 	float r = hash2(floor(org.xz * 4.0));
 	float r2 = hash2(floor(org.xz * 4.0) + 17.0);
 	vec3 col = pow(COLOR.rgb, vec3(2.2));

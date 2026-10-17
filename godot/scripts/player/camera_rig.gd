@@ -26,6 +26,12 @@ func _ready() -> void:
 	camera.current = true
 
 
+## the floating origin moved the world back by d: the camera moves with it
+func shift_origin(d: Vector3) -> void:
+	_fly_pos -= d
+	camera.global_position -= d
+
+
 func pin(pos: Vector3, look: Vector3) -> void:
 	pinned = true
 	camera.look_at_from_position(pos, look)

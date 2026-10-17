@@ -38,6 +38,8 @@ var ratio := 4
 var map_size := 10240.0
 var world_half := 5120.0
 var origin := -5120.0
+## the floating origin's offset (never moved for this 10 km map; here so the world's scripts can read it from either generator)
+var offset := Vector2.ZERO
 
 var heights := PackedFloat32Array()
 var c_coast := PackedFloat32Array()

@@ -47,6 +47,35 @@ func set_density(k: float) -> void:
 	_last = Vector2(INF, INF)
 
 
+## before the floating origin shifts: finish the cells being built (they read the ground in the old coordinates)
+func finish_jobs() -> void:
+	for id in _running.keys():
+		WorkerThreadPool.wait_for_task_completion(id)
+		var job: Array = _running[id]
+		var cell: Dictionary = job[0]
+		cell.busy = false
+		if is_same(_cells.get(cell.key), cell):
+			_place(cell, job[1])
+	_running.clear()
+
+
+## the floating origin moved the world back by d (a whole number of cells): every cell moves with it, re-keyed
+func shift_origin(d: Vector3) -> void:
+	var di := int(round(d.x / CELL))
+	var dj := int(round(d.z / CELL))
+	var moved := {}
+	for key in _cells:
+		var cell: Dictionary = _cells[key]
+		cell.key = Vector2i(key.x - di, key.y - dj)
+		cell.x0 -= d.x
+		cell.z0 -= d.z
+		if cell.node != null:
+			cell.node.position -= d
+		moved[cell.key] = cell
+	_cells = moved
+	_last -= Vector2(d.x, d.z)
+
+
 func _process(_dt: float) -> void:
 	if density_k <= 0.0 or gen == null or not gen.ready:
 		return
@@ -123,8 +152,9 @@ func _job(key: Vector2i, x0: float, z0: float, dens: float, res: Array) -> void:
 			cf.append(v.y)
 			cm.append(v.z)
 			cs.append(v.w)
+	# (seeded by the cell's place on the map, the same wherever the floating origin is)
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector3i(g.seed_value + 7, key.x, key.y))
+	rng.seed = hash(Vector3i(g.seed_value + 7, key.x + int(g.offset.x / CELL), key.y + int(g.offset.y / CELL)))
 	var n := int(CELL * CELL * DENSITY * dens)
 	var buf := PackedFloat32Array()
 	buf.resize(n * 16)

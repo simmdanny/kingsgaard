@@ -2,9 +2,10 @@
 
 The native Windows rebuild of the browser game, in Godot 4.7.2 (GDScript, Mobile renderer).
 
-One large island - a continent of five height tiers (coast, lowlands, highlands, plateaus, peaks) with cliffs between them,
-walkable passes through them and river valleys down them - forests, meadows, the sea and the sky, two heroes to walk it,
-the title screen and menus.
+One 30 x 30 km island - a clean base terrain of vast smooth grassy hills and big raised areas in five height tiers (coast,
+lowlands, highlands, high plateaus, mountains), smooth escarpments between them, walking routes up every edge and broad valleys
+down to the sea; no cliffs, rocks or biomes yet (regions will be designed on top of it) - the sea and the sky, two heroes to
+walk it, the title screen and menus.
 
 ## Set up on another PC
 
@@ -36,36 +37,59 @@ bust, waist, hips and thighs reshaped, and narrower, gently sloping shoulders - 
 | mouse drag, wheel | turn the camera, zoom |
 | F | fly over the land (Space up, Ctrl down, Shift x5, Alt x25); F again lands the hero under the camera |
 | F1 | info: fps, position, tier and slope underfoot |
-| F2 / F3 / F4 | terrain maps: heights / tiers / slopes (again = back) |
+| F2 / F3 / F4 / F5 | terrain maps: heights / tiers / slopes / steep-edge mask (again = back) |
 | Esc | pause menu / back |
 
 ## Terrain
 
-Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and collides; the heightmap is generated in script.
-- **Map:** 4096 x 4096 samples at 2.5 m = 10.24 km square (16 Terrain3D regions of 1024 samples), the continent about
-  8-9 km across in the sea. Big enough to take ~20 minutes to cross on foot with 600 m of relief; small enough to generate
-  in ~40 s and run at 35-45 fps on the laptop (Intel HD 520). All of it is in `scripts/world/terrain_config.gd`.
-- **LOD:** Terrain3D's clipmap, mesh size 48, 7 rings: 2.5 m cells for the first 120 m round the camera, each ring doubling,
-  the last (160 m cells) beyond the map's edge - the whole continent always drawn, detail only where it is seen.
-- **Collision:** `DYNAMIC_GAME`, built by Terrain3D from the same heightmap in 16-sample pieces within 72 m of the camera
-  (tested: rays hit within 2.4 cm of the heightmap). The hero is a CharacterBody3D with `floor_max_angle` 35 degrees.
-- **Generator** (`scripts/world/terrain_gen.gd`, seeded; same seed + settings = same world): on a 10 m planning grid, a
-  domain-warped tier field cut into five tiers by land share; across each tier edge the height steps over a width in metres -
-  narrow cliffs (70 degrees) on most of it, straight 22 degree ramps in pass zones (at least 2 working per region, plus a
-  spare); rolling hills scaled by tier, ridged crests in the peaks; 9 rivers traced down the tiers in order (they never climb)
-  carve valleys with a floor that only descends (waterfalls at the cliffs); passes relaxed to stay walkable; then upsampled to
-  2.5 m with small bumps. It checks itself: every pass walked foot to top on cells under 32 degrees, every region of every
-  tier reached from the lowlands. Cached in `user://terrain` (one file per seed + settings; delete it to regenerate).
-- **Look** (`shaders/terrain3d.gdshader`, from Terrain3D's minimum shader): the game's grass colours on gentle ground, warm
-  painted stone on steep ground, sand at the shore, snow high on the peaks; the debug maps on F2-F4.
-- **Tools:** `scripts/tools/terrain_test.gd` (generator alone: report + quick maps), `terrain_walk_test.gd` (collision rays,
-  a pass walked up, a cliff walked into), `poi_profile.gd` (ground along the screenshot views), `t3d_probe.gd` (Terrain3D's
-  API); `shot.gd` options `--overview`, `--view=height|tiers|slope`, `--poi=low|edge|pass`.
+Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and collides; the heightmap is generated in script
+(`scripts/world/base_terrain_gen.gd`, every setting in `base_terrain_config.gd`; seeded - same seed + settings = same island).
+- **Size:** the island is 29.7 x 29.7 km (fitted to 30 km on both axes), about 720 km2 of land, in a 32.8 km map square:
+  8192 x 8192 samples at 4 m. Relief 0 - 1430 m.
+- **Terrain3D setup:** 64 regions of 1024 x 1024 samples (4.096 km each, an 8 x 8 grid; Terrain3D's region map allows 32 x 32,
+  so up to 131 km at this spacing). All regions stay loaded - from a mountain the whole island is in view - about 0.85 GB of
+  maps in memory and the same on the GPU (height, control and colour maps). **LOD:** the clipmap, mesh size 48 with 8 rings -
+  4 m cells for the first ~190 m round the camera, each ring doubling, the outermost (512 m cells) reaching ~50 km, past the far
+  coast. **Streaming:** what streams is the detail - the clipmap's rings and the collision follow the camera; the heightmap
+  itself is resident. **Collision:** `DYNAMIC_GAME`, built from the heightmap itself in 64 m pieces within 192 m of the camera
+  (tested: rays hit within 1 mm of the heightmap). The hero is a CharacterBody3D with `floor_max_angle` 35 degrees.
+- **No jitter: a floating origin** (`scripts/world/floating_origin.gd`). Godot is built with 32-bit floats: 15 km from the origin
+  a position only moves in 1 mm steps, enough to make the hero, the camera and the ground shimmer. Whenever the camera gets more
+  than 3 km from (0, 0, 0) along x or z, the whole world moves back by a whole number of regions: Terrain3D's regions are re-filed
+  under new locations (only its 32 x 32 region map is rebuilt - no heightmap is copied or re-uploaded, so it costs nothing you
+  can see), and the hero, camera and grass move with it; shaders that paint by world position add the global uniform
+  `world_offset`. The camera is never more than ~3 km out - 0.25 mm steps. (Tested: collision exact after a shift, the hero walks
+  across a shift with no jump.) A double-precision build was the other way: it needs Godot and Terrain3D compiled from source
+  (Terrain3D calls its double build experimental) and that custom engine on every PC instead of the standard Godot 4.7.2.
+- **Generator** (planning grid 2048 x 2048, 16 m cells; then upsampled cubic to 4 m): a rounded-square coastline (domain-warped,
+  bays and headlands); a very low-frequency domain-warped tier field rising inland, cut by land share into lowlands 10-80 m,
+  highlands 150-350 m, high plateaus 450-700 m and mountains 900-1500 m (the coast 0-10 m is a band along the whole shore), each
+  tier kept a ring's width from the tier two below and small pieces folded in, so regions are several km wide; each tier has its
+  own broad ground inside its range plus large rolling hills scaled by tier (ridges and peaks only in the mountains). Across
+  every tier edge the height ramps up as a smooth grassy escarpment centred on the edge - 30-39.5 degrees, varying along it -
+  built on exact (smooth) distances to the edge. Walking routes: 21 degree ramps spread along every edge (at least 2 per edge,
+  more on long edges, plus a spare); 10 broad valleys run from the high tiers to the sea, their floors only descending and
+  climbing gently, cutting broad notches back through the escarpments (routes too). Then a slope cap: nothing anywhere steeper
+  than ~39.8 degrees. It checks itself: every route walked on cells under 33 degrees (failing ones relaxed), every region of
+  every tier reached on foot from the spawn, slopes measured at 4 m. Stored for later: the steep-edge mask (where the edges
+  are steepest - for cliffs), the valleys' courses with floor heights (for rivers), each route's walkable path
+  (`route_path()`). First start ~80 s on the laptop, then cached in `user://terrain` (one file per seed + settings; delete it
+  to regenerate) - later starts ~7 s.
+- **Turned off, kept:** the old 10 km continent with its cliffs, passes and rivers (`terrain_gen.gd`, `terrain_config.gd`:
+  `CLASSIC_TERRAIN` in `main.gd`), the forests, groves and lone trees (`foliage.gd`: `BIOME_SPAWNERS`), the stone, dirt, sand and
+  snow ground (`biomes` in the terrain shader).
+- **Look** (`shaders/terrain3d.gdshader`, from Terrain3D's minimum shader): one grass everywhere (the game's grass colour),
+  a little uneven, shaded subtly by slope (deeper and warmer the steeper it is); debug maps on F2-F5.
+- **Tools:** `scripts/tools/base_terrain_test.gd` (generator alone: report + quick maps, and writes the game's cache),
+  `base_walk_test.gd` (collision rays, a route walked up along its path, an escarpment walked into, the floating origin),
+  `poi_profile.gd` (ground along the screenshot views), `t3d_probe.gd` (Terrain3D's API); `shot.gd` options `--overview`,
+  `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`. (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
 ## Layout
 
-- `scripts/world/terrain_config.gd`, `terrain_gen.gd`, `terrain_world.gd`: the terrain (above)
-- `scripts/world/foliage.gd`: trees per 256 m cell (instanced, 3 distance levels); `proc_meshes.gd` builds the meshes
+- `scripts/world/base_terrain_config.gd`, `base_terrain_gen.gd`, `terrain_world.gd`, `floating_origin.gd`: the terrain (above);
+  `terrain_config.gd`, `terrain_gen.gd`: the old continent (off)
+- `scripts/world/foliage.gd`: trees per 256 m cell (instanced, 3 distance levels; off for now); `proc_meshes.gd` builds the meshes
 - `scripts/world/grass.gd`: grass blades round the hero; `ocean.gd`: the sea
 - `scripts/player/`: the hero, the camera, and `rig_anim.gd` (code-driven idle/walk/run/sprint/jump for metarig skeletons)
 - `shaders/`: terrain, trees, grass, water

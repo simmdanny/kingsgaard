@@ -1,20 +1,24 @@
 extends Node3D
-## THE TERRAIN IN THE WORLD (scripts/world/terrain_world.gd): makes the heightmap with terrain_gen.gd on a background thread -
-## or loads it from the cache (user://terrain, one file per seed + settings) - and hands it to Terrain3D, which draws it as a
-## clipmap (fine round the camera, coarser rings further out, the whole map always visible) and builds collision from the
-## same heights round the camera. Debug views (set_debug_view): 0 the game look, 1 heights, 2 tiers, 3 slopes.
+## THE TERRAIN IN THE WORLD (scripts/world/terrain_world.gd): makes the heightmap on a background thread - or loads it from the
+## cache (user://terrain, one file per seed + settings) - and hands it to Terrain3D, which draws it as a clipmap (fine round the
+## camera, coarser rings further out, the whole island always visible) and builds collision from the same heights round the
+## camera. Debug views (set_debug_view): 0 the game look, 1 heights, 2 tiers, 3 slopes, 4 the steep-edge mask.
 ##
-## LOD and collision: vertex spacing 2.5 m; mesh_size 48 with 7 LOD rings - LOD0 is 120 m of 2.5 m cells round the camera,
-## each ring doubles the cell, the outermost (160 m cells) reaches past the map's edge. Collision is DYNAMIC_GAME: built from
-## the heightmap itself (so it matches exactly) in 16-sample pieces within 72 m of the camera, rebuilt as the camera moves.
+## Two generators: the clean base terrain (base_terrain_gen.gd, the default: a 30 km island) and the older continent with cliffs,
+## passes and rivers (terrain_gen.gd, 10 km - kept, switched off; main.gd's CLASSIC_TERRAIN turns it back on).
+##
+## Base terrain on Terrain3D: 8192 x 8192 samples at 4 m (a 32.8 km square) in regions of 1024 x 1024 samples (4.096 km) - an
+## 8 x 8 grid, of which only the regions with land or shallows are made (open sea has none; the water covers it). All of them stay
+## loaded: from a mountain the whole island is in view. Terrain3D's clipmap: mesh_size 48 and 8 LOD rings - 4 m cells for the
+## first ~190 m round the camera, each ring doubling, the outermost 512 m cells reaching ~50 km, past the island's far side.
+## Collision: DYNAMIC_GAME - built from the heightmap itself in 16-sample (64 m) pieces within 48 samples (192 m) of the camera.
+## The floating origin (floating_origin.gd) moves the regions by whole region steps with shift_regions().
 
 const TerrainConfig := preload("res://scripts/world/terrain_config.gd")
 const TerrainGen := preload("res://scripts/world/terrain_gen.gd")
+const BaseConfig := preload("res://scripts/world/base_terrain_config.gd")
+const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
 const CACHE_DIR := "user://terrain"
-const MESH_SIZE := 48
-const MESH_LODS := 7
-const COLLISION_RADIUS := 72
-const COLLISION_SHAPE := 16
 
 var cfg
 var gen
@@ -23,6 +27,7 @@ var camera: Camera3D
 var ground := {}
 var debug_view := 0
 var stage := "starting"
+var base := true
 
 var _thread: Thread
 var _imported := false
@@ -30,19 +35,20 @@ var _imported := false
 
 func _ready() -> void:
 	if cfg == null:
-		cfg = TerrainConfig.new()
-	gen = TerrainGen.new(cfg)
+		cfg = BaseConfig.new()
+	base = cfg is BaseConfig
+	gen = BaseGen.new(cfg) if base else TerrainGen.new(cfg)
 	terrain = Terrain3D.new()
 	terrain.name = "Terrain3D"
 	# (Terrain3D makes its material and data when it enters the tree: add it first, then set it up)
 	add_child(terrain)
 	terrain.region_size = cfg.region_size
 	terrain.vertex_spacing = cfg.vertex_spacing
-	terrain.mesh_size = MESH_SIZE
-	terrain.mesh_lods = MESH_LODS
+	terrain.mesh_size = 48
+	terrain.mesh_lods = 8 if base else 7
 	terrain.collision_mode = Terrain3DCollision.DYNAMIC_GAME
-	terrain.collision_radius = COLLISION_RADIUS
-	terrain.collision_shape_size = COLLISION_SHAPE
+	terrain.collision_shape_size = 16
+	terrain.collision_radius = 48 if base else 72
 	terrain.material.world_background = Terrain3DMaterial.NONE
 	# (with no texture assets Terrain3D turns its checkered debug view on, which draws over any shader)
 	terrain.material.show_checkered = false
@@ -58,17 +64,18 @@ func _ready() -> void:
 
 ## the background thread: the cached world if there is one for these settings, else a fresh one (then cached)
 func _build() -> void:
-	var key: String = cfg.cache_key(TerrainGen.VERSION)
+	var key: String = cfg.cache_key(BaseGen.VERSION if base else TerrainGen.VERSION)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CACHE_DIR))
-	var path := "%s/world_%d_%s.bin" % [CACHE_DIR, cfg.seed_value, key]
-	stage = "loading the cached continent"
+	var prefix := "base_" if base else "world_"
+	var path := "%s/%s%d_%s.bin" % [CACHE_DIR, prefix, cfg.seed_value, key]
+	stage = "loading the cached island"
 	if gen.load_cache(path):
 		return
-	stage = "forging the continent"
+	stage = "shaping the island"
 	gen.generate()
 	# keep the cache small: only this world's file stays
 	for f in DirAccess.get_files_at(CACHE_DIR):
-		if f.begins_with("world_") and f.ends_with(".bin"):
+		if f.begins_with(prefix) and f.ends_with(".bin"):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(CACHE_DIR + "/" + f))
 	gen.save(path)
 
@@ -82,17 +89,68 @@ func _process(_dt: float) -> void:
 		return
 	_thread.wait_to_finish()
 	_thread = null
-	terrain.data.import_images([gen.height_img, null, gen.color_img], Vector3(gen.origin, 0.0, gen.origin), 0.0, 1.0)
-	gen.height_img = null
-	gen.color_img = null
+	if base:
+		_import_regions()
+	else:
+		terrain.data.import_images([gen.height_img, null, gen.color_img], Vector3(gen.origin, 0.0, gen.origin), 0.0, 1.0)
+		gen.height_img = null
+		gen.color_img = null
 	var m := terrain.material
 	for k in ground:
 		m.set_shader_param(k, ground[k])
 	m.set_shader_param("walk_angle", cfg.max_walk_angle)
-	m.set_shader_param("cliff_angle", cfg.cliff_threshold)
+	m.set_shader_param("biomes", not base)
+	if not base:
+		m.set_shader_param("cliff_angle", cfg.cliff_threshold)
 	m.set_shader_param("debug_view", debug_view)
 	_imported = true
 	print("terrain: %s" % JSON.stringify(gen.report))
+
+
+## the base terrain's regions into Terrain3D: one Terrain3DRegion per 4.096 km square with land in it (its height and colour
+## maps are the generator's own images, shared, not copied), then the texture arrays built once
+func _import_regions() -> void:
+	var t := Time.get_ticks_msec()
+	var data := terrain.data
+	var per: int = gen.regions_per_side
+	var half := per / 2
+	for ri in gen.region_heights.size():
+		var hi = gen.region_heights[ri]
+		if hi == null:
+			continue
+		var r := Terrain3DRegion.new()
+		r.region_size = cfg.region_size
+		r.vertex_spacing = cfg.vertex_spacing
+		r.location = Vector2i(ri % per - half, ri / per - half)
+		r.height_map = hi
+		r.color_map = gen.region_colors[ri]
+		data.add_region(r, false)
+	data.update_maps(Terrain3DRegion.TYPE_MAX, true, true)
+	data.calc_height_range(true)
+	gen.region_colors = []
+	print("terrain: %d regions into Terrain3D in %.1f s" % [data.get_region_count(), (Time.get_ticks_msec() - t) / 1000.0])
+
+
+## the floating origin: every region re-filed dk regions over (a whole-region shift of the world). Only Terrain3D's region map
+## is rebuilt - its height, control and colour textures stay as they are, so this costs next to nothing: the regions keep
+## their order in Terrain3D's region dictionary (which sets their texture layers) and only their locations change.
+func shift_regions(dk: Vector2i) -> void:
+	var data := terrain.data
+	# (get_regions_all hands out Terrain3D's own dictionary, not a copy)
+	var all: Dictionary = data.get_regions_all()
+	var pairs := []
+	for loc in all.keys():
+		pairs.append([loc, all[loc]])
+	all.clear()
+	var locs: Array[Vector2i] = []
+	for p in pairs:
+		var nl: Vector2i = p[0] + dk
+		var r: Terrain3DRegion = p[1]
+		r.location = nl
+		all[nl] = r
+		if not r.is_deleted():
+			locs.append(nl)
+	data.set_region_locations(locs)
 
 
 func set_debug_view(v: int) -> void:
