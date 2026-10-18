@@ -28,6 +28,7 @@ func _initialize() -> void:
 	var rcfg = RegionSettings.new()
 	var region = Region.new(rcfg, gen)
 	region.verbose = true
+	region.serial_bake = true
 	region.generate()
 	var rep: Dictionary = region.report.duplicate()
 	rep.erase("plateau_table")
@@ -57,18 +58,17 @@ func _initialize() -> void:
 			var pos: Vector3 = b.pos
 			var look: Vector3 = b.look
 			bms[name] = [pos.x, pos.y, pos.z, look.x, look.y, look.z, b.fov]
-		# the arches' three views each, as the screenshot tool's --cam wants them (map x, z, height above the ground there)
+		# the carved features' views, as the screenshot tool's --cam wants them (map x, z, height above the ground there)
 		var avs := []
-		for ai in region.arches.size():
-			var ar: Dictionary = region.arches[ai]
+		for fe in region.features:
 			var vw := {}
-			for vk in ar.views:
-				var pv: Vector3 = ar.views[vk][0]
-				var lv: Vector3 = ar.views[vk][1]
+			for vk in fe.views:
+				var pv: Vector3 = fe.views[vk][0]
+				var lv: Vector3 = fe.views[vk][1]
 				vw[vk] = [pv.x, pv.z, pv.y - region.height_at(Vector2(pv.x, pv.z)), lv.x, lv.z, lv.y - region.height_at(Vector2(lv.x, lv.z))]
-			avs.append({"name": "arch%d" % (ai + 1), "views": vw, "wo": ar.wo, "ho": ar.ho, "bake_s": ar.bake_s, "tris": ar.tris,
-				"top": ar.top, "ground": ar.ground, "c": [(ar.c as Vector2).x, (ar.c as Vector2).y]})
-		var data := {"arches": avs, "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
+			avs.append({"name": fe.name, "type": fe.type, "views": vw, "wo": fe.get("wo", 0.0), "ho": fe.get("ho", 0.0), "bake_s": fe.bake_s,
+				"tris": fe.tris, "top": fe.top, "ground": fe.ground, "c": [(fe.c as Vector2).x, (fe.c as Vector2).y]})
+		var data := {"features": avs, "feature_lines": region.report.get("features", []), "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
 			"floor": region.floor_h, "levels": Array(rcfg.level_heights), "bookmarks": bms, "axis": [region.axis_u.x, region.axis_u.y]}
 		var f := FileAccess.open(out + "/region_data.json", FileAccess.WRITE)
 		f.store_string(JSON.stringify(data))

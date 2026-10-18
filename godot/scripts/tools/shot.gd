@@ -18,7 +18,9 @@ extends Node
 ## pictures; use a portrait --resolution like 585x1040, as they are).
 ## --set=key:value,... applies settings for the run (keys as in scripts/ui/settings.gd, e.g. --set=render_scale:0,grass:0). --look=x,y,z (with --orbit) aims the camera at that
 ## point relative to the hero's feet instead of the head - for close-ups of the hands.
-## Prints one line: SHOT <file> fps=... ms=... worst=<slowest frame, ms> plus the world's counters.
+## --camfile=C:/cams.txt takes many --cam shots in one run: one per line, "C:/out.png x,z,h,tx,tz,th" (the hero and the floating
+## origin moved under each camera, the world streamed in round it before each frame is saved).
+## Prints one line per frame: SHOT <file> fps=... ms=... worst=<slowest frame, ms> plus the world's counters.
 
 var active := false
 var path := ""
@@ -44,6 +46,8 @@ var bookmark := ""
 var fov := 0.0
 var settings := {}
 var look := Vector3(INF, INF, INF)
+## the rest of a --camfile's shots: [path, cam]
+var queue := []
 
 var _state := 0
 var _t := 0.0
@@ -108,6 +112,16 @@ func _ready() -> void:
 			"look":
 				var l := val.split(",")
 				look = Vector3(float(l[0]), float(l[1]), float(l[2]))
+			"camfile":
+				for line in FileAccess.get_file_as_string(val).split("
+", false):
+					var parts := line.strip_edges().split(" ", false)
+					if parts.size() >= 2:
+						queue.append([parts[0], PackedFloat32Array(Array(parts[1].split(",")).map(func(s): return float(s)))])
+				if not queue.is_empty():
+					var first: Array = queue.pop_front()
+					path = first[0]
+					cam = first[1]
 	active = path != ""
 	if active:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -159,4 +173,16 @@ func _capture(main: Node) -> void:
 		Input.action_release(gait)
 	print("SHOT %s fps=%.1f ms=%.2f worst=%.1f waited=%.1fs %s" % [path, _n / _acc, 1000.0 * _acc / _n, 1000.0 * _worst, _t,
 		main.stats_line()])
+	if not queue.is_empty():
+		# the next camera of a --camfile: wait for the world round it again
+		var nx: Array = queue.pop_front()
+		path = nx[0]
+		cam = nx[1]
+		main.shot_cam(cam)
+		_state = 0
+		_t = 0.0
+		_idle = 0
+		_n = 0
+		_worst = 0.0
+		return
 	get_tree().quit()

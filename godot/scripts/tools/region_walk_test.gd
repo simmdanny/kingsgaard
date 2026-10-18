@@ -5,7 +5,9 @@ extends SceneTree
 ##  2. a wall: the hero walks straight at the tallest wall piece's face for 25 s - it must neither climb it nor get through it
 ##     (the wall's trimesh collision; the terrain's own step is behind the face);
 ##  3. the biggest arch: the hero walks through its opening on the ground, from one side of the fin to the other;
-##  4. and across its top, over the opening, without falling (the carved mesh's collision carries it).
+##  4. and across its top, over the opening, without falling (the carved mesh's collision carries it);
+##  5. out along the biggest support's slab (a fin hollowed out under its top, standing on legs) to near its tip, without
+##     falling through (the ground under the slab is the floor far below: only the carved mesh carries the hero there).
 ##   Godot_console.exe --path . --resolution 1280x720 --script res://scripts/tools/region_walk_test.gd
 
 var main
@@ -54,6 +56,14 @@ func _big_arch(region) -> Dictionary:
 	for ar in region.arches:
 		if float(ar.ho) > float(best.ho):
 			best = ar
+	return best
+
+
+func _big_support(region) -> Dictionary:
+	var best := {}
+	for fe in region.features:
+		if str(fe.type) == "support" and (best.is_empty() or float(fe.top) - float(fe.ground) > float(best.top) - float(best.ground)):
+			best = fe
 	return best
 
 
@@ -153,10 +163,14 @@ func _process(dt: float) -> bool:
 				var ar: Dictionary = _big_arch(region)
 				var c: Vector2 = ar.c
 				var tv: Vector2 = ar.t
-				var s3 := _local(c + tv * (float(ar.B) + 25.0))
+				# (from just past the fin's face on one side to just past it on the other: a neighbouring plateau may stand close
+				# beside the fin - arch1 runs 40 m from P3's flank)
+				var side_d: float = float(ar.hw) + float(region.cfg.wall_face_offset) + 18.0
+				var s3 := _local(c + tv * side_d)
 				main.player.place(s3.x, s3.z)
 				start = main.player.position
-				var g3: Vector2 = c - tv * (float(ar.B) + 25.0)
+				var g3: Vector2 = c - tv * side_d
+				print("  arch walk: from (%.0f, %.0f) placed at %.0f m (ground %.0f), to (%.0f, %.0f); region height there %.0f / %.0f" % [(c + tv * side_d).x, (c + tv * side_d).y, start.y, float(ar.ground), g3.x, g3.y, region.height_at(c + tv * side_d), region.height_at(g3)])
 				goal = main.origin.to_local_pos(Vector3(g3.x, 0.0, g3.y))
 				best_h = -1e9
 				Input.action_press("move_forward")
@@ -191,6 +205,32 @@ func _process(dt: float) -> bool:
 				Input.action_release("move_forward")
 				Input.action_release("sprint")
 				_check(gd5 < 8.0 and low_h > float(ar5.top) - 4.0, "walking across the big arch's top (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(ar5.top) - float(ar5.ground), "crossed" if gd5 < 8.0 else "stopped %.0f m short" % gd5, float(ar5.top) - low_h])
+				var sup := _big_support(main.terrain.region)
+				if sup.is_empty():
+					print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
+					return true
+				# 5. out along the support's slab
+				var c6: Vector2 = sup.c
+				var ax6: Vector2 = sup.axis
+				var s6 := _local(c6 + ax6 * (float(sup.a0) - 40.0))
+				main.player.place(s6.x, s6.z)
+				var g6: Vector2 = c6 + ax6 * (-float(sup.a0) - 15.0)
+				goal = main.origin.to_local_pos(Vector3(g6.x, 0.0, g6.y))
+				low_h = 1e9
+				Input.action_press("move_forward")
+				Input.action_press("sprint")
+				step = 6
+				t = 0.0
+		6:
+			_walk_toward(goal)
+			if t > 1.0:
+				low_h = minf(low_h, main.player.position.y)
+			var sup6 := _big_support(main.terrain.region)
+			var gd6 := Vector2(main.player.position.x - goal.x, main.player.position.z - goal.z).length()
+			if t > 90.0 or gd6 < 8.0:
+				Input.action_release("move_forward")
+				Input.action_release("sprint")
+				_check(gd6 < 8.0 and low_h > float(sup6.top) - 4.0, "walking out along a support's slab (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(sup6.top) - float(sup6.ground), "reached its far end" if gd6 < 8.0 else "stopped %.0f m short" % gd6, float(sup6.top) - low_h])
 				print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 				return true
 	return false

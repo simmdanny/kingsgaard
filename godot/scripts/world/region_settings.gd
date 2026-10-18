@@ -80,7 +80,7 @@ extends Resource
 
 @export_group("Walls")
 ## wall mesh spacing: columns along the edge and rows down the face (m)
-@export var wall_column := 8.0
+@export var wall_column := 6.0
 @export var wall_row := 10.0
 ## the face stands this far out from the terrain's step (m), so the step (a near-vertical 4 m strip of terrain) is always
 ## behind it; it leans out by wall_batter of its height towards its foot; its foot goes this far into the ground (m)
@@ -102,7 +102,7 @@ extends Resource
 @export var buttress_depth := 24.0
 @export var flute_wavelength := 46.0
 @export var flute_depth := 6.0
-@export var groove_wavelength := 15.0
+@export var groove_wavelength := 24.0
 @export var groove_depth := 2.6
 @export var setback_spacing := 45.0
 @export var setback_depth := 8.0
@@ -115,20 +115,51 @@ extends Resource
 @export var notch_width := 90.0
 
 @export_group("Arches")
-## rock fins and necks with an opening carved through them. Each: [kind (0 a neck: a rock bridge between two plateau parts,
-## 1 a fin: a ridge sticking out from a wall), u0, v0, u1, v1 (layout coordinates: the neck's two ends inside the plateaus,
-## or the fin's root inside the plateau and its tip out over the ground), width (m), the lowest and highest level it fills
-## (1 - 3), where along it the opening is (0 .. 1), the opening's width and height at its narrowest (m)]
+## rock fins and necks, carved. Each: [kind (0 a neck: a rock bridge between two plateau parts, with an opening; 1 a fin: a
+## ridge sticking out from a wall, with an opening - a natural bridge on two legs; 2 a support: a fin whose outer part is
+## hollowed out under a slab standing on two elephant legs), u0, v0, u1, v1 (layout coordinates: the neck's two ends inside
+## the plateaus, or the fin's root inside the plateau and its tip out over the ground), width (m), the lowest and highest
+## level it fills (1 - 3), where along it the opening is (0 .. 1; a support: where its slab begins), the opening's width at
+## its narrowest (m; a support: its legs' radius), the rock left above the opening as a share of the arch's height (0 .. 1;
+## a support: the slab's thickness, the same way)]
 @export var arches: Array[PackedFloat32Array] = [
-	PackedFloat32Array([1.0, -1000.0, -460.0, -1000.0, -40.0, 70.0, 1.0, 2.0, 0.76, 80.0, 130.0]),
-	PackedFloat32Array([1.0, 650.0, 560.0, 650.0, 200.0, 46.0, 1.0, 1.0, 0.78, 30.0, 48.0]),
-	PackedFloat32Array([1.0, 880.0, -60.0, 560.0, -60.0, 36.0, 1.0, 1.0, 0.53, 20.0, 28.0]),
+	PackedFloat32Array([1.0, -1000.0, -460.0, -1000.0, -145.0, 40.0, 1.0, 2.0, 0.778, 80.0, 0.30]),
+	PackedFloat32Array([1.0, 650.0, 560.0, 650.0, 200.0, 28.0, 1.0, 1.0, 0.728, 115.0, 0.30]),
+	PackedFloat32Array([1.0, 880.0, -60.0, 600.0, -60.0, 24.0, 1.0, 1.0, 0.571, 130.0, 0.32]),
+	PackedFloat32Array([2.0, 1220.0, -860.0, 1220.0, -470.0, 80.0, 1.0, 1.0, 0.49, 28.0, 0.3]),
+	PackedFloat32Array([2.0, -50.0, -560.0, -50.0, -250.0, 90.0, 1.0, 2.0, 0.42, 33.0, 0.28]),
 ]
-## the carving: voxel size of the bake (m), how rough the rock and the opening's edges are (m), how much the opening widens
-## towards its mouths (0 .. 1)
+## the carving: voxel size of the bake (m), how much an opening widens towards its mouths (0 .. 1)
 @export var arch_voxel := 2.5
-@export var arch_rough := 3.0
-@export var arch_flare := 0.35
+@export var arch_flare := 0.25
+
+@export_group("Overhangs")
+## stretches of the plateaus' edges whose top juts out over an undercut wall, drips hanging under the lip. Each: [u, v (near
+## the edge, layout coordinates), level (1 - 3), length along the edge (m), how far the lip juts out past the wall (m), the
+## lip's thickness (m), how deep the wall under it is undercut (m)]
+@export var overhangs: Array[PackedFloat32Array] = [
+	PackedFloat32Array([-848.0, 666.0, 3.0, 160.0, 24.0, 22.0, 6.0]),
+	PackedFloat32Array([168.0, 818.0, 1.0, 260.0, 18.0, 18.0, 6.0]),
+	PackedFloat32Array([1085.0, 438.0, 1.0, 200.0, 14.0, 16.0, 5.0]),
+]
+
+@export_group("Pillars")
+## freestanding rock columns like elephants' legs: thick and flared at the foot, lumpy, narrowing to a flat grassy top. Each:
+## [u, v, height (m; negative: up to that level's height), radius at the base and at the top (m)]
+@export var pillars: Array[PackedFloat32Array] = [
+	PackedFloat32Array([130.0, 574.0, -1.0, 40.0, 28.0]),
+	PackedFloat32Array([-400.0, -16.0, 190.0, 46.0, 31.0]),
+	PackedFloat32Array([738.0, -617.0, 140.0, 38.0, 27.0]),
+	PackedFloat32Array([118.0, 31.0, 230.0, 50.0, 34.0]),
+]
+
+@export_group("Sinkholes")
+## round holes carved down from the plateaus' tops, sheer inside, flat at the bottom. Each: [u, v, diameter (m), depth (m)]
+@export var sinkholes: Array[PackedFloat32Array] = [
+	PackedFloat32Array([983.0, 1132.0, 110.0, 100.0]),
+	PackedFloat32Array([-750.0, -508.0, 80.0, 140.0]),
+	PackedFloat32Array([1425.0, -1118.0, 50.0, 90.0]),
+]
 
 @export_group("Bookmarks")
 ## the four camera views after the reference pictures (ref1 high on a plateau's edge looking along its cliff line, ref2 high
@@ -138,10 +169,10 @@ extends Resource
 ## camera at the visible rim nearest the spot (that far in from it), a 9th makes it look along the rim, turned that many
 ## degrees in (negative: out over the drop) - see tepui_region.gd _bookmarks
 @export var bookmark_views := {
-	"ref1": PackedFloat32Array([-933.0, 730.0, 14.0, 200.0, -60.0, -120.0, 75.0, 4.0, -8.0]),
+	"ref1": PackedFloat32Array([-955.0, 689.0, 14.0, 10.0, -25.0, 310.0, 75.0]),
 	"ref2": PackedFloat32Array([1635.0, -95.0, 380.0, 179.0, 699.0, 60.0, 75.0]),
 	"ref3": PackedFloat32Array([-60.0, 1200.0, 40.0, -60.0, -500.0, -300.0, 75.0, 4.0, -22.0]),
-	"ref4": PackedFloat32Array([-1700.0, 600.0, 700.0, 87.0, -73.0, 0.0, 75.0]),
+	"ref4": PackedFloat32Array([-1700.0, 600.0, 700.0, -124.0, -631.0, 0.0, 75.0]),
 }
 
 @export_group("Look")

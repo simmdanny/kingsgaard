@@ -40,6 +40,7 @@ bust, waist, hips and thighs reshaped, and narrower, gently sloping shoulders - 
 | F2 / F3 / F4 / F5 | terrain maps: heights / tiers / slopes / steep-edge mask (again = back) |
 | F6 / F7 / F8 / F9 | the tepui region's camera bookmarks ref1-ref4 (fly mode there; F again lands the hero) |
 | F10 / F11 / F12 | the region's arches (arch1-arch3) |
+| Page Up / Page Down | through all the region's carved features (arches, pillars under plateau sections, overhangs, pillars, sinkholes) |
 | Esc | pause menu / back |
 
 ## Terrain
@@ -85,9 +86,10 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
 - **Tools:** `scripts/tools/base_terrain_test.gd` (generator alone: report + quick maps, and writes the game's cache),
   `base_walk_test.gd` (collision rays, a route walked up along its path, an escarpment walked into, the floating origin),
   `poi_profile.gd` (ground along the screenshot views), `t3d_probe.gd` (Terrain3D's API); `shot.gd` options `--overview`,
-  `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`. (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
+  `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`, `--camfile=cams.txt` (many `--cam` shots in one run, one
+  "out.png x,z,h,tx,tz,th" per line). (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
-## Tepui region (phase 1 done, phase 2A: arches)
+## Tepui region (phases 1 and 2A done, phase 2B: carved features)
 
 The first region, built on the base terrain: a land of tables - a flat floor, six big flat-topped plateaus standing on it
 (two of them stacked in terraces), sheer walls, narrow canyons and a wide valley (`scripts/world/tepui_region.gd`, every key
@@ -109,37 +111,65 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   with an 85 m step where it opens on the valley (for a waterfall later). Levels about 150 / 280 / 430 m above the floor (A, B, C;
   C only on B, so no wall is taller than about 290 m); stacked terraces at least 105 m deep (a true distance), measured 100 -
   230 m. Areas 0.3 - 1.8 km2. The layout's axis comes from the sun (the walls the bookmark views look at face it).
-- **Walls:** separate meshes along every level's edge (marching squares, 8 m columns, 10 m rows, 48 columns a piece), each
+- **Walls:** separate meshes along every level's edge (marching squares, 6 m columns, 10 m rows, 48 columns a piece), each
   column snapped onto the exact edge: the face stands 9 m out from the terrain's step (so the step is always behind it),
   nearly vertical (3% batter), its foot 4 m into the ground, and a rock lip runs from the face's top edge back over the
   plateau's edge and under the grass - the plateau's edge is the rock's edge. Shapes: slow curvature, buttresses, broad
-  flutes, fine grooves, setbacks at rock layers. Trimesh collision. Measured on every column: 85 - 282 m.
-- **Arches** (phase 2A): rock fins sticking out from the walls (or necks between two plateau parts), added to the layout's
-  fields from the settings (`arches`), with an opening carved through each: around the opening the rock is a signed
-  distance volume - the fin as the walls have it (its plan from its level's edge, the face 9 m out, the rock lip, the foot
-  under the ground), minus a tall, rounded, leaning, rough-edged opening that flares towards both mouths - meshed at bake
-  time with surface nets (2.5 m voxels), smoothed, normals from the volume, trimesh collision. The walls stop at the
-  carving's box and the carving reaches 18 m past it behind them (0.15 m back), with the walls' shapes calmed there, so the
-  two meet on the same plain face; under the opening the ground is lowered and the carved rock's top is the walkable bridge.
-  Three now: a huge one (a 276 m rock tongue from P3, opening 80 x 130 m, after ref_4) and two smaller (30 x 48 m,
-  20 x 28 m); bake 0.8 - 2.5 s and 17k - 50k triangles each. Bookmarks arch1-3 (F10-F12): each from its sunlit side.
+  flutes, fine grooves (24 m apart: never finer than the columns can draw, so no sawtooth), setbacks at rock layers. Trimesh
+  collision. Measured on every column: 85 - 282 m. A run's normals are smoothed along the whole run before it is cut into
+  pieces (a shared end column puts its face in one place: no wedge at a sharp bend), and a run's open ends are capped with
+  rock back to the terrain's step.
+- **Carved features** (phases 2A, 2B): rock that a heightmap cannot hold, each a signed distance volume over a box of its
+  own (positive inside the rock), meshed at bake time with surface nets (2.5 m voxels; three smoothing passes, then every
+  vertex put back onto the surface, normals from the volume's gradient blended across cells), trimesh collision, the walls'
+  material. Where a box cuts through walls (arches, supports, overhangs) the rock there is the plateau as the walls build it
+  - its plan from its level's edge, the face 9 m out, the rock's top over the edge, the foot under the ground - so the walls
+  stop at the box and the carving reaches 18 m past it on all four sides behind them (0.15 m back), the walls' shapes calmed
+  over the last 20 m: the two meet on the same plain face. One rock style for all of it (`_style`, `_layers`): broad smooth
+  forms, flutes and soft vertical grooves, and the walls' own rock layers at the same heights. Each from the settings:
+  - **arches** (`arches`, kinds 0 / 1): a fin from a wall (or a neck between two plateau parts) with an opening carved
+    through: a natural bridge on two legs. The opening is widest two fifths up, narrower at the ground (the legs flare),
+    rounded above, leaning a little, wider towards both mouths; the rock left above it is a share of the arch's height
+    (30 - 32%); the fins 24 - 40 m wide (42 - 58 m of rock), the opening about half the freestanding fin (49 - 59%). Under the opening
+    the ground is lowered and the carved rock's top is the walkable bridge.
+  - **pillars under plateau sections** (`arches`, kind 2, "supports"): a fin's outer part hollowed out under a slab (a
+    share of its height thick) standing on two elephant legs - thick, flared and toed at the foot, lobed, wrinkled - joined
+    to the slab through rounded vaults; the slab's top is walkable.
+  - **overhangs** (`overhangs`): a stretch of a plateau's edge whose top juts 14 - 24 m out past the wall, the wall under it
+    undercut, drips hanging under the lip (long downward cones), fading back to the plain wall at both ends; grass on the lip.
+    One stands in front of the ref1 camera, as in ref_1.
+  - **pillars** (`pillars`): freestanding elephant legs in the canyons and the valley, 140 - 236 m tall, 76 - 100 m across at
+    the foot, leaning a little, lobed and lumpy, a flat grassy top.
+  - **sinkholes** (`sinkholes`): round holes 50 - 110 m across and 90 - 140 m deep down from a plateau's top, sheer inside
+    (the top a little overhanging), the heightmap's own flat floor at the bottom (water comes in phase 3).
+  Bake time (one after another, on mains power) and triangles: arches 3.4 - 4.8 s (37k - 59k), pillars under plateau
+  sections 9.0 / 15.1 s (73k / 113k), overhangs 2.8 - 5.8 s (30k - 60k), pillars 1.4 - 3.3 s (19k - 39k), sinkholes
+  0.7 - 1.7 s (15k - 32k); 61 s in all. Checked by `region_seam_probe.gd`: every wall end at a carved box has rock behind
+  it, no rock top shows above the grass outside the rims.
+  Bookmarks: one per feature (`arch1`, `support1`, `overhang1`, `pillar1`, `sinkhole1`, ...; Page Up / Page Down in the
+  game, `shot.gd --bookmark=pillar2`), each from a spot the generator finds open (nothing in the line of sight).
 - **Ways up:** ravines cut into the plateaus' edges, two per plateau piece and level (18 in all): a 90 m wide slot whose floor
   climbs at 30 degrees from the ground in front to the top, between sheer sides; the ramp starts where the edge crosses the
   slot's mouth furthest in, so the ground meets it level all across. Placed out of the bookmarks' views where possible. The
   generator walks each one and checks every plateau piece is reached on foot from the floor.
 - **Bookmarks:** 4 cameras after the reference pictures (`bookmark_views`, in layout coordinates; an 8th number puts the
-  camera that far in from the nearest rim) - ref1 high on the stacked plateau's lowest terrace looking along its cliff line,
+  camera that far in from the nearest rim) - ref1 at the stacked plateau's top rim looking along its cliff line (overhang1's lip in front),
   ref2 high over the island plateau looking across the valley at the stacked plateau, ref3 on a rim looking down the canyon,
-  ref4 from the air down the valley. F6-F9 in the game, F10-F12 the arches; `shot.gd --bookmark=ref1`. An 8th number puts
+  ref4 from the air down the valley past arch1 and a sinkhole. F6-F9 in the game, F10-F12 the arches, Page Up / Down every
+  carved feature; `shot.gd --bookmark=ref1`. An 8th number puts
   the camera at the visible rim (the top of the wall's face) nearest its spot, a 9th makes it look along that rim.
-- **Cost:** ~39 s to generate on the laptop the first time (the arches' bake ~4 s of it), then cached in `user://terrain/region_*.bin`; 65-79 fps at the
-  bookmarks (greybox, laptop); walls 113k vertices.
+- **Cost:** ~107 s to generate in the region test, on mains power (the carving 61 s of it, baked one feature after another
+  there; the game bakes them side by side on all cores - 28 s instead of 51 s when measured), then cached in `user://terrain/region_*.bin`. On battery Windows slows background
+  processes 6 - 8 times.
 - **Tools:** `scripts/tools/region_test.gd` (generator alone: report with the plateau table, gaps, terrace depths and wall
-  heights, the arches' bake times; writes the game's cache, `region_map.png` and `region_data.json` with two height profiles
-  and the arches' camera views), `region_walk_test.gd` (the hero walks up a ravine onto a plateau, into the tallest wall,
-  through the biggest arch's opening and across its top), `region_probe.gd` (level, height and nearest edge
+  heights, every carved feature's size, bake time (baked one after another there) and triangles; writes the game's cache,
+  `region_map.png` and `region_data.json` with two height profiles and every feature's camera views), `region_walk_test.gd`
+  (the hero walks up a ravine onto a plateau, into the tallest wall, through the biggest arch's opening, across its top and
+  out along a support's slab), `region_seam_probe.gd` (carved rock tops standing above the grass, per feature: rings and
+  slabs that would show, wall ends at a carved box with nothing behind them, wedges between wall pieces), `region_height_probe.gd`
+  (Terrain3D's heights against the region's, in the running game), `region_probe.gd` (level, height and nearest edge
   at layout points - for placing cameras), `region_scan.gd` (single-tier 4 km windows); `shot.gd --overview=region`.
-- **Next phases:** 2B overhangs, pillars, sinkholes (the same carving); 3 rivers, waterfalls, lakes, mist; 4 materials,
+- **Next phases:** 3 rivers, waterfalls, lakes, mist; 4 materials,
   vegetation, sky, performance.
 
 ## Layout

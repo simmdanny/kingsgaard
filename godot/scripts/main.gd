@@ -228,6 +228,8 @@ func _input_map() -> void:
 	_bind("bookmark_arch_1", [KEY_F10])
 	_bind("bookmark_arch_2", [KEY_F11])
 	_bind("bookmark_arch_3", [KEY_F12])
+	_bind("bookmark_feature_prev", [KEY_PAGEUP])
+	_bind("bookmark_feature_next", [KEY_PAGEDOWN])
 
 
 func _bind(action: String, keys: Array) -> void:
@@ -293,6 +295,16 @@ func _unhandled_input(e: InputEvent) -> void:
 	for k in 3:
 		if e.is_action_pressed("bookmark_arch_%d" % (k + 1)):
 			go_bookmark("arch%d" % (k + 1), true)
+	# (Page Up / Page Down: through every carved feature's bookmark - arches, supports, overhangs, pillars, sinkholes)
+	if terrain.region != null and not terrain.region.features.is_empty():
+		var nf: int = terrain.region.features.size()
+		var step := -1 if e.is_action_pressed("bookmark_feature_prev") else (1 if e.is_action_pressed("bookmark_feature_next") else 0)
+		if step != 0:
+			_feature_i = posmod(_feature_i + step, nf)
+			go_bookmark(str(terrain.region.features[_feature_i].name), true)
+
+
+var _feature_i := -1
 
 
 ## put the camera at one of the region's bookmark views (map coordinates): flying from there (keys F6 - F9) or pinned
@@ -425,6 +437,18 @@ func _spawn() -> void:
 		# open sea with no terrain region under it: the deep sea's colour
 		_env.background_mode = Environment.BG_COLOR
 		_env.background_color = Color(0.022, 0.07, 0.2)
+
+
+## a screenshot camera in map coordinates (x, z, height above the ground, look-at x, z, its height above the ground): the
+## floating origin moved under it first, so the world streams in round it; the hero is parked out of the way (hidden, still)
+func shot_cam(cc: PackedFloat32Array) -> void:
+	var m := Vector3(cc[0], 0.0, cc[1])
+	player.process_mode = Node.PROCESS_MODE_DISABLED
+	player.visible = false
+	origin.recenter(origin.to_local_pos(m))
+	var a0: Vector3 = origin.to_local_pos(Vector3(cc[0], 0.0, cc[1]))
+	var a1: Vector3 = origin.to_local_pos(Vector3(cc[3], 0.0, cc[4]))
+	rig.pin(Vector3(a0.x, maxf(gen.height(a0.x, a0.z), 0.0) + cc[2], a0.z), Vector3(a1.x, maxf(gen.height(a1.x, a1.z), 0.0) + cc[5], a1.z))
 
 
 func _process(dt: float) -> void:
