@@ -66,7 +66,7 @@ func _initialize() -> void:
 				var pv: Vector3 = fe.views[vk][0]
 				var lv: Vector3 = fe.views[vk][1]
 				vw[vk] = [pv.x, pv.z, pv.y - region.height_at(Vector2(pv.x, pv.z)), lv.x, lv.z, lv.y - region.height_at(Vector2(lv.x, lv.z))]
-			avs.append({"name": fe.name, "type": fe.type, "views": vw, "wo": fe.get("wo", 0.0), "ho": fe.get("ho", 0.0), "bake_s": fe.bake_s,
+			avs.append({"name": fe.name, "type": fe.type, "views": vw, "wo": fe.get("wo", 0.0), "ho": fe.get("ho", 0.0), "bake_s": fe.bake_s, "bake_lod_s": fe.get("bake_lod_s", 0.0), "tris_lod": fe.get("tris_lod", []),
 				"tris": fe.tris, "top": fe.top, "ground": fe.ground, "c": [(fe.c as Vector2).x, (fe.c as Vector2).y]})
 		var data := {"features": avs, "feature_lines": region.report.get("features", []), "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
 			"floor": region.floor_h, "levels": Array(rcfg.level_heights), "bookmarks": bms, "axis": [region.axis_u.x, region.axis_u.y]}

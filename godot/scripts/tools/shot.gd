@@ -20,6 +20,11 @@ extends Node
 ## point relative to the hero's feet instead of the head - for close-ups of the hands.
 ## --camfile=C:/cams.txt takes many --cam shots in one run: one per line, "C:/out.png x,z,h,tx,tz,th" (the hero and the floating
 ## origin moved under each camera, the world streamed in round it before each frame is saved).
+## --perf=N (after each shot) times N frames of the GPU's work (the viewport's measured render time) with everything drawn, then
+## with the carved features hidden, the region's walls hidden, the terrain hidden, and all three hidden: the differences are each
+## group's share. Prints PERF <file> <config> gpu=ms cpu=ms frame=ms prims=... draws=... per config.
+## --hide=carved|lods|walls|terrain|shadows (comma-separated; lods = the carved features' coarser meshes) hides those parts of the world (or the sun's shadows) in the saved
+## frames, to tell them apart.
 ## Prints one line per frame: SHOT <file> fps=... ms=... worst=<slowest frame, ms> plus the world's counters.
 
 var active := false
@@ -46,6 +51,8 @@ var bookmark := ""
 var fov := 0.0
 var settings := {}
 var look := Vector3(INF, INF, INF)
+var perf := 0
+var hide := PackedStringArray()
 ## the rest of a --camfile's shots: [path, cam]
 var queue := []
 
@@ -109,6 +116,10 @@ func _ready() -> void:
 				for kv2 in val.split(","):
 					var pr := kv2.split(":")
 					settings[pr[0]] = float(pr[1]) if pr[1].contains(".") else int(pr[1])
+			"perf":
+				perf = int(val)
+			"hide":
+				hide = val.split(",")
 			"look":
 				var l := val.split(",")
 				look = Vector3(float(l[0]), float(l[1]), float(l[2]))
@@ -126,6 +137,7 @@ func _ready() -> void:
 	if active:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 
 
 func tick(main: Node, dt: float) -> void:
@@ -158,6 +170,19 @@ func tick(main: Node, dt: float) -> void:
 
 
 func _capture(main: Node) -> void:
+	if not hide.is_empty():
+		for ch in main.terrain.walls.get_children():
+			if (ch.has_meta("carved") and hide.has("carved")) or (ch.has_meta("wall") and hide.has("walls")) or (int(ch.get_meta("carved", 0)) > 0 and hide.has("lods")):
+				ch.visible = false
+			# (without the LODs the full mesh is drawn at every distance)
+			if hide.has("lods") and ch.has_meta("carved") and int(ch.get_meta("carved")) == 0:
+				(ch as GeometryInstance3D).visibility_range_end = 0.0
+		if hide.has("terrain"):
+			main.terrain.terrain.visible = false
+		if hide.has("shadows"):
+			main._sun.shadow_enabled = false
+		for k in 3:
+			await RenderingServer.frame_post_draw
 	for k in maxi(burst, 1):
 		await RenderingServer.frame_post_draw
 		var img := get_viewport().get_texture().get_image()
@@ -173,6 +198,8 @@ func _capture(main: Node) -> void:
 		Input.action_release(gait)
 	print("SHOT %s fps=%.1f ms=%.2f worst=%.1f waited=%.1fs %s" % [path, _n / _acc, 1000.0 * _acc / _n, 1000.0 * _worst, _t,
 		main.stats_line()])
+	if perf > 0:
+		await _perf(main)
 	if not queue.is_empty():
 		# the next camera of a --camfile: wait for the world round it again
 		var nx: Array = queue.pop_front()
@@ -186,3 +213,54 @@ func _capture(main: Node) -> void:
 		_worst = 0.0
 		return
 	get_tree().quit()
+
+
+## the GPU's time per frame with each group of the world hidden in turn (see --perf)
+func _perf(main: Node) -> void:
+	var tw = main.terrain
+	var carved := []
+	var walls := []
+	for ch in tw.walls.get_children():
+		if ch.has_meta("carved"):
+			carved.append(ch)
+		elif ch.has_meta("wall"):
+			walls.append(ch)
+	var groups := {"carved": carved, "walls": walls, "terrain": [tw.terrain]}
+	var configs := [["all", []], ["no_carved", ["carved"]], ["no_walls", ["walls"]], ["no_terrain", ["terrain"]],
+		["none", ["carved", "walls", "terrain"]], ["all_no_msaa", ["-msaa"]], ["all_no_shadows", ["-shadows"]],
+		["none_no_sky", ["carved", "walls", "terrain", "-sky"]]]
+	var env: Environment = main._env
+	var msaa := get_viewport().msaa_3d
+	var shadows: bool = main._sun.shadow_enabled
+	var bg := env.background_mode
+	var vp := get_viewport().get_viewport_rid()
+	var keep := {}
+	for g in groups:
+		for nd in groups[g]:
+			keep[nd] = nd.visible
+	for cf in configs:
+		var off: Array = cf[1]
+		for g in groups:
+			for nd in groups[g]:
+				nd.visible = keep[nd] and not off.has(g)
+		get_viewport().msaa_3d = Viewport.MSAA_DISABLED if off.has("-msaa") else msaa
+		main._sun.shadow_enabled = shadows and not off.has("-shadows")
+		env.background_mode = Environment.BG_COLOR if off.has("-sky") else bg
+		for k in 20:
+			await get_tree().process_frame
+		var gpu := 0.0
+		var cpu := 0.0
+		var t0 := Time.get_ticks_usec()
+		for k in perf:
+			await get_tree().process_frame
+			gpu += RenderingServer.viewport_get_measured_render_time_gpu(vp)
+			cpu += RenderingServer.viewport_get_measured_render_time_cpu(vp)
+		var frame := (Time.get_ticks_usec() - t0) / 1000.0 / perf
+		print("PERF %s %s gpu=%.2f cpu=%.2f frame=%.2f prims=%d draws=%d" % [path.get_file(), cf[0], gpu / perf, cpu / perf, frame,
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
+	for nd in keep:
+		nd.visible = keep[nd]
+	get_viewport().msaa_3d = msaa
+	main._sun.shadow_enabled = shadows
+	env.background_mode = bg

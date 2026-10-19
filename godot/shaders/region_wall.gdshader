@@ -44,9 +44,10 @@ void fragment() {
 	}
 	vec3 col = rock_col;
 	// (grass where the mesh marks the rock's top - the walls' lips, the carved rock's top surfaces - on anything not too steep;
-	// elsewhere only on near-level ground, so the rubble's slopes and the faces stay rock)
-	bool top = v_grass > 0.5 ? v_up > 0.45 : v_up > 0.97;
-	if (top) col = top_col * mix(0.36, 1.3, clamp((v_h - greybox_floor) / greybox_span, 0.0, 1.0));
+	// elsewhere only on near-level ground, so the rubble's slopes and the faces stay rock. A soft edge over a little of the
+	// slope, not a hard switch: a hard one zig-zags along the mesh's triangles where a rounded rim turns down)
+	float gt = mix(smoothstep(0.95, 0.985, v_up), smoothstep(0.38, 0.55, v_up), smoothstep(0.3, 0.7, v_grass));
+	col = mix(col, top_col * mix(0.36, 1.3, clamp((v_h - greybox_floor) / greybox_span, 0.0, 1.0)), gt);
 	if (debug_view == 1) {
 		col = height_ramp(v_h) * 0.8;
 	} else if (debug_view == 2) {
@@ -64,6 +65,6 @@ void fragment() {
 		ALBEDO = col;
 	}
 	// (the top matches the terrain's surface)
-	ROUGHNESS = top ? 0.92 : 0.95;
-	SPECULAR = top ? 0.2 : 0.15;
+	ROUGHNESS = mix(0.95, 0.92, gt);
+	SPECULAR = mix(0.15, 0.2, gt);
 }

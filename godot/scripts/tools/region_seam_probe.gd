@@ -54,15 +54,34 @@ func _initialize() -> void:
 		# (every vertex, whatever its normal, out past the round features' rims: what stands above the grass there)
 		var outer := 0
 		var oworst := 0.0
-		if str(fe.type) == "sinkhole":
+		if str(fe.type) == "sinkhole" and fe.has("sr"):
 			for i in vs.size():
 				var p := Vector2(vs[i].x + c.x, vs[i].z + c.y)
-				if p.distance_to(fe.c) > float(fe.rt) + 6.0:
+				var rel: Vector2 = p - (fe.c as Vector2)
+				# (out past the rock's ring over the rim: it lies on the grass to 22 m past the outline and is under it by 26 m)
+				if rel.length() > region._sink_r(fe, atan2(rel.y, rel.x)) + 27.0:
 					var hh: float = region.height_at(p)
 					if vs[i].y > hh + 0.05:
 						outer += 1
 						oworst = maxf(oworst, vs[i].y - hh)
-			print("  %s: %d vertices more than rt + 6 m out stand above the grass (worst %.2f m)" % [fe.name, outer, oworst])
+						if outer <= 4:
+							print("    above the grass at %s: %.2f m (%.0f m out, outline %.0f m)" % [p, vs[i].y - hh, rel.length(), region._sink_r(fe, atan2(rel.y, rel.x))])
+			print("  %s: %d vertices out past its rim ring stand above the grass (worst %.2f m)" % [fe.name, outer, oworst])
+			# (the ring itself, by its distance past the outline: how high its rock stands over the terrain's heights)
+			var bands := {}
+			for i in vs.size():
+				var p := Vector2(vs[i].x + c.x, vs[i].z + c.y)
+				var rel: Vector2 = p - (fe.c as Vector2)
+				var past: float = rel.length() - region._sink_r(fe, atan2(rel.y, rel.x))
+				if past > 0.0 and past < 33.0:
+					var bk := int(past / 3.0)
+					var dhh: float = vs[i].y - region.height_at(p)
+					var cur: Array = bands.get(bk, [0, -INF, 0])
+					bands[bk] = [int(cur[0]) + 1, maxf(float(cur[1]), dhh), int(cur[2]) + (1 if dhh > 0.3 else 0)]
+			var keys := bands.keys()
+			keys.sort()
+			for bk in keys:
+				print("    %2d-%2d m past the outline: %4d vertices, highest %.2f m over the terrain, %d over 0.3 m" % [bk * 3, bk * 3 + 3, bands[bk][0], bands[bk][1], bands[bk][2]])
 		print("%-10s up-facing %6d, above the terrain %6d (worst %.1f m); their distance from the centre: %s" % [fe.name, up, over, worst,
 			"-" if rs.is_empty() else "%.0f / %.0f / %.0f m (10%% / median / 90%%)" % [rs[rs.size() / 10], rs[rs.size() / 2], rs[rs.size() * 9 / 10]]])
 	# the hand-overs: every wall vertex in the band where a carving overlaps the walls (the box's edge to 8 m past it) should

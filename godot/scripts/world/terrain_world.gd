@@ -20,6 +20,11 @@ const BaseConfig := preload("res://scripts/world/base_terrain_config.gd")
 const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
 const TepuiRegion := preload("res://scripts/world/tepui_region.gd")
 const CACHE_DIR := "user://terrain"
+## the carved features' LODs: the full mesh up to LOD_BANDS[1] m from the camera, LOD1 to LOD_BANDS[2], LOD2 beyond, the bands
+## meeting exactly. (No margin: as hysteresis it left a gap where a camera that started or jumped there between the lines
+## found both neighbours hidden - no rock at all, the terrain's step showing in its place.)
+const LOD_BANDS := [0.0, 450.0, 1400.0]
+const LOD_MARGIN := 0.0
 
 var cfg
 var gen
@@ -176,20 +181,27 @@ func _build_walls() -> void:
 	mat.set_shader_parameter("greybox", region_cfg.greybox)
 	mat.set_shader_parameter("greybox_floor", region.floor_h)
 	for w in region.walls:
-		var arrays := []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = w.verts
-		arrays[Mesh.ARRAY_NORMAL] = w.normals
-		arrays[Mesh.ARRAY_INDEX] = w.indices
-		# (r: where the grass grows - the rock's tops; the faces and the rubble stay rock)
-		if w.has("colors"):
-			arrays[Mesh.ARRAY_COLOR] = w.colors
-		var mesh := ArrayMesh.new()
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		var mi := MeshInstance3D.new()
-		mi.mesh = mesh
-		mi.material_override = mat
+		var mi := _wall_instance(w, mat)
 		walls.add_child(mi)
+		# (a carved feature's mesh comes with two coarser ones, baked from the same volume at twice and four times the voxel:
+		# each drawn only in its own band of distance from the camera - to the mesh's centre; the collision stays the full one)
+		if w.get("arch", false):
+			mi.set_meta("carved", 0)
+		else:
+			mi.set_meta("wall", true)
+		if w.has("lods"):
+			mi.visibility_range_end = LOD_BANDS[1]
+			mi.visibility_range_end_margin = LOD_MARGIN
+			var lods: Array = w.lods
+			for li in lods.size():
+				var lm := _wall_instance(lods[li], mat)
+				lm.set_meta("carved", li + 1)
+				lm.visibility_range_begin = LOD_BANDS[li + 1]
+				lm.visibility_range_begin_margin = LOD_MARGIN
+				if li + 2 < LOD_BANDS.size():
+					lm.visibility_range_end = LOD_BANDS[li + 2]
+					lm.visibility_range_end_margin = LOD_MARGIN
+				walls.add_child(lm)
 		var shape := ConcavePolygonShape3D.new()
 		shape.set_faces(w.faces)
 		var body := StaticBody3D.new()
@@ -199,6 +211,24 @@ func _build_walls() -> void:
 		walls.add_child(body)
 	walls.set_meta("material", mat)
 	print("terrain: %d wall pieces in %.1f s" % [region.walls.size(), (Time.get_ticks_msec() - t) / 1000.0])
+
+
+## one wall piece's (or carved feature's) mesh
+func _wall_instance(w: Dictionary, mat: Material) -> MeshInstance3D:
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = w.verts
+	arrays[Mesh.ARRAY_NORMAL] = w.normals
+	arrays[Mesh.ARRAY_INDEX] = w.indices
+	# (r: where the grass grows - the rock's tops; the faces and the rubble stay rock)
+	if w.has("colors"):
+		arrays[Mesh.ARRAY_COLOR] = w.colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	return mi
 
 
 ## the floating origin: every region re-filed dk regions over (a whole-region shift of the world). Only Terrain3D's region map
