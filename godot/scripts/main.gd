@@ -228,6 +228,15 @@ func _input_map() -> void:
 	_bind("bookmark_arch_1", [KEY_F10])
 	_bind("bookmark_arch_2", [KEY_F11])
 	_bind("bookmark_arch_3", [KEY_F12])
+	for k in 3:
+		# (Shift + F10 - F12: the sinkholes)
+		var act := "bookmark_sink_%d" % (k + 1)
+		if not InputMap.has_action(act):
+			InputMap.add_action(act)
+		var ev := InputEventKey.new()
+		ev.physical_keycode = [KEY_F10, KEY_F11, KEY_F12][k]
+		ev.shift_pressed = true
+		InputMap.action_add_event(act, ev)
 	_bind("bookmark_feature_prev", [KEY_PAGEUP])
 	_bind("bookmark_feature_next", [KEY_PAGEDOWN])
 
@@ -293,8 +302,10 @@ func _unhandled_input(e: InputEvent) -> void:
 		if e.is_action_pressed("bookmark_%d" % (k + 1)):
 			go_bookmark(BOOKMARKS[k], true)
 	for k in 3:
-		if e.is_action_pressed("bookmark_arch_%d" % (k + 1)):
+		if e.is_action_pressed("bookmark_arch_%d" % (k + 1), false, true):
 			go_bookmark("arch%d" % (k + 1), true)
+		if e.is_action_pressed("bookmark_sink_%d" % (k + 1), false, true):
+			go_bookmark("sinkhole%d" % (k + 1), true)
 	# (Page Up / Page Down: through every carved feature's bookmark - arches, supports, overhangs, pillars, sinkholes)
 	if terrain.region != null and not terrain.region.features.is_empty():
 		var nf: int = terrain.region.features.size()

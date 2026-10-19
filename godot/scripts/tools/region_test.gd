@@ -70,6 +70,14 @@ func _initialize() -> void:
 				"tris": fe.tris, "top": fe.top, "ground": fe.ground, "c": [(fe.c as Vector2).x, (fe.c as Vector2).y]})
 		var data := {"features": avs, "feature_lines": region.report.get("features", []), "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
 			"floor": region.floor_h, "levels": Array(rcfg.level_heights), "bookmarks": bms, "axis": [region.axis_u.x, region.axis_u.y]}
+		# the heights (4 m samples) and the level grid (8 m cells) as raw files, for planning cameras outside the game
+		data["fh"] = {"fx0": region.fx0, "fz0": region.fz0, "fn": region.fn, "origin": gen.origin, "sp": gen.sp, "n": region.n, "gc": region.gc}
+		var fhf := FileAccess.open(out + "/region_h.bin", FileAccess.WRITE)
+		fhf.store_buffer(region.fh.to_byte_array())
+		fhf.close()
+		var lvf := FileAccess.open(out + "/region_lv.bin", FileAccess.WRITE)
+		lvf.store_buffer(region.level)
+		lvf.close()
 		var f := FileAccess.open(out + "/region_data.json", FileAccess.WRITE)
 		f.store_string(JSON.stringify(data))
 		f.close()

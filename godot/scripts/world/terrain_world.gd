@@ -181,6 +181,9 @@ func _build_walls() -> void:
 		arrays[Mesh.ARRAY_VERTEX] = w.verts
 		arrays[Mesh.ARRAY_NORMAL] = w.normals
 		arrays[Mesh.ARRAY_INDEX] = w.indices
+		# (r: where the grass grows - the rock's tops; the faces and the rubble stay rock)
+		if w.has("colors"):
+			arrays[Mesh.ARRAY_COLOR] = w.colors
 		var mesh := ArrayMesh.new()
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		var mi := MeshInstance3D.new()

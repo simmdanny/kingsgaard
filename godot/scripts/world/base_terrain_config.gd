@@ -65,6 +65,17 @@ extends Resource
 @export var ridge_sharpness := 1.5
 @export var ridge_inset := 800.0
 
+@export_group("Backdrop ranges")
+## big mountain ranges in a ring round the tepui region, seen behind its plateaus: the region's centre (map m), from .. to this
+## far (m), the ground they rise from (m) and how far above it their crests reach (m), their wavelength (m), and the directions
+## (degrees, map angle) they always fill - the ones the region's bookmarks look in; 0 height: none
+@export var backdrop_center := Vector2(4000.0, -1496.0)
+@export var backdrop_reach := Vector2(5200.0, 11000.0)
+@export var backdrop_base := 420.0
+@export var backdrop_height := 1350.0
+@export var backdrop_wavelength := 4200.0
+@export var backdrop_views := PackedFloat32Array([225.0, 56.0])
+
 @export_group("Tier edges")
 ## the slopes between tiers: escarpment angles vary along each edge between these (degrees) - mostly steeper than a hero can
 ## climb, gentler in stretches; none is ever a wall (slope_limit caps them all)

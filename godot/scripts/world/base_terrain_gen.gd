@@ -30,7 +30,7 @@ extends RefCounted
 ## Queries (height, slope, tier, ...) take LOCAL coordinates: map = local + offset (the floating origin, floating_origin.gd);
 ## they are safe from worker threads once `ready`. Everything stored (pois, valleys, routes) is in map coordinates.
 
-const VERSION := 8
+const VERSION := 9
 const SEA := 255
 const BIG := 1e9
 ## which way the game's sun (main.gd) shines across the ground: the lowland view looks across it, so the slopes ahead are lit
@@ -159,6 +159,7 @@ func generate() -> void:
 	_step("walk check", _walk_check)
 	_step("places", _places)
 	_step("masks", _masks)
+	_step("backdrop ranges", _backdrop)
 	_free_plan()
 	_step("full heightmap", _full_res)
 	_step("full-res slopes", _full_check)
@@ -1891,6 +1892,52 @@ func _free_plan() -> void:
 
 
 # ---- the full heightmap, in Terrain3D regions -------------------------------------------------------------------------
+
+## big mountain ranges in a ring round the tepui region (backdrop_*): ridged massifs whose crests reach backdrop_base +
+## backdrop_height, gaps between them except in the directions the region's bookmarks look in; only on land, easing out toward
+## the coast, never lowering ground that is already higher. Scenery: nothing walks up them.
+func _backdrop() -> void:
+	if cfg.backdrop_height <= 0.0:
+		return
+	var nr := _mk(seed_value + 91, 1.0 / cfg.backdrop_wavelength, 3)
+	nr.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	var ns := _mk(seed_value + 94, 1.5 / cfg.backdrop_wavelength, 2)
+	var na := _mk(seed_value + 92, 1.0 / 7000.0, 1)
+	var nwb := _mk(seed_value + 93, 1.0 / 1500.0, 2)
+	var c: Vector2 = cfg.backdrop_center
+	var r0: float = cfg.backdrop_reach.x
+	var r1: float = cfg.backdrop_reach.y
+	var views := []
+	for a in cfg.backdrop_views:
+		views.append(Vector2.from_angle(deg_to_rad(a)))
+	var raised := 0
+	var top := 0.0
+	for j in pres:
+		for i in pres:
+			var q := j * pres + i
+			var h := c_h[q]
+			if h < 40.0:
+				continue
+			var p := Vector2(_gx(i, pres), _gx(j, pres))
+			var rel := p - c
+			var d := rel.length() + 600.0 * nwb.get_noise_2d(p.x, p.y)
+			var band := smoothstep(r0, r0 + 1600.0, d) * (1.0 - smoothstep(r1 - 1800.0, r1, d))
+			if band <= 0.0:
+				continue
+			var arc := smoothstep(-0.25, 0.25, na.get_noise_2d(p.x, p.y))
+			var dir := rel.normalized()
+			for v in views:
+				arc = maxf(arc, smoothstep(cos(deg_to_rad(55.0)), cos(deg_to_rad(25.0)), dir.dot(v)))
+			var coast := smoothstep(60.0, 260.0, h)
+			# (broad massifs: ridges blended with rounded swells, not a row of spikes)
+			var rid := clampf(0.6 * (0.5 + 0.5 * nr.get_noise_2d(p.x, p.y)) + 0.4 * (0.5 + 0.6 * ns.get_noise_2d(p.x, p.y)), 0.0, 1.0)
+			var target: float = cfg.backdrop_base + cfg.backdrop_height * band * arc * coast * pow(rid, 1.3)
+			if target > h:
+				c_h[q] = target
+				raised += 1
+				top = maxf(top, target)
+	report.backdrop = "%d plan cells raised, highest %.0f m" % [raised, top]
+
 
 func _full_res() -> void:
 	var img := Image.create_from_data(pres, pres, false, Image.FORMAT_RF, c_h.to_byte_array())

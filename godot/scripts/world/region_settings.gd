@@ -11,7 +11,7 @@ extends Resource
 @export_group("Place")
 ## the region's centre on the map (m); INF = chosen automatically: highlands / high plateaus all round, no sea or mountains
 ## in it, mountains in view beyond it
-@export var center := Vector2(INF, INF)
+@export var center := Vector2(4000.0, -1496.0)
 ## the region is a square this wide
 @export var size := 4000.0
 ## the floor blends back into the island's own ground across a band this wide inside the region's edge (wandering in and out
@@ -65,11 +65,20 @@ extends Resource
 @export var bay_wavelength := 760.0
 @export var wiggle_amp := 70.0
 @export var wiggle_wavelength := 320.0
+## and eroded at smaller scales: notches and small headlands twice (amplitude m, wavelength m), narrow inlets where a noise's
+## crest crosses an edge (depth m, wavelength m); every corner where two shapes meet rounded over about this much (m)
+@export var outline_mid_amp := 22.0
+@export var outline_mid_wavelength := 140.0
+@export var outline_fine_amp := 9.0
+@export var outline_fine_wavelength := 55.0
+@export var inlet_depth := 28.0
+@export var inlet_wavelength := 110.0
+@export var corner_round := 40.0
 ## a stacked terrace's setback inside the level below: between these two along its edge (in the outline's own units - its
 ## warp shrinks them in places), and never less than terrace_min_depth (m, measured)
 @export var terrace_min := 160.0
 @export var terrace_max := 290.0
-@export var terrace_min_depth := 105.0
+@export var terrace_min_depth := 112.0
 ## plateau pieces smaller than this are dropped (km2)
 @export var min_plateau_km2 := 0.1
 ## each plateau's own height offset, up to this much either way (m), and the tops' gentle rolling hills (amplitude m,
@@ -107,6 +116,28 @@ extends Resource
 @export var setback_spacing := 45.0
 @export var setback_depth := 8.0
 
+@export_group("Erosion")
+## the rim: the plateau's top sinks toward its edge by this much at the edge (m, from .. to, varying along it), easing out over
+## this far in (m, from .. to) - a rounded, crumbled rim whose height wanders along the wall
+@export var rim_dip := Vector2(5.0, 20.0)
+@export var rim_reach := Vector2(30.0, 75.0)
+## the face: leaning back from vertical by this many degrees (from .. to, varying along the wall over the wavelength, m;
+## negative: overhanging a little), a bulge (up to m, wavelength m), ledges at some rock layers (how deep m, the share of
+## layer and stretch that has one, the stretch's length m), and the rim's rounded shoulder (m back from the face)
+@export var wall_lean := Vector2(-3.0, 12.0)
+@export var wall_lean_wavelength := 260.0
+@export var wall_bulge := 16.0
+@export var wall_bulge_wavelength := 180.0
+@export var ledge_depth := 14.0
+@export var ledge_share := 0.45
+@export var ledge_segment := 150.0
+@export var wall_shoulder := 6.0
+## talus at the foot of every wall and carved rock: rubble as high as this share of the wall (from .. to, varying along it),
+## its slope (degrees), never reaching across more than talus_room of the free ground in front
+@export var talus_share := Vector2(0.10, 0.25)
+@export var talus_angle := 33.0
+@export var talus_room := 0.35
+
 @export_group("Walking routes")
 ## the ways up: ravines cut into a plateau's edge, their floor climbing at notch_angle (degrees) from the ground in front to
 ## the top, notch_width wide (m) between sheer sides; this many per plateau piece and level
@@ -123,9 +154,9 @@ extends Resource
 ## its narrowest (m; a support: its legs' radius), the rock left above the opening as a share of the arch's height (0 .. 1;
 ## a support: the slab's thickness, the same way)]
 @export var arches: Array[PackedFloat32Array] = [
-	PackedFloat32Array([1.0, -1000.0, -460.0, -1000.0, -145.0, 40.0, 1.0, 2.0, 0.778, 80.0, 0.30]),
+	PackedFloat32Array([1.0, -1000.0, -460.0, -1000.0, 20.0, 44.0, 1.0, 2.0, 0.6875, 150.0, 0.30]),
 	PackedFloat32Array([1.0, 650.0, 560.0, 650.0, 200.0, 28.0, 1.0, 1.0, 0.728, 115.0, 0.30]),
-	PackedFloat32Array([1.0, 880.0, -60.0, 600.0, -60.0, 24.0, 1.0, 1.0, 0.571, 130.0, 0.32]),
+	PackedFloat32Array([1.0, 880.0, -60.0, 600.0, -60.0, 30.0, 1.0, 1.0, 0.571, 112.0, 0.30]),
 	PackedFloat32Array([2.0, 1220.0, -860.0, 1220.0, -470.0, 80.0, 1.0, 1.0, 0.49, 28.0, 0.3]),
 	PackedFloat32Array([2.0, -50.0, -560.0, -50.0, -250.0, 90.0, 1.0, 2.0, 0.42, 33.0, 0.28]),
 ]
@@ -138,19 +169,20 @@ extends Resource
 ## the edge, layout coordinates), level (1 - 3), length along the edge (m), how far the lip juts out past the wall (m), the
 ## lip's thickness (m), how deep the wall under it is undercut (m)]
 @export var overhangs: Array[PackedFloat32Array] = [
-	PackedFloat32Array([-848.0, 666.0, 3.0, 160.0, 24.0, 22.0, 6.0]),
+	PackedFloat32Array([-991.0, 389.0, 2.0, 220.0, 28.0, 24.0, 8.0]),
 	PackedFloat32Array([168.0, 818.0, 1.0, 260.0, 18.0, 18.0, 6.0]),
 	PackedFloat32Array([1085.0, 438.0, 1.0, 200.0, 14.0, 16.0, 5.0]),
 ]
 
 @export_group("Pillars")
 ## freestanding rock columns like elephants' legs: thick and flared at the foot, lumpy, narrowing to a flat grassy top. Each:
-## [u, v, height (m; negative: up to that level's height), radius at the base and at the top (m)]
+## [u, v, height (m; negative: up to that level's height), radius at the base and at the top (m), a cap of plateau on top
+## this many times the column's top radius (0: none)]
 @export var pillars: Array[PackedFloat32Array] = [
-	PackedFloat32Array([130.0, 574.0, -1.0, 40.0, 28.0]),
-	PackedFloat32Array([-400.0, -16.0, 190.0, 46.0, 31.0]),
-	PackedFloat32Array([738.0, -617.0, 140.0, 38.0, 27.0]),
-	PackedFloat32Array([118.0, 31.0, 230.0, 50.0, 34.0]),
+	PackedFloat32Array([130.0, 574.0, -1.0, 40.0, 28.0, 0.0]),
+	PackedFloat32Array([-400.0, -16.0, 190.0, 46.0, 31.0, 1.55]),
+	PackedFloat32Array([738.0, -617.0, 140.0, 38.0, 27.0, 0.0]),
+	PackedFloat32Array([118.0, 31.0, 230.0, 50.0, 34.0, 1.45]),
 ]
 
 @export_group("Sinkholes")
@@ -169,7 +201,7 @@ extends Resource
 ## camera at the visible rim nearest the spot (that far in from it), a 9th makes it look along the rim, turned that many
 ## degrees in (negative: out over the drop) - see tepui_region.gd _bookmarks
 @export var bookmark_views := {
-	"ref1": PackedFloat32Array([-955.0, 689.0, 14.0, 10.0, -25.0, 310.0, 75.0]),
+	"ref1": PackedFloat32Array([-1167.0, 503.0, 14.0, -280.0, -304.0, 225.0, 75.0]),
 	"ref2": PackedFloat32Array([1635.0, -95.0, 380.0, 179.0, 699.0, 60.0, 75.0]),
 	"ref3": PackedFloat32Array([-60.0, 1200.0, 40.0, -60.0, -500.0, -300.0, 75.0, 4.0, -22.0]),
 	"ref4": PackedFloat32Array([-1700.0, 600.0, 700.0, -124.0, -631.0, 0.0, 75.0]),

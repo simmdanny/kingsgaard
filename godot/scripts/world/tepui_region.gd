@@ -34,7 +34,7 @@ extends RefCounted
 ## Everything stored is in map coordinates (walls relative to the region's centre). Cached in user://terrain.
 
 const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
-const VERSION := 4
+const VERSION := 6
 ## which way the game's sun (main.gd) shines across the ground
 const SUN_TRAVEL := Vector2(0.573, -0.820)
 ## two levels' edges closer than this are one wall (from the lower level's foot up into the upper level)
@@ -95,6 +95,10 @@ var _fid := PackedByteArray()
 var _ft := PackedFloat32Array()
 ## the fins and necks from the settings (map coordinates, their owners)
 var _feat: Array = []
+## per layout cell: how far the nearest ravine is (m) - the rims, the walls' shapes and their rubble ease off beside the ways up
+var _ndist := PackedFloat32Array()
+## per layout cell: 1 where a wall, its rubble or a carved feature stands (camera spots keep out)
+var _occ := PackedByteArray()
 ## the carved features (arches, supports, overhangs, pillars, sinkholes): each one's frame, box, heights, views, bake time and
 ## size; arches: the arches among them
 var features: Array = []
@@ -130,6 +134,17 @@ func _init(config, base_gen) -> void:
 	_n.groove = _mk(s + 17, 1.0 / 14.0, 1)
 	_n.flute = _mk(s + 18, 1.0 / 40.0, 1)
 	_n.broad = _mk(s + 19, 1.0 / 120.0, 2)
+	_n.outmid = _mk(s + 20, 1.0 / cfg.outline_mid_wavelength, 2)
+	_n.outfine = _mk(s + 21, 1.0 / cfg.outline_fine_wavelength, 1)
+	_n.inlet = _mk(s + 22, 1.0 / cfg.inlet_wavelength, 1)
+	_n.rimdip = _mk(s + 23, 1.0 / 220.0, 2)
+	_n.rimfine = _mk(s + 24, 1.0 / 50.0, 1)
+	_n.rimreach = _mk(s + 25, 1.0 / 300.0, 1)
+	_n.lean = _mk(s + 26, 1.0 / cfg.wall_lean_wavelength, 1)
+	_n.bulge = _mk(s + 27, 1.0 / cfg.wall_bulge_wavelength, 1)
+	_n.bulgeh = _mk(s + 28, 1.0 / 230.0, 1)
+	_n.talus = _mk(s + 29, 1.0 / 160.0, 2)
+	_n.rubble = _mk(s + 30, 1.0 / 26.0, 2)
 
 
 static func _mk(s: int, freq: float, octaves: int) -> FastNoiseLite:
@@ -281,6 +296,27 @@ func _level_top(p: Vector2, k: int) -> float:
 	return _top_at(p, maxi(int(own[q]) - 1, 0), k)
 
 
+## how far a level's top sinks toward its edge at a point (m): rim_dip at the edge (varying along it), easing out quadratically
+## over rim_reach - a rounded, crumbled rim whose height wanders along the wall; none beside the ways up (their ramps meet the
+## level's own top)
+func _rim_dip(p: Vector2, k: int) -> float:
+	if k <= 0 or _ndist.is_empty():
+		return 0.0
+	var din := maxf(_gbil(_d[k], p), 0.0)
+	var nr: FastNoiseLite = _n.rimreach
+	var reach: float = lerpf(cfg.rim_reach.x, cfg.rim_reach.y, 0.5 + 0.5 * nr.get_noise_2d(p.x, p.y))
+	if din >= reach:
+		return 0.0
+	var nd: FastNoiseLite = _n.rimdip
+	var nf: FastNoiseLite = _n.rimfine
+	var ni: FastNoiseLite = _n.inlet
+	var dip: float = lerpf(cfg.rim_dip.x, cfg.rim_dip.y, clampf(0.5 + 0.8 * nd.get_noise_2d(p.x, p.y), 0.0, 1.0)) + 4.0 * nf.get_noise_2d(p.x, p.y)
+	# (and here and there a crumbled notch in the very rim - only its outer few metres, never across a walkable top)
+	dip += 10.0 * pow(maxf(1.0 - absf(ni.get_noise_2d(p.x * 1.3 + 300.0, p.y * 1.3)) - 0.8, 0.0) / 0.2, 2.0) * (1.0 - smoothstep(4.0, 14.0, din))
+	var t := 1.0 - din / reach
+	return maxf(dip, 0.0) * t * t * smoothstep(30.0, 70.0, _gbil(_ndist, p))
+
+
 ## a plateau's top at a point: the floor's height + its level + its own offset + gentle hills
 func _top_at(p: Vector2, plateau: int, k: int) -> float:
 	var nh: FastNoiseLite = _n.hill
@@ -397,8 +433,26 @@ func _plateaus() -> void:
 		for p in parts:
 			d.append_array(p[0][k - 1])
 			o.append_array(p[1][k - 1])
-		_d.append(d)
+		# (corners rounded and the finest noise eased: each level's field blurred a little)
+		_d.append(_blur_field(d))
 		_own.append(o)
+
+
+## a field blurred a little: two passes of a 1-2-1 filter each way (about 8 m)
+func _blur_field(a: PackedFloat32Array) -> PackedFloat32Array:
+	var b := a.duplicate()
+	var t := PackedFloat32Array()
+	t.resize(n * n)
+	for pass_i in 2:
+		for j in n:
+			for i in n:
+				var q := j * n + i
+				t[q] = (b[q - 1 if i > 0 else q] + 2.0 * b[q] + b[q + 1 if i < n - 1 else q]) * 0.25
+		for j in n:
+			for i in n:
+				var q := j * n + i
+				b[q] = (t[q - n if j > 0 else q] + 2.0 * t[q] + t[q + n if j < n - 1 else q]) * 0.25
+	return b
 
 
 ## one band of grid rows: per level, the field (the nearest plateau's, the largest) and which plateau it is
@@ -415,6 +469,10 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 		canyon[Vector2i(mini(pr.x, pr.y), maxi(pr.x, pr.y))] = true
 	var nbend: FastNoiseLite = _n.bend
 	var nedge: FastNoiseLite = _n.edge
+	var nom: FastNoiseLite = _n.outmid
+	var nof: FastNoiseLite = _n.outfine
+	var nin: FastNoiseLite = _n.inlet
+	var kr: float = cfg.corner_round
 	var sunk := Vector2i(-1, -1)
 	if cfg.sunk_canyon >= 0 and cfg.sunk_canyon < cfg.canyon_pairs.size():
 		sunk = cfg.canyon_pairs[cfg.sunk_canyon]
@@ -448,6 +506,9 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 			var wv: Vector2 = Vector2(nwx.get_noise_2d(lp.x, lp.y), nwz.get_noise_2d(lp.x + 517.0, lp.y - 211.0)) * cfg.warp_amp
 			var q: Vector2 = p + axis_u * wv.x + axis_v * wv.y
 			var shape_n: float = cfg.bay_amp * nbay.get_noise_2d(lp.x, lp.y) + cfg.wiggle_amp * nwig.get_noise_2d(lp.x, lp.y)
+			# (eroded at smaller scales too: notches and small headlands, and narrow inlets where a noise's crest line crosses an edge)
+			shape_n += cfg.outline_mid_amp * nom.get_noise_2d(lp.x, lp.y) + cfg.outline_fine_amp * nof.get_noise_2d(lp.x, lp.y)
+			shape_n -= cfg.inlet_depth * pow(maxf(1.0 - absf(nin.get_noise_2d(lp.x, lp.y)) - 0.85, 0.0) / 0.15, 2.0)
 			var gn := 0.5 + 0.5 * ngap.get_noise_2d(lp.x, lp.y)
 			# (the trim at the border band wanders too: no long straight edge along it)
 			var lim: float = (_core(p) - 1.0) * cfg.border - 40.0 + cfg.edge_bend_amp * nedge.get_noise_2d(lp.x, lp.y)
@@ -476,8 +537,8 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 					var bis: float = (pb - pa) / (2.0 * sab.length()) + (bend if a < b else -bend)
 					var key := Vector2i(mini(a, b), maxi(a, b))
 					var m: float = lerpf(cfg.gap_canyon_min, cfg.gap_canyon_max, gn) if canyon.has(key) else lerpf(cfg.gap_min, cfg.gap_max, gn)
-					d = minf(d, bis - m)
-				d = minf(d, lim)
+					d = _smin(d, bis - m, kr)
+				d = _smin(d, lim, kr)
 				if a == sunk.x:
 					ds_i = d
 				elif a == sunk.y:
@@ -516,12 +577,15 @@ func _plateau_rows(j0: int, j1: int) -> Array:
 					hw *= 1.0 - 0.15 * tt
 				var fd: float = minf(hw - p.distance_to(f0 + fax * tt) + 3.0 * nwig.get_noise_2d(lp.x * 3.0, lp.y * 3.0), lim)
 				for k in range(int(f.k_lo), int(f.k_hi) + 1):
-					if fd > float(best[k - 1]):
-						best[k - 1] = fd
-						who[k - 1] = (int(f.own0) if tt < 0.5 else int(f.own1)) + 1
-						if k == int(f.k_hi):
-							fwin = fk + 1
-							fpar = tt
+					var bk: float = best[k - 1]
+					if fd > bk - 20.0:
+						# (blended into the plateau it grows from: a rounded root, no sharp inner corner)
+						best[k - 1] = _smax(bk, fd, 20.0)
+						if fd > bk:
+							who[k - 1] = (int(f.own0) if tt < 0.5 else int(f.own1)) + 1
+							if k == int(f.k_hi):
+								fwin = fk + 1
+								fpar = tt
 			fi[o] = fwin
 			ft[o] = fpar
 			# the sunk canyon: the floor within sunk_reach of both its plateaus
@@ -733,6 +797,12 @@ func _notches() -> void:
 			if picks.size() < cfg.notches_per_plateau:
 				short.append("level %d piece %d (plateau %d): %d of %d" % [k, c.id, plateau, picks.size(), cfg.notches_per_plateau])
 	_level_grid()
+	# how far every cell is from the nearest ravine (m)
+	var nm := PackedByteArray()
+	nm.resize(n * n)
+	for q in n * n:
+		nm[q] = 1 if _nid[q] > 0 else 0
+	_ndist = BaseGen._edt(nm, n, gc)
 	report.ways_up = notches.size()
 	report.pieces_short_of_ways_up = short
 
@@ -858,18 +928,21 @@ func _cut_notch(cd: Dictionary, length: float, w: float, k: int, below: int, pla
 		hi = Vector2(maxf(hi.x, cw.x), maxf(hi.y, cw.y))
 	var c0 := _gcell(lo)
 	var c1 := _gcell(hi)
+	var nwob: FastNoiseLite = _n.outfine
 	for j in range(c0.y, c1.y + 1):
 		for i in range(c0.x, c1.x + 1):
 			var rel := Vector2(_gx(i), _gz(j)) - p
 			var s := rel.dot(dir)
 			var l := absf(rel.dot(side))
-			var dx := l - w * 0.5
-			var dsv := maxf(s0 - s, s - s1)
-			var sd := Vector2(maxf(dx, 0.0), maxf(dsv, 0.0)).length() + minf(maxf(dx, dsv), 0.0)
+			# (a slot with rounded corners and slightly uneven sides, the corners of its mouth filleted into the edge)
+			var rr := 18.0
+			var dx := l - w * 0.5 - 5.0 * nwob.get_noise_2d(_gx(i), _gz(j)) + rr
+			var dsv := maxf(s0 - s, s - s1) + rr
+			var sd := Vector2(maxf(dx, 0.0), maxf(dsv, 0.0)).length() + minf(maxf(dx, dsv), 0.0) - rr
 			var q := j * n + i
 			for lv in range(below + 1, k + 1):
 				var dl: PackedFloat32Array = _d[lv]
-				dl[q] = minf(dl[q], sd)
+				dl[q] = _smin(dl[q], sd, 24.0)
 			if sd < 0.0:
 				_nid[q] = idx + 1
 	var front := p + nrm * 40.0
@@ -909,7 +982,7 @@ func _heights_rows(j0: int, j1: int) -> PackedFloat32Array:
 				if _gbil(_du[k], p) >= 0.0:
 					lu = k
 			if lc > 0:
-				h = _level_top(p, lc)
+				h = _level_top(p, lc) - _rim_dip(p, lc)
 			if lu > lc:
 				# in a ravine: its ramp, from the ground in front to the top
 				var c := _gcell(p)
@@ -1139,6 +1212,8 @@ func _out_normal(dk: PackedFloat32Array, p: Vector2) -> Vector2:
 func _walls() -> void:
 	walls = []
 	_rims = []
+	_occ = PackedByteArray()
+	_occ.resize(n * n)
 	var cols_all := []
 	var total_len := 0.0
 	var verts := 0
@@ -1178,8 +1253,19 @@ func _walls() -> void:
 						kt += 1
 					else:
 						break
-				var top := height_at(p - nrm * reach)
+				# (the rim: the level's top just inside the edge, where it has sunk the most; the sunk canyon's step: the floor)
+				var p_in: Vector2 = p - nrm * (reach - 10.0)
+				var top: float = height_at(p - nrm * reach) if k == 0 else _level_top(p_in, kt) - _rim_dip(p_in, kt)
 				var foot := height_at(p + nrm * 14.0)
+				# (the free ground in front: how far out before it rises to another wall or drops off a lower rim)
+				var free := 320.0
+				var fdd := 16.0
+				while fdd < 320.0:
+					var hq := height_at(p + nrm * fdd)
+					if hq > foot + 25.0 or hq < foot - 12.0:
+						free = fdd
+						break
+					fdd += 8.0
 				# (a ravine's side: its foot in the ravine or right beside it)
 				var fc := _gcell(p + nrm * 14.0)
 				var in_notch := false
@@ -1188,17 +1274,14 @@ func _walls() -> void:
 						var qn := clampi(fc.y + dj, 0, n - 1) * n + clampi(fc.x + di, 0, n - 1)
 						in_notch = in_notch or _nid[qn] > 0
 				# (and near a ravine's mouth the wall keeps its shapes small, so its corners never close the way in)
-				var near_notch := in_notch
-				var pc := _gcell(p)
-				for dj in range(-4, 5):
-					for di in range(-4, 5):
-						var qn := clampi(pc.y + dj, 0, n - 1) * n + clampi(pc.x + di, 0, n - 1)
-						near_notch = near_notch or _nid[qn] > 0
+				var amp_n := lerpf(0.15, 1.0, smoothstep(24.0, 48.0, _gbil(_ndist, p)))
+				if in_notch:
+					amp_n = 0.15
 				var oc := _gcell(p - nrm * reach)
 				var own: PackedByteArray = _own[maxi(kt, 1)]
 				all.append({"p": p, "n": nrm, "top": top, "foot": foot, "s": c * cfg.wall_column + loop_id * 10007.0,
-					"amp": (0.15 if near_notch else 1.0) * _feature_fade(p), "key": "%d:%d" % [maxi(int(own[oc.y * n + oc.x]) - 1, 0), kt],
-					"notch": in_notch})
+					"amp": amp_n * _feature_fade(p), "key": "%d:%d" % [maxi(int(own[oc.y * n + oc.x]) - 1, 0), kt],
+					"notch": in_notch, "free": free, "tall": kt > k})
 				var coincide := k > 1 and _gbil(dlow, p) < LEDGE_CLOSE
 				# (the sunk canyon's step only across open floor - under a plateau's wall it is that wall's foot; inside a carved
 				# feature's box the carved mesh is the wall)
@@ -1324,17 +1407,26 @@ static func _chunks(run: Array, size: int) -> Array:
 
 
 ## one wall piece. Per column, from the plateau inwards out and down: the rock's top (a lip from just under the grass, wall_lip
-## + 2 m inside the terrain's step, rising over 4 m to its top surface and out to the face's top edge), then the face straight
-## down (leaning out by wall_batter, pushed out by the wall's shapes) to wall_sink under the ground at its foot. The face stands
-## wall_face_offset out from the step, so the terrain's own steep strip is always behind it.
+## + 5 m inside the terrain's step, over the rim - sunk and rounded - to the face's top edge), then the face down to the top of
+## its rubble, then the rubble's scree out and down under the ground. The face stands wall_face_offset out from the step, so the
+## terrain's own steep strip is always behind it, and its profile changes along the wall: leaning back (or a little out), a
+## bulge, ledges at some rock layers, a rounded shoulder at the rim, broad flutes and grooves each its own width and depth.
 func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 	var nw: FastNoiseLite = _n.wall
 	var nc: FastNoiseLite = _n.curve
+	var nlean: FastNoiseLite = _n.lean
+	var nbul: FastNoiseLite = _n.bulge
+	var nbh: FastNoiseLite = _n.bulgeh
+	var ntal: FastNoiseLite = _n.talus
+	var nrub: FastNoiseLite = _n.rubble
 	var hmax := 0.0
 	for c in cols:
 		hmax = maxf(hmax, float(c.top) - float(c.foot))
-	var rows := clampi(int(ceil((hmax + cfg.wall_sink) / cfg.wall_row)), 2, 60)
-	var bl := rows + 4
+	# face rows, denser at the rim (for its rounded shoulder), and the rubble's rows
+	var F := clampi(int(ceil((hmax + cfg.wall_sink) / 9.0)), 3, 60)
+	var S := 8
+	var bl := F + S + 4
+	var last := F + S
 	var m := cols.size()
 	var pos := PackedVector3Array()
 	pos.resize(m * bl)
@@ -1342,9 +1434,18 @@ func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 	nor.resize(m * bl)
 	var outs := PackedVector2Array()
 	outs.resize(m)
+	var feet := PackedFloat32Array()
+	feet.resize(m)
+	var cols_c := PackedColorArray()
+	cols_c.resize(m * bl)
+	cols_c.fill(Color(0.0, 0.0, 0.0))
 	var bsp: float = cfg.buttress_spacing
 	var bw: float = cfg.buttress_width / bsp
 	var off0: float = cfg.wall_face_offset
+	var tan_t := tan(deg_to_rad(cfg.talus_angle))
+	var lean_lo := tan(deg_to_rad(cfg.wall_lean.x))
+	var lean_hi := tan(deg_to_rad(cfg.wall_lean.y))
+	var cc := Vector2(center.x, center.y)
 	var mid := 0
 	# the edge's normals smoothed along the piece (so the lip's inner edge never folds over at a tight bend)
 	var sn := PackedVector2Array()
@@ -1366,17 +1467,25 @@ func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 		var amp_c: float = col.amp
 		var top: float = col.top
 		var foot: float = col.foot
+		feet[c] = foot
+		var free: float = col.get("free", 320.0)
 		var y0 := top + 0.15
-		var y1: float = foot - cfg.wall_sink
-		var cc := Vector2(center.x, center.y)
-		# the lip: inner edge under the grass, its top surface, out to the face's top edge
+		var hgt := maxf(top - foot, 1.0)
+		# the lip: from under the grass well inside, up over the sunk rim, out to the face's top edge (a tall wall reaching up into
+		# the level above keeps it level at that level's top, over the strip of the level below)
 		var li: Vector2 = p - nrm * (cfg.wall_lip + 5.0) - cc
 		var lm: Vector2 = p - nrm * (cfg.wall_lip + 1.0) - cc
-		pos[c * bl + 0] = Vector3(li.x, top - 1.0, li.y)
-		pos[c * bl + 1] = Vector3(lm.x, y0, lm.y)
+		var li_h := top - 1.0
+		var lm_h := y0
+		if not col.get("tall", false) and not col.notch:
+			li_h = clampf(height_at(li + cc), top - 2.0, top + 25.0) - 1.0
+			lm_h = clampf(height_at(lm + cc) + 0.15, y0, top + 25.0)
+		pos[c * bl + 0] = Vector3(li.x, li_h, li.y)
+		pos[c * bl + 1] = Vector3(lm.x, lm_h, lm.y)
 		for r in 3:
 			nor[c * bl + r] = Vector3.UP
-		# along the wall: slow curvature, buttresses (some missing, each its own size), vertical grooves
+			cols_c[c * bl + r] = Color(1.0, 0.0, 0.0)
+		# along the wall: slow curvature, buttresses (some missing, each its own size)
 		var curve: float = cfg.wall_curve_amp * (0.5 + 0.5 * nc.get_noise_1d(s))
 		var bp := s / bsp + 0.35 * nw.get_noise_1d(s * 0.004 + 11.0)
 		var bi := int(floor(bp))
@@ -1384,36 +1493,79 @@ func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 		var bamp := _hash01(seed_value, bi, 3)
 		bamp = 0.0 if bamp < 0.3 else bamp
 		var bump := smoothstep(0.5 - bw, 0.5, ph) * (1.0 - smoothstep(0.5, 0.5 + bw, ph)) * bamp
-		var groove: float = cfg.groove_depth * (0.5 + 0.5 * sin(TAU * s / cfg.groove_wavelength + 2.5 * nw.get_noise_1d(s * 0.02 + 70.0)))
-		# broad flutes: big vertical grooves down the whole face, some deeper than others
-		var flute: float = cfg.flute_depth * pow(0.5 + 0.5 * sin(TAU * s / cfg.flute_wavelength + 3.0 * nw.get_noise_1d(s * 0.006 + 300.0)), 2.0) * (0.4 + 0.6 * _hash01(seed_value, int(floor(s / cfg.flute_wavelength)), 5))
-		for r in rows + 1:
-			var f := float(r) / rows
-			var y := lerpf(y0, y1, f)
-			# rock layers: the face steps in and out a little at each layer line
+		# the profile, different along the wall: leaning back (or a little out), a bulge, the rim's rounded shoulder
+		var lean: float = lerpf(lean_lo, lean_hi, clampf(0.5 + 0.8 * nlean.get_noise_2d(p.x, p.y), 0.0, 1.0)) * amp_c
+		if lean > 0.0:
+			lean = minf(lean, 0.22 * free / hgt)
+		var bul: float = cfg.wall_bulge * clampf(1.6 * nbul.get_noise_2d(p.x, p.y), 0.0, 1.0) * amp_c
+		var byc := foot + hgt * (0.3 + 0.4 * clampf(0.5 + 0.8 * nbh.get_noise_2d(p.x, p.y), 0.0, 1.0))
+		var bhw := hgt * 0.2 + 10.0
+		var sh: float = cfg.wall_shoulder * (0.5 + 0.5 * nw.get_noise_1d(s * 0.01 + 900.0)) * amp_c
+		# the rubble: a share of the wall's height, never reaching across more than talus_room of the free ground in front
+		var tal := 0.0
+		if not col.notch:
+			tal = lerpf(cfg.talus_share.x, cfg.talus_share.y, clampf(0.5 + 0.8 * ntal.get_noise_2d(p.x, p.y), 0.0, 1.0)) * hgt * amp_c
+			tal = minf(tal, maxf(cfg.talus_room * free - maxf(lean, 0.0) * hgt, 0.0) * tan_t)
+		var yt: float = foot + tal * 0.85 if tal > 2.0 else foot - cfg.wall_sink
+		var off_last := off0
+		for r in F + 1:
+			var f := float(r) / F
+			var y := y0 - (y0 - yt) * f * (0.4 + 0.6 * f)
+			# rock layers: the face steps in and out a little at each layer line, and at some layers along some stretches a ledge
 			var yy := y + 7.0 * nw.get_noise_1d(s * 0.003 + 130.0)
 			var lk := int(floor(yy / cfg.setback_spacing))
 			var lf: float = yy / cfg.setback_spacing - lk
-			var setback: float = cfg.setback_depth * lerpf(_hash01(seed_value, lk - 1, 9), _hash01(seed_value, lk, 9), smoothstep(0.0, 0.14, lf))
-			# (everything pushes the face out; the grooves cut in from a face standing groove_depth further out - so no part of it
-			# comes nearer the step than off0)
-			var gcut: float = groove * (0.75 + 0.25 * nw.get_noise_1d(y * 0.05 + s * 0.001))
-			var dsp: float = curve + cfg.buttress_depth * bump * (0.5 + 0.5 * f) + setback + cfg.groove_depth - gcut + cfg.flute_depth - flute
-			var off: float = off0 + (cfg.wall_batter * (y0 - y) + dsp) * amp_c
+			var sgf: float = s / cfg.ledge_segment
+			var sg := int(floor(sgf))
+			var sgt := smoothstep(0.3, 0.7, sgf - sg)
+			var ledge_lo := lerpf(_ledge(lk - 1, sg), _ledge(lk - 1, sg + 1), sgt)
+			var ledge_hi := lerpf(_ledge(lk, sg), _ledge(lk, sg + 1), sgt)
+			var setback: float = 0.5 * cfg.setback_depth * lerpf(_hash01(seed_value, lk - 1, 9), _hash01(seed_value, lk, 9), smoothstep(0.0, 0.14, lf))
+			setback += lerpf(ledge_lo, ledge_hi, smoothstep(0.0, 0.1, lf))
+			# (everything pushes the face out; the grooves cut in from a face standing their depth further out)
+			var gcut := _groove_cut(s, y, cfg.groove_wavelength, cfg.groove_depth, 2.5, 9.0, 31)
+			var fcut := _groove_cut(s, y, cfg.flute_wavelength, cfg.flute_depth, 8.0, 20.0, 41)
+			var dsp: float = curve + cfg.buttress_depth * bump * (0.3 + 0.7 * f) + setback + cfg.groove_depth - gcut + cfg.flute_depth - fcut
+			var lt: float = lean * (y0 - y) if lean >= 0.0 else -lean * (y - yt)
+			var bg: float = bul * exp(-pow((y - byc) / bhw, 2.0))
+			var shd: float = sh * pow(1.0 - clampf((y0 - y) / 12.0, 0.0, 1.0), 2.0)
+			var off: float = maxf(off0 + dsp * amp_c + lt + bg - shd, 2.5)
 			var q: Vector2 = p + nrm * off - cc
 			pos[c * bl + 3 + r] = Vector3(q.x, y, q.y)
 			# (the lip's outer edge is the face's top edge)
 			if r == 0:
 				pos[c * bl + 2] = Vector3(q.x, y, q.y)
-	# the face's normals from the neighbouring vertices (outward)
+			off_last = off
+		# the rubble's scree: from the face at its top out and down, steep at the wall and flattening, lumpy, under the ground at its
+		# far edge
+		var wd := tal / tan_t
+		_occupy_line(p, nrm, off_last + wd + 4.0)
+		var drop := yt - foot + 3.0
+		for i in S:
+			var qv: Vector3
+			if tal > 2.0:
+				var t := float(i + 1) / S
+				var xo := off_last + wd * t + (2.0 if i == S - 1 else 0.0)
+				var lx := p.x + nrm.x * xo
+				var lz := p.y + nrm.y * xo
+				var lump := tal * (0.22 * nrub.get_noise_2d(lx, lz) + 0.1 * nrub.get_noise_2d(lx * 3.1 + 77.0, lz * 3.1))
+				var yv := yt - drop * (1.0 - pow(1.0 - t, 1.7)) + (lump if i < S - 1 else -absf(lump))
+				var q2: Vector2 = p + nrm * (xo + 0.4 * lump) - cc
+				qv = Vector3(q2.x, yv, q2.y)
+			else:
+				qv = pos[c * bl + 3 + F]
+			pos[c * bl + 4 + F + i] = qv
+	# the face's and the rubble's normals from the neighbouring vertices (outward)
 	for c in m:
-		for r in rows + 1:
-			var b0 := c * bl + 3
+		var b0 := c * bl + 3
+		for r in last + 1:
 			var a := pos[mini(c + 1, m - 1) * bl + 3 + r] - pos[maxi(c - 1, 0) * bl + 3 + r]
-			var b := pos[b0 + mini(r + 1, rows)] - pos[b0 + maxi(r - 1, 0)]
+			var b := pos[b0 + mini(r + 1, last)] - pos[b0 + maxi(r - 1, 0)]
 			var nv := b.cross(a).normalized()
 			if nv.dot(Vector3(outs[c].x, 0.0, outs[c].y)) < 0.0:
 				nv = -nv
+			if nv.length_squared() < 0.5:
+				nv = Vector3(outs[c].x, 0.0, outs[c].y)
 			nor[b0 + r] = nv
 	var idx := PackedInt32Array()
 	for c in m - 1:
@@ -1427,7 +1579,7 @@ func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 				idx.append_array(PackedInt32Array([a, a + 1, b, b, a + 1, b + 1]))
 			else:
 				idx.append_array(PackedInt32Array([a, b, a + 1, b, b + 1, a + 1]))
-	# the caps at open ends: from the face's column straight back to the terrain's step (1 m behind it), top to foot
+	# the caps at open ends: the face's column straight back to the terrain's step (1 m behind it), the rubble's straight down
 	for end in [0, m - 1]:
 		if (end == 0 and not cap0) or (end == m - 1 and not cap1):
 			continue
@@ -1436,18 +1588,23 @@ func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 		var nrm: Vector2 = sn[end]
 		var other: Vector2 = cols[1 if end == 0 else m - 2].p
 		var away := (p - other).normalized()
-		var back: Vector2 = p - nrm * 1.0 - Vector2(center.x, center.y)
+		var back: Vector2 = p - nrm * 1.0 - cc
 		var base := pos.size()
-		for r in rows + 1:
+		for r in last + 1:
 			var fv := pos[end * bl + 3 + r]
 			# (its top edge just under the grass)
 			if r == 0:
 				fv.y = float(col.top) - 1.0
 			pos.append(fv)
-			pos.append(Vector3(back.x, fv.y, back.y))
+			if r <= F:
+				pos.append(Vector3(back.x, fv.y, back.y))
+			else:
+				pos.append(Vector3(fv.x, feet[end] - 4.0, fv.z))
 			nor.append(Vector3(away.x, 0.0, away.y))
 			nor.append(Vector3(away.x, 0.0, away.y))
-		for r in rows:
+			cols_c.append(Color(0.0, 0.0, 0.0))
+			cols_c.append(Color(0.0, 0.0, 0.0))
+		for r in last:
 			var a := base + r * 2
 			idx.append_array(PackedInt32Array([a, a + 1, a + 2, a + 1, a + 3, a + 2]))
 	mid = (m / 2) * bl
@@ -1461,8 +1618,42 @@ func _wall_mesh(cols: Array, cap0 := false, cap1 := false) -> Dictionary:
 		rim_n.append(outs[c])
 		rim_t.append(float(cols[c].top))
 	_rims.append({"p": rim_p, "n": rim_n, "t": rim_t})
-	return {"verts": pos, "normals": nor, "indices": idx, "probe": PackedVector3Array([pos[mid + 3], pos[mid + 3 + rows]]),
+	return {"verts": pos, "normals": nor, "indices": idx, "colors": cols_c, "probe": PackedVector3Array([pos[mid + 3], pos[mid + 3 + F]]),
 		"height": float(cols[m / 2].top) - float(cols[m / 2].foot), "cols": m}
+
+
+## the ground a wall and its rubble stand on, marked cell by cell (camera spots keep out of it): from the edge out along its normal
+func _occupy_line(p: Vector2, nrm: Vector2, reach: float) -> void:
+	var d := 0.0
+	while d <= reach:
+		var cc := _gcell(p + nrm * d)
+		_occ[cc.y * n + cc.x] = 1
+		d += gc * 0.7
+
+
+## a ledge at rock layer lk on stretch sg of a wall: how far the face below it stands out (m) - only some layers and stretches
+func _ledge(lk: int, sg: int) -> float:
+	if _hash01(seed_value, lk * 131 + 7, sg) >= cfg.ledge_share:
+		return 0.0
+	return cfg.ledge_depth * (0.4 + 0.6 * _hash01(seed_value, lk, sg * 3 + 1))
+
+
+## irregular vertical grooves along a wall at arc length s and height y: one in every stretch of `spacing` m, each at its own
+## place, with its own width and depth, fading in and out down the face (m cut into the face)
+func _groove_cut(s: float, y: float, spacing: float, depth: float, wmin: float, wmax: float, salt: int) -> float:
+	var nw: FastNoiseLite = _n.wall
+	var k0 := int(floor(s / spacing))
+	var cut := 0.0
+	for k in range(k0 - 1, k0 + 2):
+		var cx := (k + 0.5 + 0.7 * (_hash01(seed_value, k, salt) - 0.5)) * spacing
+		var w := lerpf(wmin, wmax, _hash01(seed_value, k, salt + 1))
+		var x := absf(s - cx) / w
+		if x >= 1.0:
+			continue
+		var dk := depth * lerpf(0.3, 1.6, _hash01(seed_value, k, salt + 2))
+		var fade := clampf(0.5 + 0.8 * nw.get_noise_1d(y * 0.015 + k * 7.31 + salt), 0.0, 1.0)
+		cut = maxf(cut, dk * fade * (1.0 - x * x) * (1.0 - x * x))
+	return cut
 
 
 # ---- 7b. the carved features ---------------------------------------------------------------------------------------------
@@ -1614,7 +1805,9 @@ func _features_define() -> void:
 			# (the rock left above the opening: rock_frac of the arch's height)
 			var ho: float = (float(fe.top) - float(fe.ground)) * (1.0 - float(f.oh))
 			var wmax: float = wo * 0.5 * (1.0 + cfg.arch_flare) + 6.0
-			fe.merge({"wo": wo, "ho": ho, "A": wmax + 25.0, "B": hw + off0 + 25.0, "strip": wmax + 3.0})
+			# (the span's top sags a little in its middle)
+			fe.merge({"wo": wo, "ho": ho, "A": wmax + 25.0, "B": hw + off0 + 25.0 + 0.11 * (float(fe.top) - float(fe.ground)), "strip": wmax + 3.0,
+				"sag": 0.07 * (float(fe.top) - float(fe.ground))})
 		features.append(fe)
 	# overhangs, on stretches of the plateaus' edges
 	for o in cfg.overhangs:
@@ -1650,7 +1843,11 @@ func _features_define() -> void:
 		fe.ground = _ground_at(c, _base_h(c.x, c.y))
 		# (a negative height: up to that level's height, like the plateaus round it)
 		fe.top = floor_h + float(cfg.level_heights[int(-pl[2]) - 1]) if pl[2] < 0.0 else float(fe.ground) + pl[2]
-		fe.A = float(pl[3]) * 1.5 + 14.0
+		fe.cap = pl[5] if pl.size() > 5 else 0.0
+		# (room for the cap, the leaning top and the rubble round the foot)
+		var tall_p: float = float(fe.top) - float(fe.ground)
+		fe.A = maxf(maxf(float(pl[3]) * 1.5 + 14.0, float(pl[4]) * float(fe.cap) * 1.3 + 0.3 * float(pl[3]) + 14.0),
+			float(pl[3]) * 1.45 + 0.12 * tall_p / tan(deg_to_rad(cfg.talus_angle)) + 10.0)
 		fe.B = fe.A
 		features.append(fe)
 	# sinkholes, down from the plateaus' tops
@@ -1696,6 +1893,17 @@ var serial_bake := false
 
 
 func _features_bake() -> void:
+	# (their boxes are taken: camera spots keep out of them)
+	for fe in features:
+		var fc: Vector2 = fe.c
+		var ext := Vector2(absf((fe.axis as Vector2).x) * float(fe.A) + absf((fe.t as Vector2).x) * float(fe.B), absf((fe.axis as Vector2).y) * float(fe.A) + absf((fe.t as Vector2).y) * float(fe.B))
+		var lo := _gcell(fc - ext)
+		var hi := _gcell(fc + ext)
+		for j in range(lo.y, hi.y + 1):
+			for i in range(lo.x, hi.x + 1):
+				var l := _flocal(Vector2(_gx(i), _gz(j)), fe)
+				if absf(l.x) < float(fe.A) and absf(l.y) < float(fe.B) and (fe.walls or l.length() < float(fe.A) * 0.9):
+					_occ[j * n + i] = 1
 	_edges = {}
 	for k in range(1, 4):
 		_edges[k] = _contours(_d[k])
@@ -1782,6 +1990,13 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 	var cDrip := PackedInt32Array()
 	var cFin := PackedFloat32Array()
 	cFin.resize(nc)
+	var cT := PackedFloat32Array()
+	cT.resize(nc)
+	var tan_t := tan(deg_to_rad(cfg.talus_angle))
+	var ts: Vector2 = cfg.talus_share
+	var ntal: FastNoiseLite = _n.talus
+	var nrub: FastNoiseLite = _n.rubble
+	var nl0: FastNoiseLite = _n.rock
 	cP.resize(nc)
 	cD.resize(nc)
 	cTop.resize(nc)
@@ -1841,7 +2056,8 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 					dmin = minf(dmin, _pt_seg(p, segs[s2], segs[s2 + 1]))
 				var d: float = dmin if _gbil(dk, p) >= 0.0 else -dmin
 				cD[ci] = d
-				var tp: float = _feat_top(p, f) if not f.is_empty() else _top_at(p, int(fe.own), int(fe.level))
+				# (the level's top exactly as the terrain has it there - the same plateau's offset cell by cell - and its rim's dip)
+				var tp: float = _level_top(p, int(fe.hi)) - _rim_dip(p, int(fe.hi))
 				# (over a lowered strip the rock's top is the walkable top - level until well past the terrain's step - and over
 				# the edge it is the lip; elsewhere it stays under the grass)
 				var up := 1.0 - smoothstep(8.0, 12.0, d)
@@ -1850,9 +2066,20 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 					var on_fin := 1.0 - smoothstep(float(fe.hw) + 27.0, float(fe.hw) + 31.0, cFin[ci])
 					if typ == "arch":
 						up = maxf(up, (1.0 - smoothstep(7.0, 11.0, absf(aq) - float(fe.strip))) * on_fin)
+						# (the span's top sags in its middle, unevenly: thinnest there)
+						var sg := clampf(absf(aq) / (float(fe.wo) * 0.5), 0.0, 1.0)
+						tp -= float(fe.sag) * (1.0 - sg * sg) * on_fin * (0.75 + 0.35 * nl0.get_noise_2d(p.x * 0.08, p.y * 0.08))
 					else:
 						up = maxf(up, smoothstep(float(fe.a0) - 14.0, float(fe.a0) - 9.5, aq) * on_fin)
 				cTop[ci] = tp - 2.0 + 2.15 * up
+				# (rubble at the foot: its height a share of the rock's; none in front of an arch's opening or under a support's slab)
+				var tl: float = lerpf(ts.x, ts.y, 0.5 + 0.5 * ntal.get_noise_2d(p.x, p.y)) * maxf(tp - cFoot[ci] - 6.0, 0.0) * cW[ci]
+				if typ == "arch":
+					var wmo: float = float(fe.wo) * 0.5 * (1.0 + cfg.arch_flare)
+					tl *= 0.7 * smoothstep(wmo, wmo + 25.0, absf(aq))
+				elif typ == "support":
+					tl *= 1.0 - smoothstep(float(fe.a0) - 12.0, float(fe.a0) + 8.0, aq)
+				cT[ci] = tl
 				# (no rock where a higher level stands close: that neighbour's taller wall is kept, and covers its own foot)
 				if int(fe.hi) < 3 and _gbil(_d[int(fe.hi) + 1], p) > -(LEDGE_CLOSE + 12.0):
 					cTop[ci] = cFoot[ci] - 1.0
@@ -1867,13 +2094,12 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 					# (the rock's top over the rim only as far as the terrain's step reaches - its 4 m staircase of samples stands up to
 					# ~6 m past the pit's radius - then under the grass along a smooth circle, over 5 m so the voxels draw it smooth: a
 					# thin ring, no slab, no stairs)
-					cTop[ci] = _top_at(p, int(fe.own), int(fe.level)) - 3.0 + 3.15 * (1.0 - smoothstep(float(fe.rt) + 5.0, float(fe.rt) + 10.5, r))
+					cTop[ci] = _level_top(p, int(fe.level)) - _rim_dip(p, int(fe.level)) - 3.0 + 3.15 * (1.0 - smoothstep(float(fe.rt) + 5.0, float(fe.rt) + 10.5, r))
 					# (only on the plateau: never a block of rock out past its edge)
 					if _gbil(dk, p) < 12.0:
 						cTop[ci] = cFoot[ci] - 1.0
 				else:
-					cTop[ci] = top + 1.2 * (1.0 - smoothstep(0.0, float(fe.rt), r))
-					cD[ci] = r
+					cTop[ci] = top + 1.2 * (1.0 - smoothstep(0.0, float(fe.rt) * maxf(float(fe.get("cap", 0.0)), 1.0), r))
 	# the volume
 	var V := PackedFloat32Array()
 	V.resize(nc * ny)
@@ -1882,7 +2108,9 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 	var hw: float = fe.get("hw", 0.0)
 	var a0: float = fe.get("a0", 0.0)
 	var slab: float = fe.get("slab", 0.0)
-	var pl_lean := Vector2.from_angle(lean_ph * 3.0) * float(fe.get("rb", 0.0)) * 0.3
+	var pl_lean := Vector2.from_angle(lean_ph * 3.0) * float(fe.get("rb", 0.0)) * 0.35
+	var pl_cap: float = fe.get("cap", 0.0)
+	var pl_bh := 0.35 + 0.35 * _hash01(seed_value, int(c.x), 23)
 	for iy in ny:
 		var y := y0 + iy * vs
 		var yh := y - G
@@ -1897,18 +2125,32 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 				if typ == "pillar":
 					var rb: float = fe.rb
 					var rt: float = fe.rt
-					var yn := clampf(yh / maxf(top - G, 1.0), 0.0, 1.0)
-					# an elephant's leg: massive, leaning a little, flared and toed at the foot, lobed and lumpy, wrinkled with the rock's
-					# layers, its flat grassy top a little narrower
+					var tall := maxf(top - G, 1.0)
+					var yn := clampf(yh / tall, 0.0, 1.0)
 					var rel: Vector2 = p - c - pl_lean * yn * yn
 					var r := rel.length()
 					var th := atan2(rel.y, rel.x)
-					var rr: float = rt + (rb - rt) * pow(1.0 - yn, 1.6) + 0.25 * rb * (1.0 - smoothstep(0.0, 26.0, yh)) * (0.75 + 0.25 * sin(5.0 * th + lean_ph))
-					rr *= 1.0 + 0.1 * sin(2.0 * th + lean_ph) + 0.06 * sin(3.0 * th + yn * 2.5 + lean_ph * 2.0)
-					rr += 0.14 * rb * nl.get_noise_3d(p.x * 0.4, y * 0.3, p.y * 0.4)
-					if absf(rr - r) < 16.0:
-						rr += 0.8 * _style(p.x, y, p.y) + 0.7 * _layers(p.x, p.y, y)
+					# an elephant's leg: massive, leaning, a broad toed foot, a bulge, lumpy at two scales, lobed, grooved and wrinkled
+					var rr: float = rt + (rb - rt) * pow(1.0 - yn, 1.6)
+					rr += 0.45 * rb * pow(1.0 - smoothstep(0.0, 0.2, yn), 2.0) * (0.7 + 0.3 * sin(5.0 * th + lean_ph))
+					rr += 0.22 * rb * exp(-pow((yn - pl_bh) / 0.13, 2.0)) * (0.6 + 0.4 * sin(2.0 * th + lean_ph * 3.0))
+					rr *= 1.0 + 0.15 * sin(2.0 * th + lean_ph) + 0.09 * sin(3.0 * th + yn * 2.5 + lean_ph * 2.0)
+					rr += 0.2 * rb * nl.get_noise_3d(p.x * 0.18, y * 0.1, p.y * 0.18) + 0.08 * rb * nl.get_noise_3d(p.x * 0.5, y * 0.35, p.y * 0.5)
+					if absf(rr - r) < 18.0:
+						rr += 0.9 * _style(p.x, y, p.y) + 0.8 * _layers(p.x, p.y, y)
 					v = minf(_smin(rr - r, cTop[ci] - y, 4.0), y - cFoot[ci])
+					if pl_cap > 0.0:
+						# a cap of plateau on top: wider than the column, rounded, its underside domed, grass on it
+						var rc: float = rt * pl_cap * (1.0 + 0.12 * sin(3.0 * th + lean_ph) + 0.08 * nl.get_noise_2d(p.x * 0.3, p.y * 0.3))
+						var ct: float = 0.13 * tall
+						var under_y: float = top - ct * (0.55 + 0.45 * (1.0 - clampf(r / rc, 0.0, 1.0)))
+						v = _smax(v, minf(minf(rc - r, y - under_y), cTop[ci] - y), 6.0)
+					# rubble round the foot
+					var tlp := 0.12 * tall
+					var xx := (r - rb * 1.3) / (tlp / tan_t)
+					if xx < 1.0:
+						var hr: float = G + tlp * pow(1.0 - maxf(xx, 0.0), 1.7) + 0.2 * tlp * nrub.get_noise_3d(p.x * 0.6, y * 0.3, p.y * 0.6)
+						v = _smax(v, (hr - y) * 0.8, 3.0)
 				elif typ == "sinkhole":
 					# (the face a little in from the hole's radius, its forms gentler than elsewhere: never back past the terrain's step,
 					# which is 2 - 6 m out; the top a little overhanging)
@@ -1916,6 +2158,12 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 					if absf(face) < 16.0:
 						face += 0.6 * _style(p.x, y, p.y) + 0.6 * _layers(p.x, p.y, y)
 					v = minf(_smin(face, cTop[ci] - y, 3.0), y - cFoot[ci])
+					# rubble at the foot of the hole's wall
+					var tls: float = 0.15 * (top - float(fe.pit))
+					var xs := (float(fe.rf) - 1.5 - cD[ci]) / (tls / tan_t)
+					if xs < 1.0:
+						var hrs: float = float(fe.pit) + tls * pow(1.0 - maxf(xs, 0.0), 1.7) + 0.2 * tls * nrub.get_noise_3d(p.x * 0.6, y * 0.3, p.y * 0.6)
+						v = _smax(v, (hrs - y) * 0.8, 3.0)
 				else:
 					var face: float = cD[ci] + off0
 					if typ == "overhang":
@@ -1928,8 +2176,15 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 						face += pa * lipz - float(fe.U) * env * und
 						w *= 1.0 - 0.6 * lipz
 					else:
-						# (the legs and the fin a little wider towards the ground, like the walls)
-						face += batter * maxf(top - y, 0.0) * w
+						# (the legs and the fin wider towards the ground: an arch's legs flare out, the rest a little like the walls)
+						face += (0.11 if typ == "arch" else batter) * maxf(top - y, 0.0) * w
+						if typ == "arch":
+							# legs thicker than the span, the span thinner in its middle above the opening, broad bulges: not a slab
+							var wf0: float = float(fe.wo) * 0.5
+							var aa0 := absf(aq)
+							face += 0.08 * (top - G) * smoothstep(0.55 * wf0, 1.3 * wf0, aa0) * (1.0 - 0.5 * clampf(yh / maxf(top - G, 1.0), 0.0, 1.0)) * w
+							face -= minf(0.3 * (hw + off0), 9.0) * (1.0 - smoothstep(0.35 * wf0, 0.95 * wf0, aa0)) * smoothstep(float(fe.ho) * 0.75, float(fe.ho) * 1.05, yh) * w
+							face += 5.0 * nl.get_noise_3d(p.x * 0.2, y * 0.06, p.y * 0.2) * w
 					if absf(face) < 18.0 and w > 0.0:
 						face += w * (_style(p.x, y, p.y) + _layers(p.x, p.y, y))
 					v = minf(_smin(face, cTop[ci] - y, 3.0), y - cFoot[ci])
@@ -1941,14 +2196,14 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 						var fl: float = smoothstep(hw * 0.3, hw + 14.0, absf(bq)) * cfg.arch_flare
 						var wf := wo * 0.5 * (1.0 + fl)
 						var hf := ho * (1.0 + 0.3 * fl)
-						var yc := 0.4 * hf
+						var yc := 0.34 * hf
 						var lean := wo * (0.06 * sin(yh / maxf(ho, 1.0) * 2.2 + lean_ph) + 0.04 * sin(bq * 0.03 + lean_ph * 2.0))
 						var aa := absf(aq - lean * clampf(yh / maxf(ho, 1.0), 0.0, 1.0))
 						var wy: float
 						if yh <= yc:
-							wy = wf * (0.8 + 0.2 * smoothstep(0.0, yc, maxf(yh, 0.0)))
+							wy = wf * (0.62 + 0.38 * smoothstep(0.0, yc, maxf(yh, 0.0)))
 						else:
-							wy = wf * pow(maxf(1.0 - pow((yh - yc) / (hf - yc), 2.0), 0.0), 0.42)
+							wy = wf * pow(maxf(1.0 - pow((yh - yc) / (hf - yc), 2.0), 0.0), 0.72)
 						var tun := minf(minf(wy - aa, hf - yh), hw + off0 + 20.0 - cFin[ci])
 						if absf(tun) < 14.0:
 							tun += 0.8 * _style(p.x + 300.0, y, p.y) * (1.0 - smoothstep(0.75, 0.95, yh / hf))
@@ -1979,10 +2234,15 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 							var th := atan2(rel.y, rel.x)
 							var rr: float = lr * (1.0 + 0.4 * pow(1.0 - yn, 2.0) + 0.3 * (1.0 - smoothstep(0.0, 22.0, yh)) * (0.75 + 0.25 * sin(5.0 * th + li)))
 							rr *= 1.0 + 0.1 * sin(2.0 * th + 1.7 * li) + 0.06 * sin(3.0 * th + yn * 2.0 + li)
-							rr += 0.15 * lr * nl.get_noise_3d(p.x * 0.4 + 40.0, y * 0.3, p.y * 0.4)
+							rr += 0.2 * lr * nl.get_noise_3d(p.x * 0.18 + 40.0, y * 0.1, p.y * 0.18) + 0.08 * lr * nl.get_noise_3d(p.x * 0.5, y * 0.35, p.y * 0.5)
 							if absf(rr - dl) < 16.0:
 								rr += 0.7 * _style(p.x, y, p.y) + 0.6 * _layers(p.x, p.y, y)
 							legs = maxf(legs, minf(rr - dl, sb0 + 20.0 - y))
+							# rubble round its foot
+							var tlg := 0.1 * (sb0 - G)
+							var xg := (dl - lr * 1.3) / (tlg / tan_t)
+							if xg < 1.0:
+								legs = maxf(legs, (G + tlg * pow(1.0 - maxf(xg, 0.0), 1.7) + 0.2 * tlg * nrub.get_noise_3d(p.x * 0.6, y * 0.3, p.y * 0.6) - y) * 0.8)
 						v = _smax(under, minf(legs, y - cFoot[ci]), leg_r[0] * 0.6) if legs > -INF else under
 					elif typ == "overhang" and cDrip[ci] >= 0:
 						# a drip hanging under the lip: a long cone pointing down
@@ -1992,8 +2252,15 @@ func _feature_mesh(fe: Dictionary) -> Dictionary:
 						if y > ya - ln and y < ya + 4.0:
 							var dr: float = drip_r[di] * pow(clampf((y - (ya - ln)) / ln, 0.0, 1.0), 0.8)
 							v = _smax(v, dr - p.distance_to(drip_c[di]), 3.0)
+					# rubble at the foot outside the face: a scree apron, its height a share of the rock's, lumpy
+					var tl: float = cT[ci]
+					if tl > 1.0 and face < 0.0:
+						var xx := -face / (tl / tan_t)
+						if xx < 1.0:
+							var hr: float = cFoot[ci] + 6.0 + tl * pow(1.0 - xx, 1.7) + 0.2 * tl * nrub.get_noise_3d(p.x * 0.6, y * 0.3, p.y * 0.6)
+							v = _smax(v, (hr - y) * 0.8, 3.0)
 				V[(iy * nb + ib) * na + ia] = v - cIn[ci]
-	return _surface_nets(V, na, nb, ny, vs, Vector3(-A, y0, -B), c, ax, tv)
+	return _surface_nets(V, na, nb, ny, vs, Vector3(-A, y0, -B), c, ax, tv, cTop)
 
 
 ## the volume and its gradient at a point inside the grid (trilinear; grid units a, b, y): (gradient, value)
@@ -2050,7 +2317,7 @@ static func _grad_smooth(V: PackedFloat32Array, na: int, nb: int, ny: int, l: Ve
 ## edges' crossings), a quad round every grid edge it crosses, three passes of smoothing, then every vertex put back onto the
 ## surface (two steps down the volume's gradient), normals from the gradient blended smoothly across cells (no facets, no
 ## staircase). Grid axes: along the feature (a), through it (b), up (y); origin = the grid's first corner in that frame.
-func _surface_nets(V: PackedFloat32Array, na: int, nb: int, ny: int, vs: float, org: Vector3, c: Vector2, ax: Vector2, tv: Vector2) -> Dictionary:
+func _surface_nets(V: PackedFloat32Array, na: int, nb: int, ny: int, vs: float, org: Vector3, c: Vector2, ax: Vector2, tv: Vector2, top_y := PackedFloat32Array()) -> Dictionary:
 	var ca := na - 1
 	var cb := nb - 1
 	var cy := ny - 1
@@ -2210,7 +2477,17 @@ func _surface_nets(V: PackedFloat32Array, na: int, nb: int, ny: int, vs: float, 
 				idx.append_array(PackedInt32Array([i0, i2, i1]))
 			else:
 				idx.append_array(PackedInt32Array([i0, i1, i2]))
-	return {"verts": verts, "normals": nors, "indices": idx, "probe": PackedVector3Array([Vector3.ZERO, Vector3.ZERO]), "height": 0.0, "arch": true}
+	# (grass on the rock's top surface - within 4 m of its column's top, not too steep; the faces and the rubble stay rock)
+	var colors := PackedColorArray()
+	colors.resize(nv)
+	for i in nv:
+		var g := 0.0
+		if not top_y.is_empty():
+			var ia := clampi(int(loc[i].x), 0, na - 1)
+			var ib := clampi(int(loc[i].y), 0, nb - 1)
+			g = 1.0 if verts[i].y > top_y[ib * na + ia] - 4.0 and nors[i].y > 0.5 else 0.0
+		colors[i] = Color(g, 0.0, 0.0)
+	return {"verts": verts, "normals": nors, "indices": idx, "colors": colors, "probe": PackedVector3Array([Vector3.ZERO, Vector3.ZERO]), "height": 0.0, "arch": true}
 
 
 # ---- 8. the bookmarks, the walk check and the table ----------------------------------------------------------------------
@@ -2291,6 +2568,7 @@ func _bookmarks() -> void:
 				vw.side = [Vector3(side.x, height_at(side) + 3.0, side.y), Vector3(mid.x, G + tall * 0.4, mid.y)]
 			"overhang":
 				# (from out in front, off to one side: the lip juts out against the sky, the undercut and the drips under it)
+				# (from out in front, off to one side: the lip juts out against the sky, the undercut and the drips under it)
 				var lip: Vector2 = c + tv * (float(cfg.wall_face_offset) + float(fe.P) * 0.5)
 				var pref := (tv * 0.75 + ax * 0.66).normalized()
 				var cam := _open_spot(lip, G, 110.0 + tall * 0.35, pref, 50.0, 10.0)
@@ -2299,6 +2577,16 @@ func _bookmarks() -> void:
 				if cam == Vector2.INF:
 					cam = lip + tv * 150.0
 				vw.below = [Vector3(cam.x, height_at(cam) + 8.0, cam.y), Vector3(lip.x, top - float(fe.lt) * 1.2, lip.y)]
+				# (and from the plateau behind it, along the rim: the lip in profile, as the ref1 bookmark has it)
+				var lvk: int = fe.level
+				var cam2 := Vector2.INF
+				for sgn in [-1.0, 1.0]:
+					var q: Vector2 = c + ax * (float(fe.A) + 20.0) * float(sgn) - tv * 10.0
+					if cam2 == Vector2.INF and _lvl(q) >= lvk and _lvl(q - tv * 20.0) >= lvk:
+						cam2 = q
+				if cam2 != Vector2.INF:
+					var at2: Vector2 = c + tv * 6.0
+					vw.rim = [Vector3(cam2.x, height_at(cam2) + 9.0, cam2.y), Vector3(at2.x, top - 10.0, at2.y)]
 			"pillar":
 				var cam := _open_spot(c, G, float(fe.rb) + tall * 1.05, lit, 180.0, float(fe.rb) * 1.6)
 				if cam == Vector2.INF:
@@ -2307,9 +2595,9 @@ func _bookmarks() -> void:
 			"sinkhole":
 				# (from just above the rim, looking across and down at the far wall and the floor)
 				var rf: float = fe.rf
-				var cam: Vector2 = c + lit * (rf + 30.0)
-				var at: Vector2 = c - lit * rf * 0.35
-				vw.rim = [Vector3(cam.x, top + 30.0, cam.y), Vector3(at.x, float(fe.pit) + (top - float(fe.pit)) * 0.3, at.y)]
+				var cam: Vector2 = c + lit * (rf + 8.0)
+				var at: Vector2 = c - lit * rf * 0.45
+				vw.rim = [Vector3(cam.x, top + rf * 0.9 + 15.0, cam.y), Vector3(at.x, float(fe.pit) + 4.0, at.y)]
 		fe.views = vw
 		var first: Array = vw.values()[0]
 		bookmarks[str(fe.name)] = {"pos": first[0], "look": first[1], "fov": 75.0}
@@ -2335,16 +2623,30 @@ func _open_spot(p: Vector2, G: float, dist: float, pref: Vector2, max_turn := 18
 
 
 func _clear_spot(cam: Vector2, p: Vector2, lim: float, skip: float) -> bool:
-	for k in 8:
-		if height_at(cam + Vector2.from_angle(TAU * k / 8.0) * 30.0) > lim:
+	# (nothing high within 70 m: the walls lean out and their rubble reaches far from the terrain's step; not on any wall's rubble or
+	# in a carved feature's box)
+	if height_at(cam) > lim:
+		return false
+	for k in 9:
+		var qo: Vector2 = cam + (Vector2.ZERO if k == 8 else Vector2.from_angle(TAU * k / 8.0) * 22.0)
+		var co := _gcell(qo)
+		if _occ[co.y * n + co.x] == 1:
 			return false
+	for k in 12:
+		for rr in [35.0, 70.0]:
+			if height_at(cam + Vector2.from_angle(TAU * k / 12.0) * float(rr)) > lim:
+				return false
 	# (the line of sight with 25 m to either side: the walls' faces stand out from the terrain's step)
 	var ln := cam.distance_to(p)
-	var side := (p - cam).normalized().orthogonal() * 25.0
+	var side := (p - cam).normalized().orthogonal() * 40.0
 	var st := 0.0
 	while st < ln - skip:
 		var q := cam.lerp(p, st / ln)
 		if height_at(q) > lim or height_at(q + side) > lim or height_at(q - side) > lim:
+			return false
+		# (no rubble or carved rock in the first half of the line of sight)
+		var cq := _gcell(q)
+		if st < ln * 0.5 and _occ[cq.y * n + cq.x] == 1:
 			return false
 		st += 6.0
 	return true
@@ -2671,6 +2973,8 @@ func _free() -> void:
 	_lab = []
 	_comps = []
 	_nid = PackedInt32Array()
+	_ndist = PackedFloat32Array()
+	_occ = PackedByteArray()
 	_edges = {}
 	_cols = []
 	_rims = []

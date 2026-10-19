@@ -39,7 +39,7 @@ bust, waist, hips and thighs reshaped, and narrower, gently sloping shoulders - 
 | F1 | info: fps, position, tier and slope underfoot |
 | F2 / F3 / F4 / F5 | terrain maps: heights / tiers / slopes / steep-edge mask (again = back) |
 | F6 / F7 / F8 / F9 | the tepui region's camera bookmarks ref1-ref4 (fly mode there; F again lands the hero) |
-| F10 / F11 / F12 | the region's arches (arch1-arch3) |
+| F10 / F11 / F12 | the region's arches (arch1-arch3); with Shift its sinkholes (sinkhole1-sinkhole3) |
 | Page Up / Page Down | through all the region's carved features (arches, pillars under plateau sections, overhangs, pillars, sinkholes) |
 | Esc | pause menu / back |
 
@@ -76,7 +76,10 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
   than ~39.8 degrees. It checks itself: every route walked on cells under 33 degrees (failing ones relaxed), every region of
   every tier reached on foot from the spawn, slopes measured at 4 m. Stored for later: the steep-edge mask (where the edges
   are steepest - for cliffs), the valleys' courses with floor heights (for rivers), each route's walkable path
-  (`route_path()`). First start ~80 s on the laptop, then cached in `user://terrain` (one file per seed + settings; delete it
+  (`route_path()`). Last, the backdrop ranges: big ridged-and-rounded massifs in a ring 5.2 - 11 km round the tepui region,
+  crests up to ~1700 m (about 1300 m above the region's floor), always filling the directions its bookmarks look in, only on
+  land and easing out toward the coast, never lowering higher ground - scenery behind the plateaus, nothing walks up them
+  (`backdrop_*`). First start ~85 - 100 s on the laptop, then cached in `user://terrain` (one file per seed + settings; delete it
   to regenerate) - later starts ~7 s.
 - **Turned off, kept:** the old 10 km continent with its cliffs, passes and rivers (`terrain_gen.gd`, `terrain_config.gd`:
   `CLASSIC_TERRAIN` in `main.gd`), the forests, groves and lone trees (`foliage.gd`: `BIOME_SPAWNERS`), the stone, dirt, sand and
@@ -89,36 +92,46 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
   `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`, `--camfile=cams.txt` (many `--cam` shots in one run, one
   "out.png x,z,h,tx,tz,th" per line). (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
-## Tepui region (phases 1 and 2A done, phase 2B: carved features)
+## Tepui region (phases 1, 2A, 2B done; erosion pass)
 
 The first region, built on the base terrain: a land of tables - a flat floor, six big flat-topped plateaus standing on it
 (two of them stacked in terraces), sheer walls, narrow canyons and a wide valley (`scripts/world/tepui_region.gd`, every key
 value in `region_settings.gd` - a `RegionSettings` resource; seeded, same seed + settings = same region). Greybox for now:
 flat colours (the ground a little lighter the higher it is), pale grey walls, no grass, no paths or buildings.
-- **Where:** a 4 x 4 km square centred on map (4000, -1496), picked automatically: highland / high-plateau ground (56% / 43%)
-  with mountains in view. The floor is flat at the island's middle height there (408 m, gentle swells of +-3 m) and blends
+- **Where:** a 4 x 4 km square centred on map (4000, -1496) (picked automatically once, now pinned in the settings so a
+  change to the base terrain cannot move it): highland / high-plateau ground (56% / 43%) with mountains in view. The floor is flat at the island's middle height there (408 m, gentle swells of +-3 m) and blends
   back into the island's ground across a 280 m border band, so the region sits in the island without a seam. No 4 km
   window on the island lies on a single tier (`region_scan.gd`), so the floor is levelled rather than taken as it is.
 - **A step function:** every 4 m height sample is on the floor or on a plateau's level, never between (except in the ways
-  up), so at each edge the heightmap jumps the whole wall height from one sample to the next - flat top, straight drop, flat
-  floor. Far from the camera Terrain3D's coarser rings would smear each step into a slope; the terrain shader moves those
+  up and the rims' dip), so at each edge the heightmap jumps the whole wall height from one sample to the next - top, straight
+  drop, flat floor. The rim is eroded: the top sinks toward its edge by 5 - 20 m at the edge (varying along it, here and there
+  a deeper crumbled notch), easing out over 30 - 75 m inward - rounded, and the walls' top edge wanders with it. Far from the camera Terrain3D's coarser rings would smear each step into a slope; the terrain shader moves those
   vertices onto the edge of their own terrace (a snap map: per sample, the nearest sample at its terrace's edge), so the
   steps stay steps at every distance; its normals ignore the jump, so tops and floors stay flat-shaded to the edge.
 - **Plateaus:** six, from a list in the settings (layout position, radii, base level, stacked terraces): ellipses whose
-  outlines are bent by a domain warp, big bays and headlands and smaller zig-zags; neighbours kept apart along their Voronoi
+  outlines are bent by a domain warp, big bays and headlands, smaller zig-zags, then notches and small headlands at two finer
+  scales and narrow inlets; every corner where two shapes meet is rounded (smooth minimum), the fins' roots blend into their
+  plateaus, the fields are blurred a little, and the ravines are rounded slots with uneven sides; neighbours kept apart along their Voronoi
   border by a canyon (canyon pairs, 120 - 300 m wide) or a wider gap; the borders bend gently (no long straight canyon side).
   One canyon's floor is sunk 85 m below the valley's (`sunk_canyon`): 235 m deep, 165 - 195 m wide at the ref3 bookmark,
   with an 85 m step where it opens on the valley (for a waterfall later). Levels about 150 / 280 / 430 m above the floor (A, B, C;
-  C only on B, so no wall is taller than about 290 m); stacked terraces at least 105 m deep (a true distance), measured 100 -
-  230 m. Areas 0.3 - 1.8 km2. The layout's axis comes from the sun (the walls the bookmark views look at face it).
-- **Walls:** separate meshes along every level's edge (marching squares, 6 m columns, 10 m rows, 48 columns a piece), each
-  column snapped onto the exact edge: the face stands 9 m out from the terrain's step (so the step is always behind it),
-  nearly vertical (3% batter), its foot 4 m into the ground, and a rock lip runs from the face's top edge back over the
-  plateau's edge and under the grass - the plateau's edge is the rock's edge. Shapes: slow curvature, buttresses, broad
-  flutes, fine grooves (24 m apart: never finer than the columns can draw, so no sawtooth), setbacks at rock layers. Trimesh
-  collision. Measured on every column: 85 - 282 m. A run's normals are smoothed along the whole run before it is cut into
-  pieces (a shared end column puts its face in one place: no wedge at a sharp bend), and a run's open ends are capped with
-  rock back to the terrain's step.
+  C only on B, so no wall is taller than about 290 m); stacked terraces at least 112 m deep (a true distance), measured 103 -
+  220 m. Areas 0.3 - 1.8 km2. The layout's axis comes from the sun (the walls the bookmark views look at face it).
+- **Walls:** separate meshes along every level's edge (marching squares, 6 m columns, 48 columns a piece), each column snapped
+  onto the exact edge. Per column, from the plateau out: a rock lip from under the grass, over the sunk rim, to the face's top
+  edge; the face, standing at least 9 m out from the terrain's step (so the step is always behind it), its rows denser at the
+  rim for a rounded shoulder; then a scree of rubble from the face out and down under the ground. The profile changes along
+  the wall (noise over the map, so it is the same on both sides of a piece's join): leaning back 0 - 12 degrees (or out up to
+  3), a bulge of up to 16 m at its own height, ledges where some rock layers stand out along some 150 m stretches, slow
+  curvature and buttresses, broad flutes and fine grooves each with its own place, width and depth, fading in and out down the
+  face. The rubble is 10 - 25% of the wall's height, at 33 degrees, lumpy, and never reaches across more than a third of the
+  free ground in front (lean and rubble both shrink in narrow canyons; none beside the ways up). Why meshes and not the SDF
+  carving for the walls: 41 km of wall through the voxel bake would be ~60 million samples in GDScript (minutes per build)
+  and millions of triangles; displaced column meshes give the same silhouettes along the walls for a fraction (walls ~0.5M
+  triangles), and the SDF stays for what columns cannot do (openings, undercuts, pillars, pits). Trimesh collision. Measured
+  on every column (top to the ground in front, rubble included): 85 - 282 m. A run's normals are smoothed along the whole run
+  before it is cut into pieces (no wedge at a sharp bend), its open ends capped with rock. The mesh marks where grass grows
+  (vertex colour: the lips), so the faces and the rubble stay rock.
 - **Carved features** (phases 2A, 2B): rock that a heightmap cannot hold, each a signed distance volume over a box of its
   own (positive inside the rock), meshed at bake time with surface nets (2.5 m voxels; three smoothing passes, then every
   vertex put back onto the surface, normals from the volume's gradient blended across cells), trimesh collision, the walls'
@@ -126,12 +139,15 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   - its plan from its level's edge, the face 9 m out, the rock's top over the edge, the foot under the ground - so the walls
   stop at the box and the carving reaches 18 m past it on all four sides behind them (0.15 m back), the walls' shapes calmed
   over the last 20 m: the two meet on the same plain face. One rock style for all of it (`_style`, `_layers`): broad smooth
-  forms, flutes and soft vertical grooves, and the walls' own rock layers at the same heights. Each from the settings:
+  forms, flutes and soft vertical grooves, and the walls' own rock layers at the same heights; rubble at the foot of every
+  carved face (none in an arch's passage or under a support's slab), grass marked on the rock's top surfaces. Each from the
+  settings:
   - **arches** (`arches`, kinds 0 / 1): a fin from a wall (or a neck between two plateau parts) with an opening carved
-    through: a natural bridge on two legs. The opening is widest two fifths up, narrower at the ground (the legs flare),
-    rounded above, leaning a little, wider towards both mouths; the rock left above it is a share of the arch's height
-    (30 - 32%); the fins 24 - 40 m wide (42 - 58 m of rock), the opening about half the freestanding fin (49 - 59%). Under the opening
-    the ground is lowered and the carved rock's top is the walkable bridge.
+    through: a natural bridge on two legs, with arch2's proportions (the rock above the opening 30% of the height, the
+    opening about half the freestanding fin). The opening is widest a third of the way up, much narrower at the ground (the
+    legs flare out into their rubble), arched above; the legs thicker than the span, the span thinnest in its middle, its top
+    sagging a little and uneven, broad bulges on its sides. Under the opening the ground is lowered and the carved rock's top
+    is the walkable bridge.
   - **pillars under plateau sections** (`arches`, kind 2, "supports"): a fin's outer part hollowed out under a slab (a
     share of its height thick) standing on two elephant legs - thick, flared and toed at the foot, lobed, wrinkled - joined
     to the slab through rounded vaults; the slab's top is walkable.
@@ -139,9 +155,11 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
     undercut, drips hanging under the lip (long downward cones), fading back to the plain wall at both ends; grass on the lip.
     One stands in front of the ref1 camera, as in ref_1.
   - **pillars** (`pillars`): freestanding elephant legs in the canyons and the valley, 140 - 236 m tall, 76 - 100 m across at
-    the foot, leaning a little, lobed and lumpy, a flat grassy top.
+    the foot: a broad toed foot, leaning, a bulge, lumpy at two scales, lobed, grooved, rubble round the foot; two carry a cap
+    of plateau with grass on it.
   - **sinkholes** (`sinkholes`): round holes 50 - 110 m across and 90 - 140 m deep down from a plateau's top, sheer inside
-    (the top a little overhanging), the heightmap's own flat floor at the bottom (water comes in phase 3).
+    (the top a little overhanging), the heightmap's own flat floor at the bottom with rubble round its edge (water comes in
+    phase 3). Shift + F10 / F11 / F12 in the game.
   Bake time (one after another, on mains power) and triangles: arches 3.4 - 4.8 s (37k - 59k), pillars under plateau
   sections 9.0 / 15.1 s (73k / 113k), overhangs 2.8 - 5.8 s (30k - 60k), pillars 1.4 - 3.3 s (19k - 39k), sinkholes
   0.7 - 1.7 s (15k - 32k); 61 s in all. Checked by `region_seam_probe.gd`: every wall end at a carved box has rock behind
@@ -153,7 +171,9 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   slot's mouth furthest in, so the ground meets it level all across. Placed out of the bookmarks' views where possible. The
   generator walks each one and checks every plateau piece is reached on foot from the floor.
 - **Bookmarks:** 4 cameras after the reference pictures (`bookmark_views`, in layout coordinates; an 8th number puts the
-  camera that far in from the nearest rim) - ref1 at the stacked plateau's top rim looking along its cliff line (overhang1's lip in front),
+  camera that far in from the nearest rim) - ref1 on a terrace's rim looking along its cliff line, the drop on the left,
+  overhang1 jutting out ahead, the stacked terraces and the mountains beyond (placed with a planner over the exported
+  heightmap),
   ref2 high over the island plateau looking across the valley at the stacked plateau, ref3 on a rim looking down the canyon,
   ref4 from the air down the valley past arch1 and a sinkhole. F6-F9 in the game, F10-F12 the arches, Page Up / Down every
   carved feature; `shot.gd --bookmark=ref1`. An 8th number puts
@@ -163,11 +183,13 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   processes 6 - 8 times.
 - **Tools:** `scripts/tools/region_test.gd` (generator alone: report with the plateau table, gaps, terrace depths and wall
   heights, every carved feature's size, bake time (baked one after another there) and triangles; writes the game's cache,
-  `region_map.png` and `region_data.json` with two height profiles and every feature's camera views), `region_walk_test.gd`
+  `region_map.png`, `region_data.json` with two height profiles and every feature's camera views, and the raw heights and
+  level grid `region_h.bin` / `region_lv.bin` for planning cameras outside the game), `region_walk_test.gd`
   (the hero walks up a ravine onto a plateau, into the tallest wall, through the biggest arch's opening, across its top and
   out along a support's slab), `region_seam_probe.gd` (carved rock tops standing above the grass, per feature: rings and
   slabs that would show, wall ends at a carved box with nothing behind them, wedges between wall pieces), `region_height_probe.gd`
-  (Terrain3D's heights against the region's, in the running game), `region_probe.gd` (level, height and nearest edge
+  (Terrain3D's heights against the region's, in the running game), `surround_probe.gd` (the base terrain round the region,
+  per direction), `deck_probe.gd` (an arch's walkable top along its axis against the terrain), `region_probe.gd` (level, height and nearest edge
   at layout points - for placing cameras), `region_scan.gd` (single-tier 4 km windows); `shot.gd --overview=region`.
 - **Next phases:** 3 rivers, waterfalls, lakes, mist; 4 materials,
   vegetation, sky, performance.

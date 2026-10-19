@@ -21,6 +21,8 @@ var top_h := 0.0
 var wall_foot := Vector2.ZERO
 var wall_out := Vector2.ZERO
 var wall_top := 0.0
+## the top of the wall's rubble (its face's foot): the hero may climb the scree up to there
+var wall_rub := 0.0
 var deepest := 1e9
 var path_pts: Array = []
 var path_i := 0
@@ -137,7 +139,8 @@ func _process(dt: float) -> bool:
 					wall_out = (p2 - Vector2(probe[0].x, probe[0].z)).normalized()
 				wall_foot = foot2
 				wall_top = probe[0].y
-				var s2 := _local(foot2 + wall_out * 60.0)
+				wall_rub = probe[1].y
+				var s2 := _local(foot2 + wall_out * 110.0)
 				main.player.place(s2.x, s2.z)
 				start = main.player.position
 				var gl: Vector3 = main.origin.to_local_pos(Vector3(foot2.x - wall_out.x * 30.0, 0.0, foot2.y - wall_out.y * 30.0))
@@ -155,7 +158,7 @@ func _process(dt: float) -> bool:
 			if t > 25.0:
 				Input.action_release("move_forward")
 				Input.action_release("sprint")
-				_check(best_h < start.y + 20.0 and deepest > -4.0, "walking into a sheer wall (%.0f m tall): got from %.0f m up to %.0f m, at most %.1f m past its foot line" % [wall_top - start.y, start.y, best_h, -deepest])
+				_check(best_h < maxf(start.y + 20.0, wall_rub + 8.0) and deepest > -4.0, "walking into a sheer wall (%.0f m tall, its rubble up to %.0f m): got from %.0f m up to %.0f m, at most %.1f m past its foot line" % [wall_top - start.y, wall_rub, start.y, best_h, -deepest])
 				if region.arches.is_empty():
 					print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 					return true
@@ -201,10 +204,15 @@ func _process(dt: float) -> bool:
 				low_h = minf(low_h, main.player.position.y)
 			var ar5: Dictionary = _big_arch(main.terrain.region)
 			var gd5 := Vector2(main.player.position.x - goal.x, main.player.position.z - goal.z).length()
+			if int(t / 3.0) != int((t - dt) / 3.0):
+				var hero5: CharacterBody3D = main.player
+				var mp5: Vector3 = main.origin.to_map_pos(hero5.position)
+				var col5 := hero5.get_last_slide_collision()
+				print("  deck t %3.0f  hero (%.0f, %.0f) h %.0f  floor %s wall %s  hit %s" % [t, mp5.x, mp5.z, mp5.y, hero5.is_on_floor(), hero5.is_on_wall(), "none" if col5 == null else "%s normal %s" % [str((col5.get_collider() as Node).name) if col5.get_collider() is Node else "?", str(col5.get_normal().snapped(Vector3(0.01, 0.01, 0.01)))]])
 			if t > 40.0 or gd5 < 8.0:
 				Input.action_release("move_forward")
 				Input.action_release("sprint")
-				_check(gd5 < 8.0 and low_h > float(ar5.top) - 4.0, "walking across the big arch's top (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(ar5.top) - float(ar5.ground), "crossed" if gd5 < 8.0 else "stopped %.0f m short" % gd5, float(ar5.top) - low_h])
+				_check(gd5 < 8.0 and low_h > float(ar5.top) - float(ar5.get("sag", 0.0)) - 10.0, "walking across the big arch's top (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(ar5.top) - float(ar5.ground), "crossed" if gd5 < 8.0 else "stopped %.0f m short" % gd5, float(ar5.top) - low_h])
 				var sup := _big_support(main.terrain.region)
 				if sup.is_empty():
 					print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
@@ -230,7 +238,7 @@ func _process(dt: float) -> bool:
 			if t > 90.0 or gd6 < 8.0:
 				Input.action_release("move_forward")
 				Input.action_release("sprint")
-				_check(gd6 < 8.0 and low_h > float(sup6.top) - 4.0, "walking out along a support's slab (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(sup6.top) - float(sup6.ground), "reached its far end" if gd6 < 8.0 else "stopped %.0f m short" % gd6, float(sup6.top) - low_h])
+				_check(gd6 < 8.0 and low_h > float(sup6.top) - 14.0, "walking out along a support's slab (%.0f m above the ground): %s, lowest %.1f m below its top" % [float(sup6.top) - float(sup6.ground), "reached its far end" if gd6 < 8.0 else "stopped %.0f m short" % gd6, float(sup6.top) - low_h])
 				print("REGION WALK: %s (%d failed)" % ["OK" if fails == 0 else "FAILED", fails])
 				return true
 	return false

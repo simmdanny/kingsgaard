@@ -16,10 +16,12 @@ uniform float greybox_span = 450.0;
 
 varying float v_h;
 varying float v_up;
+varying float v_grass;
 
 void vertex() {
 	v_h = (MODEL_MATRIX * vec4(VERTEX, 1.0)).y;
 	v_up = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz).y;
+	v_grass = COLOR.r;
 }
 
 vec3 height_ramp(float h) {
@@ -41,7 +43,9 @@ void fragment() {
 		NORMAL = -NORMAL;
 	}
 	vec3 col = rock_col;
-	bool top = v_up > 0.75;
+	// (grass where the mesh marks the rock's top - the walls' lips, the carved rock's top surfaces - on anything not too steep;
+	// elsewhere only on near-level ground, so the rubble's slopes and the faces stay rock)
+	bool top = v_grass > 0.5 ? v_up > 0.45 : v_up > 0.97;
 	if (top) col = top_col * mix(0.36, 1.3, clamp((v_h - greybox_floor) / greybox_span, 0.0, 1.0));
 	if (debug_view == 1) {
 		col = height_ramp(v_h) * 0.8;
