@@ -193,6 +193,38 @@ extends Resource
 	PackedFloat32Array([1425.0, -1118.0, 50.0, 90.0]),
 ]
 
+@export_group("Water")
+## rivers on the plateaus' tops (phase 3), falling off the edges as waterfalls. Each: [level it runs on (0: the valley floor),
+## source u, v, mouth u, v (the edge it falls off, or for a tributary the point it joins its river), width at the mouth (m),
+## meander (share of its length), falls at its mouth (0 none, 1, or several side by side), the river it joins (-1 none), the
+## river whose waterfall's pool it starts from (-1 none)]
+@export var rivers: Array[PackedFloat32Array] = [
+	PackedFloat32Array([1.0, 1384.0, 1427.0, 254.0, 575.0, 26.0, 0.10, 1.0, -1.0, -1.0]),
+	PackedFloat32Array([1.0, 705.0, 1719.0, 563.0, 1054.0, 16.0, 0.08, 0.0, 0.0, -1.0]),
+	PackedFloat32Array([2.0, -333.0, 974.0, -382.0, 388.0, 18.0, 0.12, 1.0, -1.0, -1.0]),
+	PackedFloat32Array([1.0, 0.0, 0.0, -390.0, 252.0, 20.0, 0.05, 1.0, -1.0, 2.0]),
+	PackedFloat32Array([2.0, -1024.0, -1094.0, -1318.0, -36.0, 30.0, 0.12, 3.0, -1.0, -1.0]),
+	PackedFloat32Array([0.0, 150.0, 330.0, 158.0, 411.0, 34.0, 0.0, 2.0, -1.0, -1.0]),
+]
+## lakes at the cliffs' feet on the low ground: [u, v, radius along u, radius along v (m), turn (degrees), depth (m), how far
+## the water lies below the floor round it (m)]
+@export var lakes: Array[PackedFloat32Array] = [
+	PackedFloat32Array([132.0, 714.0, 130.0, 340.0, 0.0, 10.0, 1.2]),
+	PackedFloat32Array([130.0, 162.0, 170.0, 260.0, 0.0, 9.0, 1.2]),
+	PackedFloat32Array([-384.0, 76.0, 150.0, 200.0, 0.0, 9.0, 1.2]),
+]
+## a river bed's depth (m) and how far the water lies below the banks' lowest point (m)
+@export var river_depth := 2.5
+@export var river_freeboard := 1.2
+## a waterfall's own plunge pool (when it does not land in a lake): its radius (m)
+@export var plunge_pool_radius := 34.0
+## a sinkhole's pool: its water above the hole's floor, and how much deeper its middle is (m)
+@export var sinkhole_pool_level := 2.5
+@export var sinkhole_pool_depth := 6.0
+## mist in the canyons: low ground with cliffs within this width (m) on both sides; the mist sheets' heights above the floor
+@export var mist_canyon_width := 280.0
+@export var mist_layers := PackedFloat32Array([42.0, 54.0, 66.0, 78.0])
+
 @export_group("Bookmarks")
 ## the four camera views after the reference pictures (ref1 high on a plateau's edge looking along its cliff line, ref2 high
 ## over a plateau's edge down to the valley floor, ref3 on a canyon's rim looking down it, ref4 the aerial view): name -> [u,

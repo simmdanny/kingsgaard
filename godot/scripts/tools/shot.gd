@@ -22,8 +22,10 @@ extends Node
 ## origin moved under each camera, the world streamed in round it before each frame is saved).
 ## --perf=N (after each shot) times N frames of the GPU's work (the viewport's measured render time) with everything drawn, then
 ## with the carved features hidden, the region's walls hidden, the terrain hidden, and all three hidden: the differences are each
-## group's share. Prints PERF <file> <config> gpu=ms cpu=ms frame=ms prims=... draws=... per config.
-## --hide=carved|lods|walls|terrain|shadows (comma-separated; lods = the carved features' coarser meshes) hides those parts of the world (or the sun's shadows) in the saved
+## group's share; then the sea hidden, and a few cheaper set-ups (MSAA off, render scale 75 / 67% with FSR, the sea off, smaller
+## shadow maps). Prints PERF <file> <config> gpu=ms cpu=ms frame=ms prims=... draws=... size=<window> per config.
+## --hide=carved|lods|walls|terrain|water|shadows (comma-separated; lods = the carved features' coarser meshes). --waterdebug
+## tints the water by kind (green flat, yellow rapids, red falls). hides those parts of the world (or the sun's shadows) in the saved
 ## frames, to tell them apart.
 ## Prints one line per frame: SHOT <file> fps=... ms=... worst=<slowest frame, ms> plus the world's counters.
 
@@ -53,6 +55,9 @@ var settings := {}
 var look := Vector3(INF, INF, INF)
 var perf := 0
 var hide := PackedStringArray()
+var water_debug := false
+## --perfwater: the water's cost alone, measured on / off / on / off ... (four pairs, so the laptop's drifting clocks average out)
+var perf_water := false
 ## the rest of a --camfile's shots: [path, cam]
 var queue := []
 
@@ -120,6 +125,10 @@ func _ready() -> void:
 				perf = int(val)
 			"hide":
 				hide = val.split(",")
+			"waterdebug":
+				water_debug = true
+			"perfwater":
+				perf_water = true
 			"look":
 				var l := val.split(",")
 				look = Vector3(float(l[0]), float(l[1]), float(l[2]))
@@ -135,6 +144,9 @@ func _ready() -> void:
 					cam = first[1]
 	active = path != ""
 	if active:
+		# (a screenshot run stays out of the way: no focus taken from what the user is doing - the scripts start it off-screen
+		# with --position 3000,0, never fullscreen)
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
 		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
@@ -170,9 +182,13 @@ func tick(main: Node, dt: float) -> void:
 
 
 func _capture(main: Node) -> void:
+	if water_debug and main.terrain.walls.has_meta("water_materials"):
+		for wm in main.terrain.walls.get_meta("water_materials"):
+			(wm as ShaderMaterial).set_shader_parameter("debug_tint", 1)
+		await RenderingServer.frame_post_draw
 	if not hide.is_empty():
 		for ch in main.terrain.walls.get_children():
-			if (ch.has_meta("carved") and hide.has("carved")) or (ch.has_meta("wall") and hide.has("walls")) or (int(ch.get_meta("carved", 0)) > 0 and hide.has("lods")):
+			if (ch.has_meta("carved") and hide.has("carved")) or (ch.has_meta("wall") and hide.has("walls")) or (int(ch.get_meta("carved", 0)) > 0 and hide.has("lods")) or (ch.has_meta("water") and hide.has("water")):
 				ch.visible = false
 			# (without the LODs the full mesh is drawn at every distance)
 			if hide.has("lods") and ch.has_meta("carved") and int(ch.get_meta("carved")) == 0:
@@ -225,14 +241,29 @@ func _perf(main: Node) -> void:
 			carved.append(ch)
 		elif ch.has_meta("wall"):
 			walls.append(ch)
-	var groups := {"carved": carved, "walls": walls, "terrain": [tw.terrain]}
-	var configs := [["all", []], ["no_carved", ["carved"]], ["no_walls", ["walls"]], ["no_terrain", ["terrain"]],
-		["none", ["carved", "walls", "terrain"]], ["all_no_msaa", ["-msaa"]], ["all_no_shadows", ["-shadows"]],
-		["none_no_sky", ["carved", "walls", "terrain", "-sky"]]]
+	var water := []
+	for ch in tw.walls.get_children():
+		if ch.has_meta("water"):
+			water.append(ch)
+	var groups := {"carved": carved, "walls": walls, "terrain": [tw.terrain], "water": water}
+	var configs := [["all", []], ["no_water", ["water"]], ["no_carved", ["carved"]], ["no_walls", ["walls"]], ["no_terrain", ["terrain"]],
+		["none", ["carved", "walls", "terrain", "water"]], ["all_no_msaa", ["-msaa"]], ["all_no_shadows", ["-shadows"]],
+		["all_no_sea", ["-sea"]], ["none_no_sea", ["carved", "walls", "terrain", "water", "-sea"]],
+		["none_no_sea_sky", ["carved", "walls", "terrain", "water", "-sea", "-sky"]],
+		["cut_msaa_scale75", ["-msaa", "-scale75"]], ["cut_msaa_scale67", ["-msaa", "-scale67"]],
+		["cut_msaa_scale67_sea", ["-msaa", "-scale67", "-sea"]], ["cut_msaa_scale67_sea_shlow", ["-msaa", "-scale67", "-sea", "-shadowlow"]]]
+	if perf_water:
+		configs = []
+		for k in 4:
+			configs.append(["water_on", []])
+			configs.append(["water_off", ["water"]])
 	var env: Environment = main._env
 	var msaa := get_viewport().msaa_3d
 	var shadows: bool = main._sun.shadow_enabled
 	var bg := env.background_mode
+	var sea_on: bool = main.ocean.visible
+	var sc_mode := get_viewport().scaling_3d_mode
+	var sc_scale := get_viewport().scaling_3d_scale
 	var vp := get_viewport().get_viewport_rid()
 	var keep := {}
 	for g in groups:
@@ -246,6 +277,14 @@ func _perf(main: Node) -> void:
 		get_viewport().msaa_3d = Viewport.MSAA_DISABLED if off.has("-msaa") else msaa
 		main._sun.shadow_enabled = shadows and not off.has("-shadows")
 		env.background_mode = Environment.BG_COLOR if off.has("-sky") else bg
+		main.ocean.visible = sea_on and not off.has("-sea")
+		if off.has("-scale75") or off.has("-scale67"):
+			get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
+			get_viewport().scaling_3d_scale = 0.75 if off.has("-scale75") else 0.667
+		else:
+			get_viewport().scaling_3d_mode = sc_mode
+			get_viewport().scaling_3d_scale = sc_scale
+		RenderingServer.directional_shadow_atlas_set_size(1024 if off.has("-shadowlow") else 2048, true)
 		for k in 20:
 			await get_tree().process_frame
 		var gpu := 0.0
@@ -256,11 +295,15 @@ func _perf(main: Node) -> void:
 			gpu += RenderingServer.viewport_get_measured_render_time_gpu(vp)
 			cpu += RenderingServer.viewport_get_measured_render_time_cpu(vp)
 		var frame := (Time.get_ticks_usec() - t0) / 1000.0 / perf
-		print("PERF %s %s gpu=%.2f cpu=%.2f frame=%.2f prims=%d draws=%d" % [path.get_file(), cf[0], gpu / perf, cpu / perf, frame,
+		var vsz := DisplayServer.window_get_size()
+		print("PERF %s %s gpu=%.2f cpu=%.2f frame=%.2f prims=%d draws=%d size=%dx%d" % [path.get_file(), cf[0], gpu / perf, cpu / perf, frame,
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
-			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), vsz.x, vsz.y])
 	for nd in keep:
 		nd.visible = keep[nd]
 	get_viewport().msaa_3d = msaa
 	main._sun.shadow_enabled = shadows
 	env.background_mode = bg
+	main.ocean.visible = sea_on
+	get_viewport().scaling_3d_mode = sc_mode
+	get_viewport().scaling_3d_scale = sc_scale

@@ -70,6 +70,29 @@ func _initialize() -> void:
 				"tris": fe.tris, "top": fe.top, "ground": fe.ground, "c": [(fe.c as Vector2).x, (fe.c as Vector2).y]})
 		var data := {"features": avs, "feature_lines": region.report.get("features", []), "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
 			"floor": region.floor_h, "levels": Array(rcfg.level_heights), "bookmarks": bms, "axis": [region.axis_u.x, region.axis_u.y]}
+		# the water: every fall (its lip, outward normal, top, bottom, width), lake and river (its course every 16 m)
+		if region.water != null:
+			var wf := []
+			for f in region.water.falls:
+				var lp: Vector2 = f.lip
+				var ln: Vector2 = f.nrm
+				wf.append({"name": f.name, "lip": [lp.x, lp.y], "nrm": [ln.x, ln.y], "top": f.top, "bottom": f.bottom, "width": f.width})
+			var wl := []
+			for lk in region.water.lakes:
+				var lc: Vector2 = lk.c
+				wl.append({"c": [lc.x, lc.y], "ra": lk.ra, "rb": lk.rb, "level": lk.level, "pool": lk.pool})
+			var wr := []
+			for rv in region.water.rivers:
+				var pts := []
+				var rp: PackedVector2Array = rv.pts
+				for q in range(0, rp.size(), 4):
+					pts.append([rp[q].x, rp[q].y])
+				wr.append({"name": rv.name, "level": rv.level, "pts": pts})
+			var ws := []
+			for sk in region.water.sinks:
+				var sc: Vector2 = sk.fe.c
+				ws.append({"c": [sc.x, sc.y], "level": sk.level, "rf": sk.fe.rf})
+			data["water"] = {"falls": wf, "lakes": wl, "rivers": wr, "sinks": ws}
 		# the heights (4 m samples) and the level grid (8 m cells) as raw files, for planning cameras outside the game
 		data["fh"] = {"fx0": region.fx0, "fz0": region.fz0, "fn": region.fn, "origin": gen.origin, "sp": gen.sp, "n": region.n, "gc": region.gc}
 		var fhf := FileAccess.open(out + "/region_h.bin", FileAccess.WRITE)

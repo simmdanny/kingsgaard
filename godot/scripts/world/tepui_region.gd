@@ -34,7 +34,8 @@ extends RefCounted
 ## Everything stored is in map coordinates (walls relative to the region's centre). Cached in user://terrain.
 
 const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
-const VERSION := 7
+const Water := preload("res://scripts/world/tepui_water.gd")
+const VERSION := 8
 ## which way the game's sun (main.gd) shines across the ground
 const SUN_TRAVEL := Vector2(0.573, -0.820)
 ## two levels' edges closer than this are one wall (from the lower level's foot up into the upper level)
@@ -104,6 +105,9 @@ var _occ := PackedByteArray()
 ## the carved features (arches, supports, overhangs, pillars, sinkholes): each one's frame, box, heights, views, bake time and
 ## size; arches: the arches among them
 var features: Array = []
+## the water (phase 3): its planner while generating, and the meshes it built (kept in the cache)
+var water
+var water_meshes: Array = []
 var arches: Array = []
 var _views := {}
 var _t0 := 0
@@ -174,10 +178,12 @@ func generate() -> void:
 	_step("features", _features_define)
 	_views_from_settings()
 	_step("ways up", _notches)
+	_step("water plan", _water_plan)
 	_step("heights", _heights)
 	_step("snap map", _snap)
 	_step("walls", _walls)
 	_step("carving", _features_bake)
+	_step("water", _water_build)
 	_step("bookmarks", _bookmarks)
 	_step("walk check", _walk_check)
 	_step("table", _table)
@@ -1001,6 +1007,9 @@ func _heights_rows(j0: int, j1: int) -> PackedFloat32Array:
 					h = clampf(float(nt.low) + maxf(s, 0.0) * tan_a, minf(h, float(nt.low)), float(nt.top))
 			# under an arch's opening and a support's slab the ground below (the rock above is its carved mesh); a sinkhole's floor
 			h = _feature_heights(p, h, island)
+			# (the water's ground: river beds and banks, lake and pool bowls)
+			if water != null:
+				h = water.heights(p, h)
 			out[o] = h
 			o += 1
 	return out
@@ -1287,9 +1296,18 @@ func _walls() -> void:
 				var oc := _gcell(p - nrm * reach)
 				var own: PackedByteArray = _own[maxi(kt, 1)]
 				var fade := _feature_fade(p)
+				# (at a waterfall's lip the wall's top comes down under the water, and its face stays plain for the water to fall
+				# clear of it)
+				var lip := false
+				if water != null:
+					fade = minf(fade, water.wall_fade(p))
+					var wl: float = water.wall_lip(p, k)
+					if wl < top:
+						top = wl
+						lip = true
 				all.append({"p": p, "n": nrm, "top": top, "foot": foot, "s": c * cfg.wall_column + loop_id * 10007.0,
 					"amp": amp_n * fade, "amp_n": amp_n, "fade": fade, "key": "%d:%d" % [maxi(int(own[oc.y * n + oc.x]) - 1, 0), kt],
-					"notch": in_notch, "free": free, "tall": kt > k})
+					"notch": in_notch, "free": free, "tall": kt > k, "lip": lip})
 				var coincide := k > 1 and _gbil(dlow, p) < LEDGE_CLOSE
 				# (the sunk canyon's step only across open floor - under a plateau's wall it is that wall's foot; inside a carved
 				# feature's box the carved mesh is the wall)
@@ -1347,7 +1365,8 @@ func _walls() -> void:
 				tops.sort()
 				feet.sort()
 				var col: Dictionary = (all[c] as Dictionary).duplicate()
-				col.top = tops[tops.size() / 2]
+				# (a waterfall's lip keeps its own top: the median would close its notch)
+				col.top = float(all[c].top) if bool(all[c].lip) else tops[tops.size() / 2]
 				col.foot = feet[feet.size() / 2]
 				cols.append(col)
 				cols_all.append([col.key, float(col.top) - float(col.foot), col.notch, col.p])
@@ -2085,6 +2104,31 @@ func _feature_heights(p: Vector2, h: float, island: float) -> float:
 	return h
 
 
+## the sunk canyon's step as a level field (positive on the valley's side): the edge level-0 rivers fall off
+var _negsink := PackedFloat32Array()
+
+
+func _sink_neg() -> PackedFloat32Array:
+	if _negsink.is_empty():
+		_negsink.resize(n * n)
+		for q in n * n:
+			_negsink[q] = -_sink[q]
+	return _negsink
+
+
+## the water's plan (before the heights) and its meshes (after the walls and the carving)
+func _water_plan() -> void:
+	water = Water.new(self)
+	water.plan()
+
+
+func _water_build() -> void:
+	water.build()
+	water_meshes = water.meshes
+	report.water = water.report
+	report.water.checks = water.check_falls()
+
+
 ## the levels' edges (marching squares), once for every feature's bake
 var _edges := {}
 ## bake the features one after another (the region test: each one's own bake time) instead of side by side
@@ -2296,7 +2340,8 @@ func _feature_mesh(fe: Dictionary, vs: float) -> Dictionary:
 			var ci := ib * na + ia
 			cP[ci] = p
 			var island := _base_h(p.x, p.y)
-			cFoot[ci] = _fe_ground(p, fe, island) - 6.0
+			# (down past the ground as the heights have it - a lake's bowl round a pillar, under an overhang)
+			cFoot[ci] = minf(_fe_ground(p, fe, island) - 6.0, height_at(p) - 4.0)
 			if fe.walls:
 				var hand := maxf(smoothstep(fA - 2.0, fA + 2.0, absf(aq)), smoothstep(fB - 2.0, fB + 2.0, absf(bq)))
 				cIn[ci] = 0.15 * hand
@@ -3458,7 +3503,7 @@ func save(path: String) -> void:
 		return
 	f.store_var({"version": VERSION, "center": center, "axis_u": axis_u, "fx0": fx0, "fz0": fz0, "fn": fn, "n": n,
 		"floor_h": floor_h, "notches": notches, "objects": objects, "bookmarks": bookmarks, "report": report, "walls": walls,
-		"features": features})
+		"features": features, "water": water_meshes})
 	f.store_buffer(fh.to_byte_array())
 	f.store_buffer(snap.to_byte_array())
 	f.store_buffer(level)
@@ -3485,6 +3530,7 @@ func load_cache(path: String) -> bool:
 	report.cached = true
 	walls = meta.walls
 	features = meta.get("features", [])
+	water_meshes = meta.get("water", [])
 	arches = features.filter(func(x): return str(x.type) == "arch")
 	fh = f.get_buffer(fn * fn * 4).to_float32_array()
 	snap = f.get_buffer(fn * fn * 8).to_float32_array()

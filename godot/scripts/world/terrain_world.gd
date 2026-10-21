@@ -211,6 +211,53 @@ func _build_walls() -> void:
 		walls.add_child(body)
 	walls.set_meta("material", mat)
 	print("terrain: %d wall pieces in %.1f s" % [region.walls.size(), (Time.get_ticks_msec() - t) / 1000.0])
+	_build_water()
+
+
+## the region's water (phase 3): rivers, lakes and pools, waterfalls, their splash and spray, the canyons' mist - each kind with
+## its own material, none casting shadows, all under the walls' node (the floating origin moves them together)
+func _build_water() -> void:
+	var mats := {}
+	var make := func(path: String, params: Dictionary) -> ShaderMaterial:
+		var m := ShaderMaterial.new()
+		m.shader = load(path)
+		for k in params:
+			m.set_shader_parameter(k, params[k])
+		return m
+	mats["river"] = make.call("res://shaders/region_water.gdshader", {})
+	mats["lake"] = mats["river"]
+	mats["pool"] = mats["river"]
+	mats["fall"] = make.call("res://shaders/region_waterfall.gdshader", {})
+	mats["splash"] = make.call("res://shaders/region_splash.gdshader", {})
+	mats["spray"] = make.call("res://shaders/region_mist.gdshader", {"spray": true})
+	mats["mist"] = make.call("res://shaders/region_mist.gdshader", {"spray": false})
+	var count := 0
+	for m in region.water_meshes:
+		if (m.indices as PackedInt32Array).is_empty():
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = m.verts
+		arrays[Mesh.ARRAY_NORMAL] = m.normals
+		arrays[Mesh.ARRAY_INDEX] = m.indices
+		arrays[Mesh.ARRAY_COLOR] = m.colors
+		arrays[Mesh.ARRAY_TEX_UV] = m.uv
+		arrays[Mesh.ARRAY_TEX_UV2] = m.uv2
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mats[str(m.kind)]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.set_meta("water", str(m.kind))
+		# (the spray's billboards and the splash's swelling blobs reach past their vertices' box)
+		if str(m.kind) == "spray" or str(m.kind) == "splash":
+			mi.extra_cull_margin = 90.0
+			mi.visibility_range_end = 3500.0
+		walls.add_child(mi)
+		count += 1
+	walls.set_meta("water_materials", mats.values())
+	print("terrain: %d water meshes" % count)
 
 
 ## one wall piece's (or carved feature's) mesh

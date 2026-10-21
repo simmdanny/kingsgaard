@@ -92,7 +92,7 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
   `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`, `--camfile=cams.txt` (many `--cam` shots in one run, one
   "out.png x,z,h,tx,tz,th" per line). (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
-## Tepui region (phases 1, 2A, 2B done; erosion pass; phase 2 fixes)
+## Tepui region (phases 1, 2 done; phase 3: water)
 
 The first region, built on the base terrain: a land of tables - a flat floor, six big flat-topped plateaus standing on it
 (two of them stacked in terraces), sheer walls, narrow canyons and a wide valley (`scripts/world/tepui_region.gd`, every key
@@ -190,6 +190,42 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   climbs at 30 degrees from the ground in front to the top, between sheer sides; the ramp starts where the edge crosses the
   slot's mouth furthest in, so the ground meets it level all across. Placed out of the bookmarks' views where possible. The
   generator walks each one and checks every plateau piece is reached on foot from the floor.
+- **Water** (phase 3; `scripts/world/tepui_water.gd`, settings group Water): planned before the heights, carved into them,
+  meshed after the walls and the carving. **Rivers** on the plateaus' tops (`rivers`): each from a source (moved onto its
+  level with room round it) meandering to a real cliff edge (the nearest edge to the given mouth with a 40 m drop, clear of
+  arches, supports, overhangs and the ways up); the bends only sideways of the straight line, pushed clear of edges, the
+  level above, carved features, sinkholes and ravines. Their water is stairs, never a ramp: the lowest ground across the bed
+  and banks along the course, its running minimum, then flat treads and short risers - rapids, the water sloped over 8 - 28
+  m, fast and foaming - wherever it steps down more than 0.8 m; only the edge itself gets a waterfall. Beds 2.5 m deep with
+  banks easing into the ground over 12 m, the shore wherever the bank meets the water; widening downstream. A tributary ends
+  at its river's level at the junction and is part of its mesh (one merged surface per river system); a river that ends in
+  several falls side by side splits into side channels for its last 70 m. Six rivers here: river1 meanders 1.9 km across P2,
+  river2 (0.6 km) joining it, and falls 215 m into the canyon lake past pillar1; river3 (0.44 km) runs across P1B and falls
+  113 m onto P1A into a pool, where river4 (0.34 km) starts and falls 126 m into the lake round pillar2 - P1's stairs; river5
+  (1.0 km) crosses P3 and splits into three falls of 267 m side by side; river6 leaves the valley lake and falls 86 m in two
+  strands over the sunk canyon's step into the canyon lake.
+  **Waterfalls** where a river leaves its level: the wall's top comes down under the water at the lip and its face stays
+  plain (no lean, bulge or rubble) for 25 m either side, easing back over 80 m. The sheet leaves the lip level and bends down
+  (a projectile's curve slowed by the air), clear of the face, a little wider and curved across as it falls, 3 m into the
+  water below; glossy and clear at the lip, streaks racing down, white foam by a fifth of the way down, soft torn edges. At
+  its foot a plunge pool (or the lake it lands in), a heap of chunky white blobs swelling and bobbing, and big soft spray
+  billboards rising and fading. Each checked with horizontal rays down its middle every metre (`check_falls`, in the region
+  test's report): all 8 (86 - 267 m) pass, no ray through a gap, every sheet's foot 3 m under the water.
+  **Lakes** (`lakes`) at the cliffs' feet on the low ground - an ellipse with a bent outline, its bowl only where the ground
+  is low (never into a plateau), 9 - 10 m deep in the middle, the water 1.2 m under the floor round it - with pillars
+  standing in them (pillar1 in the canyon lake, pillar4 and pillar2 in the valley's): the canyon lake round pillar1 (water at
+  320.5 m, about 260 x 680 m), the valley lake round pillar4 and the lake at P1's foot round pillar2 (406.7 m), and two
+  plunge pools. Every sinkhole has a pool 2.5 m over its floor, 6 m deeper in the middle. The surfaces
+  (`shaders/region_water.gdshader`) take everything from their vertices - the depth, the flow, the kind, the distance to a
+  pillar's rock - and read no depth texture: clear turquoise in the shallows to teal in the deep, foam along the shores,
+  streaming over the rapids and in a ring round each pillar, ripples moving with the flow. The carved rock reaches down past
+  the bowls (a pillar standing in a lake has its foot under the water).
+  **Mist** in the deep canyons (`mist_canyon_width`, `mist_layers`): low ground with cliffs within 280 m on both sides, and
+  all of the sunk canyon, under four thin stacked sheets 42 - 78 m over the floor (always below the plateaus' tops), soft
+  slow cloud shapes from noise, thinning toward the cliffs, thicker seen edge-on; Godot's FogVolume needs the Forward+
+  renderer, this game runs the Mobile one. `shot.gd --waterdebug` tints the water by kind (green flat, yellow rapids, red
+  falls). Building it: the plan 1 - 3 s, the meshes ~20 s on a cool laptop; 228k triangles in all. Drawing it: 2.0 - 3.6 ms
+  of GPU per frame at 1920 x 1080 (four alternating on / off pairs per bookmark, `shot.gd --perfwater`).
 - **Bookmarks:** 4 cameras after the reference pictures (`bookmark_views`, in layout coordinates; an 8th number puts the
   camera that far in from the nearest rim) - ref1 on a terrace's rim looking along its cliff line, the drop on the left,
   overhang1 jutting out ahead, the stacked terraces and the mountains beyond (placed with a planner over the exported
@@ -201,6 +237,14 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
 - **Cost:** ~195 s to generate in the region test, on mains power (the carving 138 s of it, baked one feature after another
   there; the game bakes them side by side on all cores), then cached in `user://terrain/region_*.bin`. On battery Windows
   slows background processes 6 - 8 times.
+- **Frame time at real resolutions** (phase 3 step 0; `shot.gd --perf`, the game windowed off-screen, before the water): at
+  1920 x 1080 41 - 53 ms per frame (19 - 24 fps), at 2560 x 1410 69 - 105 ms (10 - 14 fps). The big parts: MSAA 2x 14 - 19 ms
+  at 1080p (28 - 33 at 1440p), the sea plane 6 - 16 ms (it reads the depth texture, which costs a copy every frame, and
+  covers the far view), the sun's shadows 5 - 10 ms, the terrain 3 - 15 ms, the walls 3 - 10 ms, the carved features 2 - 3 ms
+  (thanks to their LODs), the sky and post-processing a fixed ~10 ms (17 - 23 at 1440p). With MSAA off and a 67% render scale
+  (FSR) 16 - 20 ms at 1080p, with the sea off and smaller shadow maps 14 - 17 ms (59 - 71 fps); at 1440p still 20 - 30 ms.
+  What to cut first below 60 fps: MSAA (FXAA instead), then render scale 67 - 75% with FSR, the sea when far from the coast,
+  the shadow maps, then the terrain's far rings and the walls' detail at distance.
 - **Frame time** (`shot.gd --perf`, this laptop: Intel HD 520, 1280 x 720, greybox, at the four bookmarks; each group's share
   = the GPU time saved by hiding it): 20.5 - 25.6 ms per frame on the GPU (39 - 49 fps; before the LODs 24.2 - 31.1 ms, 32 -
   41 fps): the carved features 0.6 - 1.6 ms (before 3.2 - 5.5 ms; 0.07 - 0.20M primitives drawn instead of 0.58 - 0.79M), the
@@ -209,7 +253,8 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   720 on this GPU after phase 4 (materials, grass, water, fog) needs about 6 ms found: MSAA off (or FXAA), render scale ~75%
   with FSR, and grass and water budgeted at a few ms each; the full-resolution, MSAA, greybox scene is already over 16.7 ms.
 - **Tools:** `scripts/tools/region_test.gd` (generator alone: report with the plateau table, gaps, terrace depths and wall
-  heights, every carved feature's size, bake time (baked one after another there) and triangles; writes the game's cache,
+  heights, every carved feature's size, bake time (baked one after another there) and triangles, the water's rivers, falls (with
+  their ray check) and lakes; writes the game's cache,
   `region_map.png`, `region_data.json` with two height profiles and every feature's camera views, and the raw heights and
   level grid `region_h.bin` / `region_lv.bin` for planning cameras outside the game), `region_walk_test.gd` (the hero walks
   up a ravine onto a plateau, into the tallest wall, through the biggest arch's opening, across its top and out along a
@@ -222,7 +267,7 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   running game), `surround_probe.gd` (the base terrain round the region, per direction), `deck_probe.gd` (an arch's walkable
   top along its axis against the terrain), `region_probe.gd` (level, height and nearest edge at layout points - for placing
   cameras), `region_scan.gd` (single-tier 4 km windows); `shot.gd --overview=region`.
-- **Next phases:** 3 rivers, waterfalls, lakes, mist; 4 materials,
+- **Next phase:** 4 materials,
   vegetation, sky, performance.
 
 ## Layout
