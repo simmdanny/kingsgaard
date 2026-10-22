@@ -194,36 +194,51 @@ extends Resource
 ]
 
 @export_group("Water")
-## rivers on the plateaus' tops (phase 3), falling off the edges as waterfalls. Each: [level it runs on (0: the valley floor),
-## source u, v, mouth u, v (the edge it falls off, or for a tributary the point it joins its river), width at the mouth (m),
-## meander (share of its length), falls at its mouth (0 none, 1, or several side by side), the river it joins (-1 none), the
-## river whose waterfall's pool it starts from (-1 none)]
+## rivers on the plateaus' tops (phase 3), falling off the edges as waterfalls, and on the valley floor from a waterfall's pool
+## to a lake. Each: [level it runs on (0: the valley floor), source u, v, mouth u, v (the edge it falls off; for a tributary the
+## point it joins its river; for a river into a lake the shore point it reaches the lake at), its mean width (m; it varies
+## along the river within river_width_min - max), meander (share of its length), falls at its mouth (0 none, 1, or several side
+## by side), the river it joins (-1 none), the river whose waterfall's pool it starts from (-1 none), the lake it flows into
+## (-1 none; 100 + a river's number: that river's waterfall's pool)]
 @export var rivers: Array[PackedFloat32Array] = [
-	PackedFloat32Array([1.0, 1384.0, 1427.0, 254.0, 575.0, 26.0, 0.10, 1.0, -1.0, -1.0]),
-	PackedFloat32Array([1.0, 705.0, 1719.0, 563.0, 1054.0, 16.0, 0.08, 0.0, 0.0, -1.0]),
-	PackedFloat32Array([2.0, -333.0, 974.0, -382.0, 388.0, 18.0, 0.12, 1.0, -1.0, -1.0]),
-	PackedFloat32Array([1.0, 0.0, 0.0, -390.0, 252.0, 20.0, 0.05, 1.0, -1.0, 2.0]),
-	PackedFloat32Array([2.0, -1024.0, -1094.0, -1318.0, -36.0, 30.0, 0.12, 3.0, -1.0, -1.0]),
-	PackedFloat32Array([0.0, 150.0, 330.0, 158.0, 411.0, 34.0, 0.0, 2.0, -1.0, -1.0]),
+	PackedFloat32Array([1.0, 1384.0, 1427.0, 254.0, 575.0, 48.0, 0.10, 1.0, -1.0, -1.0]),
+	PackedFloat32Array([1.0, 705.0, 1719.0, 195.0, 1021.0, 40.0, 0.08, 2.0, -1.0, -1.0]),
+	PackedFloat32Array([2.0, -333.0, 974.0, -382.0, 388.0, 34.0, 0.12, 1.0, -1.0, -1.0]),
+	PackedFloat32Array([1.0, 0.0, 0.0, -390.0, 252.0, 40.0, 0.05, 1.0, -1.0, 2.0]),
+	PackedFloat32Array([2.0, -1024.0, -1094.0, -1318.0, -36.0, 58.0, 0.12, 3.0, -1.0, -1.0]),
+	PackedFloat32Array([0.0, 150.0, 330.0, 158.0, 411.0, 40.0, 0.0, 2.0, -1.0, -1.0]),
+	PackedFloat32Array([2.0, -205.0, -1273.0, -214.0, -596.0, 56.0, 0.10, 3.0, -1.0, -1.0]),
+	PackedFloat32Array([0.0, 0.0, 0.0, -542.0, 42.0, 36.0, 0.06, 0.0, -1.0, 4.0, 2.0]),
+	PackedFloat32Array([0.0, 0.0, 0.0, -338.0, -110.0, 32.0, 0.05, 0.0, -1.0, 6.0, 2.0]),
+	PackedFloat32Array([3.0, 1.0, -1104.0, -22.0, -725.0, 36.0, 0.08, 2.0, -1.0, -1.0]),
+	PackedFloat32Array([2.0, 0.0, 0.0, -206.0, -691.0, 30.0, 0.04, 0.0, 6.0, 9.0]),
 ]
+## how wide a river gets anywhere along it (m): wide on its long calm treads, narrow over its rapids, uneven between
+@export var river_width_min := 25.0
+@export var river_width_max := 60.0
 ## lakes at the cliffs' feet on the low ground: [u, v, radius along u, radius along v (m), turn (degrees), depth (m), how far
-## the water lies below the floor round it (m)]
+## the water lies below the floor round it (m)]; their outlines are warped (lake_warp: how far, in shares of the smaller radius)
 @export var lakes: Array[PackedFloat32Array] = [
-	PackedFloat32Array([132.0, 714.0, 130.0, 340.0, 0.0, 10.0, 1.2]),
-	PackedFloat32Array([130.0, 162.0, 170.0, 260.0, 0.0, 9.0, 1.2]),
-	PackedFloat32Array([-384.0, 76.0, 150.0, 200.0, 0.0, 9.0, 1.2]),
+	PackedFloat32Array([132.0, 754.0, 130.0, 420.0, 0.0, 10.0, 1.2]),
+	PackedFloat32Array([130.0, 162.0, 180.0, 270.0, 0.0, 9.0, 1.2]),
+	PackedFloat32Array([-384.0, 76.0, 165.0, 225.0, 0.0, 9.0, 1.2]),
 ]
-## a river bed's depth (m) and how far the water lies below the banks' lowest point (m)
+@export var lake_warp := 0.5
+## a river bed's depth (m; deeper for the wider rivers) and how far the water lies below the banks' lowest point (m)
 @export var river_depth := 2.5
 @export var river_freeboard := 1.2
-## a waterfall's own plunge pool (when it does not land in a lake): its radius (m)
-@export var plunge_pool_radius := 34.0
+## a waterfall's width (m; from its river's width, several side by side share it)
+@export var fall_width_min := 15.0
+@export var fall_width_max := 60.0
+## a waterfall's own plunge pool (when it does not land in a lake): its size across (m), growing with the drop between these
+@export var plunge_pool_min := 60.0
+@export var plunge_pool_max := 150.0
 ## a sinkhole's pool: its water above the hole's floor, and how much deeper its middle is (m)
-@export var sinkhole_pool_level := 2.5
-@export var sinkhole_pool_depth := 6.0
-## mist in the canyons: low ground with cliffs within this width (m) on both sides; the mist sheets' heights above the floor
-@export var mist_canyon_width := 280.0
-@export var mist_layers := PackedFloat32Array([42.0, 54.0, 66.0, 78.0])
+@export var sinkhole_pool_level := 6.0
+@export var sinkhole_pool_depth := 10.0
+## mist in the deep (sunk) canyon: its clouds' lowest centres above the canyon's floor, and how much higher the highest ones
+## (in its middle) float (m)
+@export var mist_deck := PackedFloat32Array([18.0, 52.0])
 
 @export_group("Bookmarks")
 ## the four camera views after the reference pictures (ref1 high on a plateau's edge looking along its cliff line, ref2 high

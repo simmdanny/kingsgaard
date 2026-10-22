@@ -58,6 +58,9 @@ var hide := PackedStringArray()
 var water_debug := false
 ## --perfwater: the water's cost alone, measured on / off / on / off ... (four pairs, so the laptop's drifting clocks average out)
 var perf_water := false
+## --perfpairs: each part's cost measured against the whole drawn just before and just after it (all, no water, all, no
+## terrain, all, ...), so the laptop's drifting clocks cancel out; then the cheapest settings
+var perf_pairs := false
 ## the rest of a --camfile's shots: [path, cam]
 var queue := []
 
@@ -129,6 +132,8 @@ func _ready() -> void:
 				water_debug = true
 			"perfwater":
 				perf_water = true
+			"perfpairs":
+				perf_pairs = true
 			"look":
 				var l := val.split(",")
 				look = Vector3(float(l[0]), float(l[1]), float(l[2]))
@@ -252,6 +257,14 @@ func _perf(main: Node) -> void:
 		["none_no_sea_sky", ["carved", "walls", "terrain", "water", "-sea", "-sky"]],
 		["cut_msaa_scale75", ["-msaa", "-scale75"]], ["cut_msaa_scale67", ["-msaa", "-scale67"]],
 		["cut_msaa_scale67_sea", ["-msaa", "-scale67", "-sea"]], ["cut_msaa_scale67_sea_shlow", ["-msaa", "-scale67", "-sea", "-shadowlow"]]]
+	if perf_pairs:
+		configs = [["all", []]]
+		for x in [["no_water", ["water"]], ["no_terrain", ["terrain"]], ["no_walls", ["walls"]], ["no_carved", ["carved"]],
+				["all_no_msaa", ["-msaa"]], ["all_no_shadows", ["-shadows"]], ["all_no_sea", ["-sea"]],
+				["none_no_sea", ["carved", "walls", "terrain", "water", "-sea"]]]:
+			configs.append(x)
+			configs.append(["all", []])
+		configs.append(["cut_msaa_scale67_sea_shlow", ["-msaa", "-scale67", "-sea", "-shadowlow"]])
 	if perf_water:
 		configs = []
 		for k in 4:

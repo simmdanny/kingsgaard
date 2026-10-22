@@ -228,9 +228,16 @@ func _build_water() -> void:
 	mats["lake"] = mats["river"]
 	mats["pool"] = mats["river"]
 	mats["fall"] = make.call("res://shaders/region_waterfall.gdshader", {})
-	mats["splash"] = make.call("res://shaders/region_splash.gdshader", {})
-	mats["spray"] = make.call("res://shaders/region_mist.gdshader", {"spray": true})
-	mats["mist"] = make.call("res://shaders/region_mist.gdshader", {"spray": false})
+	mats["foam"] = make.call("res://shaders/region_foam.gdshader", {})
+	# (the foam lies on the water: drawn after it)
+	(mats["foam"] as ShaderMaterial).render_priority = 1
+	mats["spray"] = make.call("res://shaders/region_mist.gdshader", {"mode": 1})
+	mats["drops"] = make.call("res://shaders/region_mist.gdshader", {"mode": 2})
+	mats["cloud"] = make.call("res://shaders/region_mist.gdshader", {"mode": 3})
+	# (the spray over the water, the cloud deck over everything else see-through: drawn after the water and the foam)
+	(mats["spray"] as ShaderMaterial).render_priority = 1
+	(mats["drops"] as ShaderMaterial).render_priority = 1
+	(mats["cloud"] as ShaderMaterial).render_priority = 2
 	var count := 0
 	for m in region.water_meshes:
 		if (m.indices as PackedInt32Array).is_empty():
@@ -250,10 +257,10 @@ func _build_water() -> void:
 		mi.material_override = mats[str(m.kind)]
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.set_meta("water", str(m.kind))
-		# (the spray's billboards and the splash's swelling blobs reach past their vertices' box)
-		if str(m.kind) == "spray" or str(m.kind) == "splash":
+		# (the spray's and the drops' billboards fly past their vertices' box, the cloud deck's puffs rise over it)
+		if str(m.kind) == "spray" or str(m.kind) == "drops" or str(m.kind) == "foam" or str(m.kind) == "cloud":
 			mi.extra_cull_margin = 90.0
-			mi.visibility_range_end = 3500.0
+			mi.visibility_range_end = 1800.0 if str(m.kind) == "drops" else 3500.0
 		walls.add_child(mi)
 		count += 1
 	walls.set_meta("water_materials", mats.values())

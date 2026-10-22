@@ -1,9 +1,12 @@
 // THE REGION'S STILL AND RUNNING WATER (shaders/region_water.gdshader): rivers, lakes and pools of the tepui region
 // (scripts/world/tepui_water.gd builds the meshes). Everything it needs is in the vertices - no depth texture (no depth copy
 // each frame): COLOR.r the kind (0 flat, 0.5 rapids), COLOR.g the flow's speed (m/s), COLOR.b 1 on lakes and pools; UV the
-// flow's direction; UV2.x the water's depth there, UV2.y the distance to a pillar's rock standing in it (its foam ring).
+// flow's direction; UV2.x the water's depth there, UV2.y the distance to a pillar's rock standing in it (its foam ring);
+// COLOR.a fades a lake out where its surface stops short of a drop.
 // Clear turquoise in the shallows to teal in the deep, foam along the shores, streaming over the rapids and round the pillars,
 // small ripples moving with the flow. debug_tint: green flat water, yellow rapids (red is the waterfalls' own shader).
+// Far off it is drawn a little nearer the camera than it is - moved along the line of sight, so it stays where it is on the
+// screen: Terrain3D's coarse far rings, their vertices on a river's banks, would otherwise cover a river in dashes.
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, specular_schlick_ggx, shadows_disabled;
 
@@ -20,6 +23,7 @@ varying float v_lake;
 varying vec2 v_flow;
 varying float v_depth;
 varying float v_ring;
+varying float v_fade;
 
 void vertex() {
 	v_wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -29,6 +33,14 @@ void vertex() {
 	v_flow = UV;
 	v_depth = UV2.x;
 	v_ring = UV2.y;
+	v_fade = COLOR.a;
+	// (as far toward the camera as covers a few metres of height error - up to 6 m, from 200 m out - at this viewing angle;
+	// the meshes under the walls' node are only ever moved, so model space is world space turned by nothing)
+	vec3 to_cam = CAMERA_POSITION_WORLD - v_wp;
+	float d = max(length(to_cam), 1.0);
+	float sin_a = clamp(abs(to_cam.y) / d, 0.04, 1.0);
+	float dh = clamp((d - 200.0) * 0.002, 0.0, 6.0);
+	VERTEX += to_cam / d * min(dh / sin_a, d * 0.08);
 }
 
 float hash2(vec2 p) {
@@ -76,10 +88,10 @@ void fragment() {
 	ROUGHNESS = mix(0.05, 0.55, foam);
 	SPECULAR = 0.55;
 	NORMAL = normalize(mix((VIEW_MATRIX * vec4(nw, 0.0)).xyz, NORMAL, foam * 0.6));
-	ALPHA = clamp(mix(0.55, 0.94, smoothstep(0.0, 3.0, depth)) + foam * 0.7, 0.0, 1.0);
+	ALPHA = clamp(mix(0.55, 0.94, smoothstep(0.0, 3.0, depth)) + foam * 0.7, 0.0, 1.0) * v_fade;
 	if (debug_tint == 1) {
 		ALBEDO = rapid > 0.5 ? vec3(0.95, 0.85, 0.10) : (v_lake > 0.5 ? vec3(0.10, 0.62, 0.22) : vec3(0.15, 0.85, 0.20));
-		ALPHA = 1.0;
+		ALPHA = v_fade;
 		ROUGHNESS = 0.9;
 	}
 }

@@ -1,21 +1,27 @@
-// THE REGION'S MIST (shaders/region_mist.gdshader): soft, slowly drifting cloud layers lying in the deep canyons, and the
-// spray billowing at the waterfalls' feet (scripts/world/tepui_water.gd).
-//   spray = false: a canyon's mist sheet - COLOR.r its thickness (thinning toward the cliffs), COLOR.g its layer, UV the map
-//                  point; soft cloud shapes from slow noise, not grainy.
-//   spray = true:  billboards - every corner of a quad at its centre, UV the corner (-1..1), COLOR.r its phase, COLOR.g its
-//                  size / 100 m, COLOR.b how far it rises / 100 m; each grows, rises and fades over its cycle.
+// THE WATERFALLS' SPRAY (shaders/region_mist.gdshader): billboards at the falls' feet (scripts/world/tepui_water.gd); every
+// corner of a quad at its centre, UV the corner (-1..1).
+//   mode 1: billowing mist - COLOR.r its phase, COLOR.g its size / 100 m, COLOR.b how far it rises / 100 m, COLOR.a its pace,
+//           UV2 how far it drifts (m, x / z): each puff grows, rolls outward and up, and fades over its cycle; soft all the
+//           way out (no rim to read as a ball), lumpy inside, lit from above, greyer underneath, and soft where it meets the
+//           water or the rock (the depth texture, which the sea reads anyway).
+//   mode 2: fine drops - COLOR.r its phase, COLOR.g its size / 10 m, COLOR.b its upward speed / 50 m/s, COLOR.a its pace, UV2
+//           its horizontal speed (m/s): each flies out of the impact in an arc and falls back, fading.
+//   mode 3: the deep canyon's clouds - COLOR.r its phase, COLOR.g its size / 100 m, COLOR.b its opacity, COLOR.a its pace, UV2
+//           how far it sways (m, x / z): big soft puffs like the spray's, swaying slowly to and fro along the canyon and
+//           breathing a little, soft where they meet the rock, the ground or the water.
 shader_type spatial;
 render_mode blend_mix, unshaded, depth_draw_never, cull_disabled, shadows_disabled, skip_vertex_transform;
 
-uniform bool spray = false;
-uniform vec3 mist_col : source_color = vec3(0.90, 0.94, 0.98);
-uniform vec3 shade_col : source_color = vec3(0.74, 0.81, 0.90);
-uniform float density = 0.62;
+uniform int mode = 1;
+uniform vec3 mist_col : source_color = vec3(0.94, 0.96, 0.99);
+uniform vec3 shade_col : source_color = vec3(0.70, 0.78, 0.86);
+uniform int debug_tint = 0;
+uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
 varying float v_a;
 varying vec2 v_uv;
+varying float v_ph;
 varying float v_dist;
-varying float v_layer;
 
 float hash2(vec2 p) {
 	uvec2 q = uvec2(ivec2(floor(p)) + ivec2(1 << 20));
@@ -32,43 +38,65 @@ float vnoise(vec2 p) {
 }
 
 void vertex() {
-	if (spray) {
-		float cyc = fract(TIME * 0.045 + COLOR.r);
-		vec3 c = VERTEX + vec3(0.0, cyc * COLOR.b * 100.0, 0.0);
+	if (mode == 1) {
+		float cyc = fract(TIME * 0.05 * COLOR.a + COLOR.r);
+		vec3 c = VERTEX + vec3(UV2.x, 0.0, UV2.y) * cyc + vec3(0.0, cyc * COLOR.b * 100.0, 0.0);
 		vec4 vc = MODELVIEW_MATRIX * vec4(c, 1.0);
-		vc.xy += UV * COLOR.g * 100.0 * (0.55 + 0.6 * cyc);
+		vc.xy += UV * COLOR.g * 100.0 * (0.55 + 0.75 * cyc);
 		VERTEX = vc.xyz;
-		v_a = sin(cyc * 3.1416) * 0.62;
-		v_uv = UV + vec2(COLOR.r * 17.0, 0.0);
-	} else {
-		VERTEX = (MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		v_a = COLOR.r;
-		// (the stacked sheets share one cloud pattern, each a little shifted)
-		v_uv = UV + vec2(COLOR.g * 23.0, COLOR.g * 17.0);
-		v_layer = COLOR.g;
+		v_a = smoothstep(0.0, 0.18, cyc) * (1.0 - smoothstep(0.55, 1.0, cyc));
+	} else if (mode == 2) {
+		float g = 7.5;
+		float vv = COLOR.b * 50.0;
+		float life = 2.0 * vv / g;
+		float cyc = fract(TIME * COLOR.a / life + COLOR.r);
+		float t = cyc * life;
+		vec3 c = VERTEX + vec3(UV2.x, 0.0, UV2.y) * t + vec3(0.0, vv * t - 0.5 * g * t * t, 0.0);
+		vec4 vc = MODELVIEW_MATRIX * vec4(c, 1.0);
+		vc.xy += UV * COLOR.g * 10.0 * (0.6 + 0.8 * cyc);
+		VERTEX = vc.xyz;
+		v_a = smoothstep(0.0, 0.06, cyc) * (1.0 - cyc) * 0.85;
+	} else if (mode == 3) {
+		float sw = sin(TIME * 0.025 * COLOR.a + COLOR.r * 6.2832);
+		vec3 c = VERTEX + vec3(UV2.x, 0.0, UV2.y) * sw + vec3(0.0, sin(TIME * 0.03 * COLOR.a + COLOR.r * 11.0) * 3.0, 0.0);
+		vec4 vc = MODELVIEW_MATRIX * vec4(c, 1.0);
+		vc.xy += UV * COLOR.g * 100.0 * (0.92 + 0.08 * cos(TIME * 0.05 + COLOR.r * 9.0));
+		VERTEX = vc.xyz;
+		v_a = COLOR.b;
 	}
+	v_uv = UV;
+	v_ph = COLOR.r;
 	v_dist = length(VERTEX);
 	NORMAL = vec3(0.0, 0.0, 1.0);
 }
 
 void fragment() {
+	float r = length(v_uv);
 	float a;
-	float n;
-	if (spray) {
-		// (a soft round puff, its edge broken by noise that turns slowly; v_uv.x carries the puff's own offset)
-		n = vnoise(UV * 1.6 + vec2(v_uv.x, -TIME * 0.25)) * 0.6 + vnoise(UV * 3.7 + vec2(v_uv.x * 1.3, 4.0)) * 0.4;
-		a = v_a * (1.0 - smoothstep(0.2, 1.0, length(UV))) * (0.55 + 0.45 * n);
+	vec3 col;
+	if (mode == 1 || mode == 3) {
+		// (the canyon's clouds churn more slowly than the spray)
+		float sl = mode == 3 ? 0.2 : 1.0;
+		vec2 q = v_uv * 1.5 + vec2(v_ph * 17.0, v_ph * 9.0);
+		float n1 = vnoise(q + vec2(0.0, -TIME * 0.12 * sl));
+		float n2 = vnoise(q * 2.3 + vec2(TIME * 0.07 * sl, 3.0));
+		float n3 = vnoise(q * 5.1 + 7.0);
+		float lump = n1 * 0.55 + n2 * 0.3 + n3 * 0.15;
+		float edge = 1.0 - smoothstep(0.1, 0.98, r + (lump - 0.5) * 0.5);
+		a = v_a * edge * edge * (0.4 + 0.6 * lump) * (mode == 3 ? 1.0 : 0.8);
+		col = mix(shade_col, mist_col, smoothstep(-0.9, 0.6, v_uv.y + (lump - 0.5) * 0.9));
+		// (not filling the screen when the camera is right in it)
+		a *= mode == 3 ? smoothstep(15.0, 80.0, v_dist) : smoothstep(4.0, 30.0, v_dist);
+		float depth = textureLod(depth_tex, SCREEN_UV, 0.0).r;
+		vec4 vp = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, depth, 1.0);
+		a *= smoothstep(0.0, mode == 3 ? 22.0 : 14.0, -vp.z / vp.w + VERTEX.z);
 	} else {
-		vec2 p = v_uv * 0.0035 + vec2(TIME * 0.0042, TIME * 0.0026);
-		n = vnoise(p) * 0.6 + vnoise(p * 2.3 + 5.0) * 0.3 + vnoise(p * 5.1 + 9.0) * 0.1;
-		// (each of the stacked thin sheets a little offset, so together they read as a soft deck, thicker seen edge-on)
-		float edge_on = 1.0 - abs(dot(normalize(-VERTEX), (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
-		// (the deck's middle sheets fuller than its top and bottom ones)
-		float core = abs(v_layer - 1.5) * 0.06;
-		a = smoothstep(0.20 + core, 0.58 + core, n) * v_a * density * (0.6 + 0.9 * edge_on);
-		// (fading out right in front of the camera, so a flight through it never fills the screen)
-		a *= smoothstep(25.0, 140.0, v_dist);
+		a = v_a * (1.0 - smoothstep(0.15, 1.0, r));
+		col = mist_col;
 	}
-	ALBEDO = mix(shade_col, mist_col, smoothstep(0.2, 0.8, n));
+	ALBEDO = col;
 	ALPHA = clamp(a, 0.0, 1.0);
+	if (debug_tint == 1) {
+		ALPHA = 0.0;
+	}
 }

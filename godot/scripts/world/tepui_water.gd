@@ -23,14 +23,25 @@ var meshes := []
 var report := {}
 ## per river: a coarse grid of the segments near each cell (for the beds), key = cell
 var _seg_grid := []
+## the place in rivers of each river of the settings (side channels for falls side by side are added to rivers as they come)
+var _by_cfg := PackedInt32Array()
+## the lakes' outlines: a smooth noise (frequency 1, in units of a lake's smaller radius) warping them
+var _wn: FastNoiseLite
 const SEG_CELL := 32.0
 const BANK := 12.0
+## a lake's shore: the ground round it eased down to its rim over this many metres
+const SHORE := 10.0
 const G := 9.81
 
 
 func _init(region) -> void:
 	r = region
 	cfg = region.cfg
+	_wn = FastNoiseLite.new()
+	_wn.seed = int(region.seed_value) + 4242
+	_wn.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_wn.fractal_type = FastNoiseLite.FRACTAL_NONE
+	_wn.frequency = 1.0
 
 
 # ---- the plan ------------------------------------------------------------------------------------------------------------
@@ -54,8 +65,18 @@ func _clearance(p: Vector2, k: int) -> float:
 		var dd := maxf(absf(l.x) - float(fe.A), absf(l.y) - float(fe.B))
 		if str(fe.type) == "sinkhole":
 			dd = l.length() - float(fe.rf) * 1.45 - 25.0
+		elif k == 0 and str(fe.type) == "arch" and absf(l.x) < float(fe.wo) * 0.5:
+			# (a river on the floor may run under an arch: only its legs are in the way, 10 m kept from their inner faces)
+			dd = float(fe.wo) * 0.5 - absf(l.x) + 10.0
 		c = minf(c, dd - 20.0)
 	return c
+
+
+## a river's clearance at a point - none needed in or right by the lake it flows into (whatever stands in that lake)
+func _room(p: Vector2, k: int, lake_in: Dictionary) -> float:
+	if not lake_in.is_empty() and _in_lake(p, lake_in, 0.25):
+		return INF
+	return _clearance(p, k)
 
 
 ## the nearest point to p on level k with at least `need` m of clearance (or the clearest point within 500 m)
@@ -129,15 +150,19 @@ func plan() -> void:
 		var ang := deg_to_rad(float(lk[4]))
 		var ax: Vector2 = (r.axis_u as Vector2).rotated(ang)
 		var level := _ground(c, 0) - float(lk[6])
-		lakes.append({"c": c, "ax": ax, "t": Vector2(-ax.y, ax.x), "ra": float(lk[2]), "rb": float(lk[3]), "depth": float(lk[5]),
-			"level": level, "salt": lakes.size() * 17 + 3, "pool": false})
+		lakes.append(_lake(c, ax, float(lk[2]), float(lk[3]), float(lk[5]), level, false))
 	# each river, then its falls (where it leaves its level: its lip, its drop, the pool it lands in - a lake, or its own
 	# plunge pool, where the next river down may start)
+	_by_cfg = PackedInt32Array()
 	for i in cfg.rivers.size():
 		var rv: PackedFloat32Array = cfg.rivers[i]
 		var river := _plan_river(i, rv, rng)
+		_by_cfg.append(rivers.size())
 		rivers.append(river)
 		_plan_falls(river, rng)
+	# (a river flowing into a lake may have brought its level down: every fall lands on its lake's or pool's final level)
+	for f in falls:
+		f.bottom = float(lakes[int(f.into)].level)
 	# the sinkholes' pools
 	for fe in r.features:
 		if str(fe.type) == "sinkhole":
@@ -151,37 +176,76 @@ func plan() -> void:
 		var nr := 0
 		for kk in (river.kind as PackedByteArray):
 			nr += 1 if kk == 1 else 0
-		lines.append("%s: level %d, %.0f m long, %.0f - %.0f m wide, water from %.1f down to %.1f m (%d m of rapids)%s" % [river.name, river.level,
-			float(river.length), (river.hw as PackedFloat32Array)[0] * 2.0, (river.hw as PackedFloat32Array)[(river.hw as PackedFloat32Array).size() - 1] * 2.0,
-			(river.w as PackedFloat32Array)[0], (river.w as PackedFloat32Array)[(river.w as PackedFloat32Array).size() - 1], nr * 4,
-			"" if int(river.join) < 0 else (", splits off %s for a fall of its own" if river.get("split", false) else ", joins %s") % rivers[int(river.join)].name])
+		var hwa: PackedFloat32Array = river.hw
+		var wmin := INF
+		var wmax := 0.0
+		for v in hwa:
+			wmin = minf(wmin, v * 2.0)
+			wmax = maxf(wmax, v * 2.0)
+		var tail := ""
+		if int(river.join) >= 0:
+			tail = (", splits off %s for a fall of its own" if river.get("split", false) else ", joins %s") % rivers[int(river.join)].name
+		elif int(river.into) >= 0:
+			tail = ", flows into %s %d" % ["pool" if bool(lakes[int(river.into)].pool) else "lake", int(river.into) + 1]
+		lines.append("%s: level %d, %.0f m long, %.0f - %.0f m wide (%.0f at its end), water from %.1f down to %.1f m (%d m of rapids)%s" % [river.name,
+			river.level, float(river.length), wmin, wmax, hwa[hwa.size() - 1] * 2.0, (river.w as PackedFloat32Array)[0],
+			(river.w as PackedFloat32Array)[(river.w as PackedFloat32Array).size() - 1], nr * 4, tail])
 	report.rivers = lines
 
 
+## a lake or pool: its outline an ellipse warped by noise (bays and points), its bowl, its water level; ext = how far from its
+## centre its outline (and shore) can reach
+func _lake(c: Vector2, ax: Vector2, ra: float, rb: float, depth: float, level: float, pool: bool) -> Dictionary:
+	var lk := {"c": c, "ax": ax, "t": Vector2(-ax.y, ax.x), "ra": ra, "rb": rb, "depth": depth, "level": level, "salt": lakes.size() * 17.3 + 3.1,
+		"pool": pool}
+	lk.ext = (maxf(ra, rb) + float(cfg.lake_warp) * 0.75 * minf(ra, rb)) / 0.86 + SHORE + 4.0
+	return lk
+
+
 ## one river's course on its level: from its source (or the pool of the waterfall feeding it) meandering to a point inside its
-## mouth, then straight out over the edge; its width, its water level (stairs) and where its rapids are
+## mouth, then straight out over the edge (or on into the lake it flows into); its width - wide on the long calm treads, narrow
+## over the rapids, uneven, narrower where its level is - its water level (stairs) and where its rapids are
 func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -> Dictionary:
 	var k := int(rv[0])
 	var dk: PackedFloat32Array = r._d[k] if k > 0 else r._sink_neg()
 	var src: Vector2 = r._from_uv(Vector2(rv[1], rv[2]))
-	var join := int(rv[8]) if rv.size() > 8 else -1
-	var from := int(rv[9]) if rv.size() > 9 else -1
+	# (the settings number rivers in their own order: their places in rivers)
+	var join := _by_cfg[int(rv[8])] if rv.size() > 8 and rv[8] >= 0.0 else -1
+	var from := _by_cfg[int(rv[9])] if rv.size() > 9 and rv[9] >= 0.0 else -1
+	var into := -1
+	if rv.size() > 10 and rv[10] >= 0.0:
+		# (a lake by its number, or 100 + a river's number: the pool that river's waterfall lands in)
+		if rv[10] < 100.0:
+			into = int(rv[10])
+		else:
+			var fr2: Dictionary = rivers[_by_cfg[int(rv[10]) - 100]]
+			into = int((falls[int((fr2.falls as Array)[0])] as Dictionary).into)
 	var feed := {}
 	if from >= 0:
-		# (it starts at the pool of the waterfall of river `from`, on that pool's rim toward this river's mouth)
+		# (it starts at the pool of the waterfall of river `from`, inside that pool's rim toward this river's mouth)
 		var fr: Dictionary = rivers[from]
 		feed = falls[int((fr.falls as Array)[0])]
 		var pool: Dictionary = lakes[int(feed.into)]
 		var pc: Vector2 = pool.c
 		var mg: Vector2 = r._from_uv(Vector2(rv[3], rv[4]))
-		src = pc + (mg - pc).normalized() * minf(float(pool.ra), float(pool.rb)) * 0.8
+		src = pc + (mg - pc).normalized() * minf(float(pool.ra), float(pool.rb)) * 0.7
 	var hw_m: float = rv[5] * 0.5
+	var hw_lo := float(cfg.river_width_min) * 0.5
+	var hw_hi := float(cfg.river_width_max) * 0.5
+	# (the room kept round its course is for its narrower stretches: where its level is narrow, so is the river)
+	var need := maxf(hw_m * 0.8, hw_lo) + 25.0
 	if feed.is_empty():
-		src = _find_inside(src, k, hw_m + 30.0)
+		src = _find_inside(src, k, need + 5.0)
 	var mouth := Vector2.INF
 	var nrm := Vector2.ZERO
 	var target: Vector2
-	if join >= 0:
+	var lake_in: Dictionary = lakes[into] if into >= 0 and join < 0 else {}
+	if into >= 0 and join < 0:
+		# (into a lake: from its given shore point on some 30 m into the water)
+		var lk: Dictionary = lakes[into]
+		var m1: Vector2 = r._from_uv(Vector2(rv[3], rv[4]))
+		target = m1 + ((lk.c as Vector2) - m1).normalized() * 30.0
+	elif join >= 0:
 		# (a tributary: it ends on the river it joins, at the point there nearest its given mouth)
 		var main: Dictionary = rivers[join]
 		var want: Vector2 = r._from_uv(Vector2(rv[3], rv[4]))
@@ -213,7 +277,6 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 	for q in nseg + 1:
 		var t := float(q) / nseg
 		off[q] = amp * (0.75 * sin(TAU * f1 * t + p1) + 0.25 * sin(TAU * f2 * t + p2)) * pow(sin(PI * t), 0.6)
-	var need := hw_m + 25.0
 	# (round an obstacle as a whole: every blocked stretch looks up to 300 m to both sides for where it clears, and goes the way
 	# that needs the smaller shift - pushed one small step at a time it got caught between a sinkhole and a ravine)
 	for it in 60:
@@ -222,7 +285,7 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 		var any := false
 		for q in range(1, nseg):
 			var p0: Vector2 = src + dir * (L * float(q) / nseg)
-			if _clearance(p0 + side * off[q], k) < need:
+			if _room(p0 + side * off[q], k, lake_in) < need:
 				bad[q] = 1
 				any = true
 		if not any:
@@ -246,7 +309,7 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 					var dd := 300.0
 					var d := 10.0
 					while d <= 300.0:
-						if _clearance(p0 + side * (off[qq] + float(sg) * d), k) >= need:
+						if _room(p0 + side * (off[qq] + float(sg) * d), k, lake_in) >= need:
 							dd = d
 							break
 						d += 10.0
@@ -283,13 +346,26 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 			pts.append(q0.lerp(mouth + nrm * 11.0, float(q) / tail))
 	pts = _resample(pts, 4.0)
 	var n := pts.size()
-	# width: narrow at the source, full at the mouth, a little uneven
-	var nw: FastNoiseLite = r._n.rock
+	var sq_len := PackedFloat32Array()
+	sq_len.resize(n)
+	for q in range(1, n):
+		sq_len[q] = sq_len[q - 1] + pts[q].distance_to(pts[q - 1])
+	var length := sq_len[n - 1]
+	# width: a little narrower near the source, uneven along it (wide reaches, narrows), and no wider than its level leaves room
+	# for (its banks inside the level, clear of the level above and the features) - except over its last stretch, which is the
+	# falls' or the junction's
 	var hw := PackedFloat32Array()
 	hw.resize(n)
+	var room := PackedFloat32Array()
+	room.resize(n)
 	for q in n:
-		var t := float(q) / (n - 1)
-		hw[q] = hw_m * (0.55 + 0.45 * t) * (1.0 + 0.14 * nw.get_noise_1d(q * 3.1 + idx * 97.0))
+		var t := sq_len[q] / maxf(length, 1.0)
+		var nz := 0.24 * _wn.get_noise_1d(sq_len[q] / 170.0 + idx * 13.7) + 0.08 * _wn.get_noise_1d(sq_len[q] / 45.0 - idx * 5.3)
+		hw[q] = hw_m * (0.8 + 0.3 * t) * (1.0 + nz)
+		room[q] = INF
+		if length - sq_len[q] > (95.0 if mouth != Vector2.INF else 40.0) and sq_len[q] > (25.0 if not feed.is_empty() else 0.0):
+			room[q] = maxf(_clearance(pts[q], k) - 14.0, hw_lo)
+		hw[q] = clampf(minf(hw[q], room[q]), hw_lo, hw_hi)
 	# the ground along it (the lowest across its bed and banks), the water's envelope under it, then stairs
 	var g := PackedFloat32Array()
 	g.resize(n)
@@ -300,7 +376,9 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 		var tq := (pts[mini(q + 1, n - 1)] - pts[maxi(q - 1, 0)]).normalized()
 		var sq := Vector2(-tq.y, tq.x)
 		var m := INF
-		for o in [-(hw[q] + 8.0), -hw[q] * 0.5, 0.0, hw[q] * 0.5, hw[q] + 8.0]:
+		# (as wide as it may get on a calm tread)
+		var hs := hw[q] * 1.22
+		for o in [-(hs + 8.0), -hs * 0.5, 0.0, hs * 0.5, hs + 8.0]:
 			var pp: Vector2 = p + sq * float(o)
 			if r._gbil(dk, pp) > -2.0:
 				m = minf(m, _ground(pp, k))
@@ -313,6 +391,9 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 	for q in n:
 		if inside[q] == 1:
 			run = minf(run, g[q] - fb)
+		# (into a lake: down to the lake's level where it reaches the water)
+		if not lake_in.is_empty() and _lake_rho(pts[q], lake_in) < 1.0:
+			run = minf(run, float(lake_in.level))
 		e[q] = run
 	# (before its first point on the level - a pool's rim at a wall's foot - the level of that first point)
 	var first := INF
@@ -345,24 +426,50 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 		w[q] = cur
 		kind[q] = 0
 		q += 1
-	var length := 0.0
-	for qq in range(1, n):
-		length += pts[qq].distance_to(pts[qq - 1])
+	# wider on the long calm treads, narrower over the rapids (eased over some 40 m)
+	var fk := PackedFloat32Array()
+	fk.resize(n)
+	q = 0
+	while q < n:
+		var q1 := q
+		while q1 + 1 < n and kind[q1 + 1] == kind[q]:
+			q1 += 1
+		var f := 0.68 if kind[q] == 1 else 1.0 + 0.22 * smoothstep(60.0, 260.0, (q1 - q + 1) * 4.0)
+		for qq in range(q, q1 + 1):
+			fk[qq] = f
+		q = q1 + 1
+	for it in 2:
+		var sm := fk.duplicate()
+		for qq in n:
+			var acc := 0.0
+			for d in range(-5, 6):
+				acc += fk[clampi(qq + d, 0, n - 1)]
+			sm[qq] = acc / 11.0
+		fk = sm
+	for qq in n:
+		hw[qq] = clampf(minf(hw[qq] * fk[qq], room[qq]), hw_lo, hw_hi)
+		# (at least its mean width over its last 90 m before an edge: its falls are as wide as the river is, not as a narrow
+		# reach happens to be there)
+		if mouth != Vector2.INF and length - sq_len[qq] < 90.0:
+			hw[qq] = clampf(maxf(hw[qq], hw_m * lerpf(0.85, 1.05, smoothstep(90.0, 30.0, length - sq_len[qq]))), hw_lo, hw_hi)
+	if not lake_in.is_empty() and w[n - 1] < float(lake_in.level):
+		# (the lake lies at the level the river reaches it with: its water never stands above the river's)
+		lake_in.level = w[n - 1]
 	if not feed.is_empty():
 		# (the pool it starts from lies at its first tread's level; the waterfall above lands on it)
 		var pool2: Dictionary = lakes[int(feed.into)]
 		pool2.level = w[0]
 		feed.bottom = w[0]
 	var river := {"name": "river%d" % (idx + 1), "level": k, "pts": pts, "w": w, "hw": hw, "kind": kind, "join": join, "from": from,
-		"mouth": mouth, "nrm": nrm, "nfalls": int(rv[7]), "into": int(rv[10]) if rv.size() > 10 else -1, "length": length,
+		"mouth": mouth, "nrm": nrm, "nfalls": int(rv[7]), "into": into if join < 0 else -1, "length": length,
 		"depth": float(cfg.river_depth)}
 	var lo := Vector2(INF, INF)
 	var hi := -lo
 	for p in pts:
 		lo = lo.min(p)
 		hi = hi.max(p)
-	river.lo = lo - Vector2.ONE * (hw_m + BANK + 8.0)
-	river.hi = hi + Vector2.ONE * (hw_m + BANK + 8.0)
+	river.lo = lo - Vector2.ONE * (hw_hi + BANK + 8.0)
+	river.hi = hi + Vector2.ONE * (hw_hi + BANK + 8.0)
 	if join >= 0:
 		# (the junction's water at the main river's level there: the tributary steps down into it, never sits below it)
 		var main: Dictionary = rivers[join]
@@ -396,8 +503,10 @@ static func _resample(pts: PackedVector2Array, step: float) -> PackedVector2Arra
 	return out
 
 
-## a river's falls at its mouth: one, or several side by side (the river splits for its last stretch), each with its lip on
-## the edge, its drop to the water it lands in (a lake there, or its own plunge pool on the ground below)
+## a river's falls at its mouth: one about as wide as the river, or several side by side - each its own width, ribs of rock
+## of different widths between them, the side ones a little lower at their lips, and a pair close together fanning out until
+## they merge partway down - each with its lip on the edge and its drop to the water it lands in: a lake there, or one plunge
+## pool for them all on the ground below, sized by the drop
 func _plan_falls(river: Dictionary, rng: RandomNumberGenerator) -> void:
 	if (river.mouth as Vector2) == Vector2.INF:
 		return
@@ -406,49 +515,118 @@ func _plan_falls(river: Dictionary, rng: RandomNumberGenerator) -> void:
 	var mouth: Vector2 = river.mouth
 	var nrm: Vector2 = river.nrm
 	var tan_e := Vector2(-nrm.y, nrm.x)
-	var w_end: float = (river.w as PackedFloat32Array)[(river.w as PackedFloat32Array).size() - 1]
-	var hw_end: float = (river.hw as PackedFloat32Array)[(river.hw as PackedFloat32Array).size() - 1]
+	var wa: PackedFloat32Array = river.w
+	var hwa: PackedFloat32Array = river.hw
+	var n := hwa.size()
+	var w_end: float = wa[n - 1]
+	var hw_end: float = hwa[n - 1]
 	var nf: int = maxi(int(river.nfalls), 1)
-	var gap := maxf(hw_end * 1.25, 24.0)
+	var wmin := float(cfg.fall_width_min)
+	var wmax := float(cfg.fall_width_max)
+	var off0 := float(cfg.wall_face_offset)
+	# their widths and places along the edge (the river's own fall, k0, at its mouth; the others fed by side channels)
+	var widths := PackedFloat32Array()
+	var pos := PackedFloat32Array()
+	var gaps := PackedFloat32Array()
+	if nf == 1:
+		widths.append(clampf(hw_end * 2.0 * 0.92, wmin, wmax))
+		pos.append(0.0)
+	else:
+		var total := hw_end * 2.0 * rng.randf_range(1.35, 1.75)
+		var wts := PackedFloat32Array()
+		var sw := 0.0
+		for fi in nf:
+			wts.append(rng.randf_range(0.55, 1.45))
+			sw += wts[fi]
+		for fi in nf:
+			widths.append(clampf(total * wts[fi] / sw, wmin, wmax))
+		pos.append(0.0)
+		for fi in range(1, nf):
+			gaps.append(rng.randf_range(7.0, 22.0))
+			pos.append(pos[fi - 1] + widths[fi - 1] * 0.5 + gaps[fi - 1] + widths[fi] * 0.5)
+	var k0 := rng.randi_range(0, nf - 1) if nf > 1 else 0
+	var shift := pos[k0]
+	if nf > 1:
+		# (the river narrows to its own fall's width over its last 60 m)
+		for q in range(maxi(n - 16, 0), n):
+			var t := float(q - (n - 16)) / 15.0
+			hwa[q] = lerpf(hwa[q], widths[k0] * 0.55, smoothstep(0.0, 1.0, t))
+		river.hw = hwa
+	# each fall's lip, its top (the side ones 0 - 4.5 m lower), how it spreads as it falls; close pairs merge partway down
+	var lips := []
+	var tops := PackedFloat32Array()
+	var spreads := PackedFloat32Array()
+	var sways := PackedFloat32Array()
+	for fi in nf:
+		var lip: Vector2 = r._onto_edge(dk, mouth + tan_e * (pos[fi] - shift))
+		lips.append(lip)
+		tops.append(w_end if fi == k0 else w_end - (0.0 if rng.randf() < 0.25 else rng.randf_range(0.8, 4.5)))
+		spreads.append(rng.randf_range(0.3, 0.5))
+		sways.append(rng.randf_range(-0.02, 0.02))
+	var merges := []
+	for fi in nf - 1:
+		if gaps[fi] < 16.0 and rng.randf() < 0.7:
+			var fm := rng.randf_range(0.35, 0.65)
+			var need_sp := 2.2 * gaps[fi] / ((widths[fi] + widths[fi + 1]) * fm)
+			spreads[fi] = clampf(maxf(spreads[fi], need_sp), 0.3, 2.6)
+			spreads[fi + 1] = clampf(maxf(spreads[fi + 1], need_sp), 0.3, 2.6)
+			sways[fi] = 0.025
+			sways[fi + 1] = -0.025
+			merges.append("%d+%d at %.0f%%" % [fi + 1, fi + 2, fm * 100.0])
+	river.merges = merges
+	# where they land: a lake there, or one plunge pool for them all (bigger the further they fall, wide enough for all of them)
+	var land0: Vector2 = (lips[k0] as Vector2) + r._out_normal(dk, lips[k0]) * (off0 + 28.0)
+	var into := _lake_below(land0, k, w_end)
+	if into < 0:
+		var gb := _ground_below(land0, k)
+		var drop := w_end - gb
+		var dia := clampf(30.0 + 0.42 * drop, float(cfg.plunge_pool_min), float(cfg.plunge_pool_max))
+		var span := pos[nf - 1] - pos[0] + (widths[0] + widths[nf - 1]) * 0.5
+		var mid := Vector2.ZERO
+		for lp in lips:
+			mid += lp
+		mid /= nf
+		var ra := dia * 0.5 * 0.8
+		var rb := maxf(dia * 0.5, span * 0.5 + dia * 0.2)
+		var pool := _lake(mid + nrm * (off0 + ra * 0.7), nrm, ra, rb, 8.0 + drop * 0.02, gb - 0.8, true)
+		lakes.append(pool)
+		into = lakes.size() - 1
 	river.falls = []
 	for fi in nf:
-		var off := (fi - (nf - 1) * 0.5) * gap
-		var lip: Vector2 = r._onto_edge(dk, mouth + tan_e * off)
+		var lip: Vector2 = lips[fi]
 		var ln: Vector2 = r._out_normal(dk, lip)
-		var width := (hw_end * 2.0 * 0.8) if nf == 1 else hw_end * 0.9
-		width *= rng.randf_range(0.85, 1.1)
-		# the ground below: in front of the wall, past its foot
-		var land := lip + ln * (float(cfg.wall_face_offset) + 28.0)
-		var into := -1
-		for li in lakes.size():
-			if _in_lake(land, lakes[li], 0.0):
-				into = li
-		var level_below: float
-		if into >= 0:
-			level_below = float(lakes[into].level)
-		else:
-			# (its own plunge pool on the ground below)
-			var gb := _ground_below(land, k)
-			var pool_c := lip + ln * (float(cfg.wall_face_offset) + float(cfg.plunge_pool_radius) * 0.75)
-			lakes.append({"c": pool_c, "ax": ln, "t": tan_e, "ra": float(cfg.plunge_pool_radius) * 0.85, "rb": float(cfg.plunge_pool_radius) * (1.0 + 0.5 * (nf - 1)),
-				"depth": 8.0, "level": gb - 0.8, "salt": lakes.size() * 17 + 3, "pool": true})
-			into = lakes.size() - 1
-			level_below = gb - 0.8
-		var fall := {"lip": lip, "nrm": ln, "top": w_end, "bottom": level_below, "width": width, "into": into, "river": river.name,
-			"v0": rng.randf_range(2.4, 3.6), "sway": rng.randf_range(-0.025, 0.025), "name": "%s fall %d" % [river.name, fi + 1]}
+		var land := lip + ln * (off0 + 28.0)
+		var fin := _lake_below(land, k, tops[fi])
+		if fin < 0:
+			fin = into
+		var fall := {"lip": lip, "nrm": ln, "top": tops[fi], "bottom": float(lakes[fin].level), "width": widths[fi], "into": fin,
+			"river": river.name, "v0": rng.randf_range(2.6, 3.8), "sway": sways[fi], "spread": spreads[fi],
+			"name": "%s fall %d" % [river.name, fi + 1]}
 		falls.append(fall)
 		river.falls.append(falls.size() - 1)
-		if absf(off) > 1.0:
-			_split_channel(river, lip, ln, width)
+		if fi != k0:
+			_split_channel(river, lip, ln, widths[fi], tops[fi], rng)
 
 
-## a side channel for one of several falls side by side: from the river some 70 m before its mouth, curving out to that fall's
-## lip and over it (part of the river's mesh; its water from the river's level there down to the lip's)
-func _split_channel(river: Dictionary, lip: Vector2, ln: Vector2, width: float) -> void:
+## the lake a fall from level k lands in at a point: one whose outline holds it, lying on the ground below there (not one
+## on a terrace above, nor one whose warped outline reaches out over a lower canyon), well below the lip; -1 for none
+func _lake_below(land: Vector2, k: int, top: float) -> int:
+	var gb := _ground_below(land, k)
+	var found := -1
+	for li in lakes.size():
+		var lk: Dictionary = lakes[li]
+		if _in_lake(land, lk, 0.0) and absf(float(lk.level) - gb) < 8.0 and float(lk.level) < top - 20.0:
+			found = li
+	return found
+
+
+## a side channel for one of several falls side by side: from the river some 60 - 100 m before its mouth, curving out to that
+## fall's lip and over it (part of the river's mesh; its water from the river's level there down to the lip's)
+func _split_channel(river: Dictionary, lip: Vector2, ln: Vector2, width: float, top: float, rng: RandomNumberGenerator) -> void:
 	var pts: PackedVector2Array = river.pts
 	var w: PackedFloat32Array = river.w
 	var n := pts.size()
-	var qs := maxi(n - 1 - 20, 0)
+	var qs := maxi(n - 1 - rng.randi_range(15, 25), 0)
 	var a := pts[qs]
 	var b := lip - ln * 22.0
 	var ctl := a.lerp(b, 0.5) + (pts[mini(qs + 4, n - 1)] - a).normalized() * 18.0
@@ -468,9 +646,9 @@ func _split_channel(river: Dictionary, lip: Vector2, ln: Vector2, width: float) 
 	ck.resize(m)
 	for q in m:
 		var t := float(q) / (m - 1)
-		cw[q] = lerpf(w[qs], w[n - 1], smoothstep(0.0, 1.0, t))
+		cw[q] = lerpf(w[qs], top, smoothstep(0.0, 1.0, t))
 		ch[q] = lerpf((river.hw as PackedFloat32Array)[qs] * 0.6, width * 0.55, t)
-		ck[q] = 1 if w[qs] - w[n - 1] > 0.8 else 0
+		ck[q] = 1 if w[qs] - top > 0.8 else 0
 	var lo := Vector2(INF, INF)
 	var hi := -lo
 	for p in cp:
@@ -494,24 +672,41 @@ func _ground_below(p: Vector2, k: int) -> float:
 ## whether a lake's or pool's water is at a point (inside its outline, its bowl low enough)
 func _in_lake_water(p: Vector2) -> bool:
 	for lk in lakes:
-		if _lake_rho(p, lk) < 0.98 and r.height_at(p) < float(lk.level) + 1.0:
-			return true
+		if p.distance_squared_to(lk.c) > float(lk.ext) * float(lk.ext):
+			continue
+		if _lake_rho(p, lk) < 0.98 and not _off_floor_edge(p, lk):
+			var gh: float = r.height_at(p)
+			if gh < float(lk.level) + 1.0 and gh > float(lk.level) - float(lk.depth) - 3.0:
+				return true
 	return false
 
 
+## whether a point is too near the sunk canyon's edge for a lake on the valley floor (the canyon's own lake: never)
+func _off_floor_edge(p: Vector2, lk: Dictionary) -> bool:
+	return float(lk.level) > float(r.floor_h) - 40.0 and r._gbil(r._sink_neg(), p) < 18.0
+
+
 func _in_lake(p: Vector2, lk: Dictionary, margin: float) -> bool:
+	if p.distance_squared_to(lk.c) > float(lk.ext) * float(lk.ext):
+		return false
 	return _lake_rho(p, lk) < 1.0 + margin
 
 
-## a lake's normalized radius at a point (1 on its outline): an ellipse, its outline bent by noise
+## a lake's normalized radius at a point (1 on its outline): an ellipse seen through a domain warp - the point pushed about by
+## two octaves of smooth noise (in units of the lake's smaller radius, so a long lake gets more bays along its length) - and its
+## radius rippled by a finer one: bays and points, never a clean oval. A pool's warp is gentler (a fall must land in it).
 func _lake_rho(p: Vector2, lk: Dictionary) -> float:
 	var rel: Vector2 = p - (lk.c as Vector2)
-	var a := rel.dot(lk.ax) / float(lk.ra)
-	var b := rel.dot(lk.t) / float(lk.rb)
-	var th := atan2(b, a)
-	var nw: FastNoiseLite = r._n.rock
-	var bend := 1.0 + 0.16 * nw.get_noise_2d(cos(th) * 1.7 + float(lk.salt), sin(th) * 1.7) + 0.06 * nw.get_noise_2d(cos(th) * 5.0 - float(lk.salt), sin(th) * 5.0)
-	return sqrt(a * a + b * b) / bend
+	var rm := minf(float(lk.ra), float(lk.rb))
+	var q := rel / rm
+	var sl: float = lk.salt
+	var amp := float(cfg.lake_warp) * (0.6 if bool(lk.pool) else 1.0) * rm
+	var wx := _wn.get_noise_2d(q.x * 0.9 + sl, q.y * 0.9) * 0.55 + _wn.get_noise_2d(q.x * 2.3 - sl, q.y * 2.3 + 7.0) * 0.2
+	var wy := _wn.get_noise_2d(q.x * 0.9 + sl + 31.0, q.y * 0.9 - 17.0) * 0.55 + _wn.get_noise_2d(q.x * 2.3 + 5.0, q.y * 2.3 - sl) * 0.2
+	var r2 := rel + Vector2(wx, wy) * amp
+	var a := r2.dot(lk.ax) / float(lk.ra)
+	var b := r2.dot(lk.t) / float(lk.rb)
+	return sqrt(a * a + b * b) * (1.0 + 0.1 * _wn.get_noise_2d(q.x * 3.6 + sl * 2.0, q.y * 3.6 - sl))
 
 
 func _grid_segments(river: Dictionary) -> Dictionary:
@@ -574,7 +769,8 @@ func heights(p: Vector2, h: float) -> float:
 		var hwq: float = nr[3]
 		if d > hwq + BANK:
 			continue
-		var depth: float = float(river.depth) * (0.7 + 0.3 * clampf(float(nr[1]) / (river.pts as PackedVector2Array).size(), 0.0, 1.0))
+		# (deeper the wider it is, and a little deeper downstream)
+		var depth: float = float(river.depth) * clampf(hwq / 18.0, 0.8, 1.5) * (0.85 + 0.15 * clampf(float(nr[1]) / (river.pts as PackedVector2Array).size(), 0.0, 1.0))
 		var bed: float
 		if d < hwq:
 			bed = w - 0.3 - depth * (1.0 - pow(d / hwq, 2.0))
@@ -586,17 +782,28 @@ func heights(p: Vector2, h: float) -> float:
 			continue
 		h = minf(h, bed)
 	for lk in lakes:
-		# (a quick reject first: the outline's noise bends it by at most about a quarter)
-		if p.distance_squared_to(lk.c) > pow(maxf(float(lk.ra), float(lk.rb)) * 1.3, 2.0):
+		# (a quick reject first: how far its warped outline and its shore can reach)
+		if p.distance_squared_to(lk.c) > float(lk.ext) * float(lk.ext):
+			continue
+		var lvl: float = lk.level
+		# (only the low ground: a lake fills the floor round it, it never cuts into a plateau or a terrace)
+		if h > lvl + 6.0:
+			continue
+		# (and on the valley floor never within 18 m of the sunk canyon's edge: the ground there keeps the water's edge hidden)
+		if _off_floor_edge(p, lk):
 			continue
 		var rho := _lake_rho(p, lk)
+		var rm := minf(float(lk.ra), float(lk.rb))
 		if rho >= 1.0:
+			# (its shore: the ground round it eased down to the rim, so a lake lying lower than its floor has no step)
+			var d_out := (rho - 1.0) * rm
+			if d_out < SHORE and h > lvl + 0.4:
+				h = minf(h, lerpf(lvl + 0.4, h, smoothstep(0.0, 1.0, d_out / SHORE)))
 			continue
-		# (only the low ground: a lake fills the floor round it, it never cuts into a plateau or a terrace)
-		if h > float(lk.level) + 3.0:
+		if h > lvl + 3.0:
 			continue
-		var dist_in := (1.0 - rho) * minf(float(lk.ra), float(lk.rb))
-		var bed: float = float(lk.level) + 0.4 - (float(lk.depth) + 0.4) * smoothstep(0.0, 1.0, dist_in / maxf(minf(float(lk.ra), float(lk.rb)) * 0.45, 12.0))
+		var dist_in := (1.0 - rho) * rm
+		var bed: float = lvl + 0.4 - (float(lk.depth) + 0.4) * smoothstep(0.0, 1.0, dist_in / maxf(rm * 0.45, 12.0))
 		h = minf(h, bed)
 	for sk in sinks:
 		var fe: Dictionary = sk.fe
@@ -657,18 +864,27 @@ func build() -> void:
 		meshes.append(_sink_mesh(sk))
 	for fi in falls.size():
 		meshes.append(_fall_mesh(fi))
-		meshes.append(_splash_mesh(fi))
+		meshes.append(_foam_mesh(fi))
 		meshes.append(_spray_mesh(fi))
+		meshes.append(_drops_mesh(fi))
 		var f: Dictionary = falls[fi]
-		lines.append("%s: %.0f m (from %.0f down to %.0f m), %.0f m wide, into %s" % [f.name, float(f.top) - float(f.bottom), f.top, f.bottom,
-			f.width, "its plunge pool" if bool(lakes[int(f.into)].pool) else "lake %d" % (int(f.into) + 1)])
+		var lk: Dictionary = lakes[int(f.into)]
+		var into_s := "lake %d" % (int(f.into) + 1)
+		if bool(lk.pool):
+			into_s = "its plunge pool (%d, %.0f x %.0f m)" % [int(f.into) + 1, float(lk.ra) * 2.0, float(lk.rb) * 2.0]
+		lines.append("%s: %.0f m (from %.0f down to %.0f m), %.0f m wide (%.0f m at its foot), into %s" % [f.name, float(f.top) - float(f.bottom),
+			f.top, f.bottom, f.width, float(f.width) * (1.0 + float(f.spread)), into_s])
+	for river in rivers:
+		if not (river.get("merges", []) as Array).is_empty():
+			lines.append("%s: falls %s merge on their way down" % [river.name, ", ".join(river.merges)])
 	for m in _mist_meshes():
 		meshes.append(m)
 	report.falls = lines
 	var ll := []
 	for li in lakes.size():
 		var lk: Dictionary = lakes[li]
-		ll.append("%s %d: level %.1f m, %.0f x %.0f m, %.0f m deep" % ["pool" if bool(lk.pool) else "lake", li + 1, lk.level, float(lk.ra) * 2.0, float(lk.rb) * 2.0, lk.depth])
+		ll.append("%s %d: level %.1f m, %.0f x %.0f m before its outline is warped, %.0f m deep" % ["pool" if bool(lk.pool) else "lake", li + 1, lk.level,
+			float(lk.ra) * 2.0, float(lk.rb) * 2.0, lk.depth])
 	report.lakes = ll
 	var tris := 0
 	for m in meshes:
@@ -781,7 +997,7 @@ func _grid_tris(m: Dictionary, vid: PackedInt32Array, na: int, nb: int) -> void:
 func _lake_mesh(li: int) -> Dictionary:
 	var lk: Dictionary = lakes[li]
 	var level: float = lk.level
-	var ext := maxf(float(lk.ra), float(lk.rb)) * 1.3 + 10.0
+	var ext: float = lk.ext
 	var c: Vector2 = lk.c
 	var gs := 4.0 if not bool(lk.pool) else 2.0
 	var lo := c - Vector2.ONE * ext
@@ -802,14 +1018,21 @@ func _lake_mesh(li: int) -> Dictionary:
 			if _lake_rho(p, lk) > 1.08:
 				continue
 			var ground: float = r.height_at(p)
-			if ground > level + 1.5:
+			if ground > level + 1.5 or ground < level - float(lk.depth) - 3.0:
+				continue
+			if _off_floor_edge(p, lk):
 				continue
 			vid[j * na + i] = vs.size()
 			vs.append(Vector3(p.x - cc.x, level, p.y - cc.y))
 			var ring := 99.0
 			for sg in range(0, rings.size(), 2):
 				ring = minf(ring, _pt_seg(p, rings[sg], rings[sg + 1]))
-			cs.append(Color(0.0, 0.25, 1.0, 1.0))
+			# (alpha: fading out over the last 12 m before it stops short of the sunk canyon's edge - the rim dips below the
+			# water there, so no shore hides where the surface ends)
+			var fade := 1.0
+			if level > float(r.floor_h) - 40.0:
+				fade = smoothstep(18.0, 30.0, r._gbil(r._sink_neg(), p))
+			cs.append(Color(0.0, 0.25, 1.0, fade))
 			uv.append(Vector2.ZERO)
 			uv2.append(Vector2(level - ground, ring))
 	m.verts = vs
@@ -904,7 +1127,10 @@ func _sink_mesh(sk: Dictionary) -> Dictionary:
 				ring = minf(ring, _pt_seg(p, rings[sg], rings[sg + 1]))
 			cs.append(Color(0.0, 0.15, 1.0, 1.0))
 			uv.append(Vector2.ZERO)
-			uv2.append(Vector2(level - ground, ring))
+			# (the depth the shader colours by: the true depth near the shore, then as shallow as that over the floor, deepening
+			# only over the bowl in the middle - turquoise round a dark heart)
+			var dw := level - ground
+			uv2.append(Vector2(dw if dw < 1.0 else 1.0 + maxf(dw - float(cfg.sinkhole_pool_level), 0.0) * 0.6, ring))
 	m.verts = vs
 	m.colors = cs
 	m.uv = uv
@@ -940,7 +1166,7 @@ func _fall_mesh(fi: int) -> Dictionary:
 		var y := top - minf(fall, drop)
 		var out := v0 * tt * (1.0 - 0.25 * tt / T)
 		var fr := minf(fall / drop, 1.0)
-		var wid: float = float(f.width) * (1.0 + 0.35 * fr)
+		var wid: float = float(f.width) * (1.0 + float(f.spread) * pow(fr, 1.2))
 		var ctr := lip + nrm * (off0 + out) + tng * (float(f.sway) * fall)
 		for c in cols:
 			var u := float(c) / (cols - 1)
@@ -951,7 +1177,7 @@ func _fall_mesh(fi: int) -> Dictionary:
 			vs.append(Vector3(p.x - cc.x, y, p.y - cc.y))
 			uvs.append(Vector2(u, fr))
 			uv2s.append(Vector2(minf(fall, drop), drop))
-			cs.append(Color(float(fi) * 0.137, 0.0, 0.0, 1.0))
+			cs.append(Color(float(fi) * 0.137, wid / 100.0, 0.0, 1.0))
 	var idx := PackedInt32Array()
 	for k in rows:
 		for c in cols - 1:
@@ -981,126 +1207,41 @@ func _fall_mesh(fi: int) -> Dictionary:
 	return m
 
 
-## the splash where a fall meets its pool: chunky white blobs heaped round the impact, each with its own phase (they swell and
-## bob); colour r = phase, g = size
-func _splash_mesh(fi: int) -> Dictionary:
+## where a fall meets the water: a sheet of white foam on the surface round its foot, spreading outward (a disc stretched along
+## the fall's width, pushed out from the wall; uv: across, out, the rim at 1; colour r = its own seed, g = its reach out / 100 m,
+## b = the fall's width at its foot / 100 m), for the foam shader
+func _foam_mesh(fi: int) -> Dictionary:
 	var f: Dictionary = falls[fi]
-	var m := _surface("splash")
-	var rng := RandomNumberGenerator.new()
-	rng.seed = r.seed_value + 9100 + fi
+	var m := _surface("foam")
 	var nrm: Vector2 = f.nrm
 	var tng := Vector2(-nrm.y, nrm.x)
 	var drop: float = float(f.top) - float(f.bottom)
-	var T := sqrt(2.0 * drop / G)
-	var out: float = float(f.v0) * T * 0.75
-	var hit: Vector2 = (f.lip as Vector2) + nrm * (float(cfg.wall_face_offset) + 0.5 + out)
-	var base_y: float = f.bottom
-	var wid: float = float(f.width) * 1.35
+	var hit := _fall_hit(f)
+	var wb: float = float(f.width) * (1.0 + float(f.spread))
+	var r0 := 14.0 + drop * 0.12
+	var ra := wb * 0.5 + r0
+	var c2 := hit + nrm * r0 * 0.3
+	var y: float = float(f.bottom) + 0.12
 	var cc := Vector2(r.center.x, r.center.y)
-	var ico := _icosphere()
-	var vs := PackedVector3Array()
-	var ns := PackedVector3Array()
-	var cs := PackedColorArray()
-	var idx := PackedInt32Array()
-	var nb := 16 + int(wid / 6.0)
-	for b in nb:
-		var ring := b >= 5
-		var ang := rng.randf() * TAU
-		var dist := rng.randf_range(0.2, 0.75) * wid if ring else rng.randf_range(0.0, 0.25) * wid
-		var c2 := hit + tng * cos(ang) * dist + nrm * sin(ang) * dist * 0.7
-		var rad := rng.randf_range(2.5, 5.0) if ring else rng.randf_range(5.0, 8.5)
-		rad *= clampf(wid / 14.0, 0.7, 1.6)
-		var cy := base_y + rad * (0.15 if ring else 0.45)
-		var o := vs.size()
-		var ph := rng.randf()
-		for v in ico[0]:
-			var vv: Vector3 = v
-			vs.append(Vector3(c2.x - cc.x, cy, c2.y - cc.y) + vv * Vector3(rad, rad * 0.8, rad))
-			ns.append(vv)
-			cs.append(Color(ph, rad / 10.0, 0.0, 1.0))
-		for t in (ico[1] as PackedInt32Array):
-			idx.append(o + t)
-	m.verts = vs
-	m.normals = ns
-	m.colors = cs
-	m.indices = idx
-	var uv := PackedVector2Array()
-	uv.resize(vs.size())
-	m.uv = uv
-	m.uv2 = uv.duplicate()
-	return m
-
-
-## a low icosphere (one subdivision): [vertices on the unit sphere, triangles wound for Godot]
-static func _icosphere() -> Array:
-	var t := (1.0 + sqrt(5.0)) * 0.5
-	var v := [Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0), Vector3(0, -1, t), Vector3(0, 1, t),
-		Vector3(0, -1, -t), Vector3(0, 1, -t), Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
-	var f := [0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8, 3, 9, 4, 3, 4, 2,
-		3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1]
-	var verts := PackedVector3Array()
-	for p in v:
-		verts.append((p as Vector3).normalized())
-	var mid := {}
-	var tris := PackedInt32Array()
-	for i in range(0, f.size(), 3):
-		var a: int = f[i]
-		var b: int = f[i + 1]
-		var c: int = f[i + 2]
-		var ab := _mid(verts, mid, a, b)
-		var bc := _mid(verts, mid, b, c)
-		var ca := _mid(verts, mid, c, a)
-		tris.append_array(PackedInt32Array([a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca]))
-	# (wound clockwise seen from outside, as Godot draws front faces)
-	for i in range(0, tris.size(), 3):
-		var p0 := verts[tris[i]]
-		var n0 := (verts[tris[i + 1]] - p0).cross(verts[tris[i + 2]] - p0)
-		if n0.dot(p0) > 0.0:
-			var sw := tris[i + 1]
-			tris[i + 1] = tris[i + 2]
-			tris[i + 2] = sw
-	return [verts, tris]
-
-
-static func _mid(verts: PackedVector3Array, mid: Dictionary, a: int, b: int) -> int:
-	var key := Vector2i(mini(a, b), maxi(a, b))
-	if mid.has(key):
-		return mid[key]
-	verts.append(((verts[a] + verts[b]) * 0.5).normalized())
-	mid[key] = verts.size() - 1
-	return verts.size() - 1
-
-
-## the spray at a fall's foot: big soft billboards round it rising slowly and fading (every corner at its quad's centre; uv the
-## corner, colour r = phase, g = size, b = rise)
-func _spray_mesh(fi: int) -> Dictionary:
-	var f: Dictionary = falls[fi]
-	var m := _surface("spray")
-	var rng := RandomNumberGenerator.new()
-	rng.seed = r.seed_value + 9500 + fi
-	var nrm: Vector2 = f.nrm
-	var tng := Vector2(-nrm.y, nrm.x)
-	var drop: float = float(f.top) - float(f.bottom)
-	var T := sqrt(2.0 * drop / G)
-	var hit: Vector2 = (f.lip as Vector2) + nrm * (float(cfg.wall_face_offset) + 0.5 + float(f.v0) * T * 0.75)
-	var wid: float = float(f.width) * 1.35
-	var cc := Vector2(r.center.x, r.center.y)
+	var rings := 12
+	var segs := 48
 	var vs := PackedVector3Array()
 	var uv := PackedVector2Array()
 	var cs := PackedColorArray()
+	for j in rings + 1:
+		var sr := float(j) / rings
+		for i in segs:
+			var a := TAU * i / segs
+			var p := c2 + tng * cos(a) * ra * sr + nrm * sin(a) * r0 * 1.15 * sr
+			vs.append(Vector3(p.x - cc.x, y, p.y - cc.y))
+			uv.append(Vector2(cos(a), sin(a)) * sr)
+			cs.append(Color(float(fi) * 0.173, r0 / 100.0, wb / 100.0, 1.0))
 	var idx := PackedInt32Array()
-	for q in 10:
-		var ang := rng.randf() * TAU
-		var dist := rng.randf_range(0.0, 1.0) * wid
-		var c2 := hit + tng * cos(ang) * dist + nrm * (absf(sin(ang)) * dist * 0.8 + 6.0)
-		var size := rng.randf_range(0.9, 1.8) * clampf(wid * 1.6, 22.0, 60.0)
-		var y: float = float(f.bottom) + rng.randf_range(2.0, 0.15 * drop + 6.0)
-		var o := vs.size()
-		for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-			vs.append(Vector3(c2.x - cc.x, y, c2.y - cc.y))
-			uv.append(cr)
-			cs.append(Color(rng.randf(), size / 100.0, rng.randf_range(0.10, 0.25) * drop / 100.0, 1.0))
-		idx.append_array(PackedInt32Array([o, o + 1, o + 2, o, o + 2, o + 3]))
+	for j in rings:
+		for i in segs:
+			var a0 := j * segs + i
+			var b0 := j * segs + (i + 1) % segs
+			idx.append_array(PackedInt32Array([a0, b0, a0 + segs, b0, b0 + segs, a0 + segs]))
 	m.verts = vs
 	m.uv = uv
 	m.uv2 = uv.duplicate()
@@ -1113,16 +1254,133 @@ func _spray_mesh(fi: int) -> Dictionary:
 	return m
 
 
-## mist lying in the deep canyons below the plateaus' tops: two sheets at different heights over every stretch of low ground
-## with cliffs close on both sides (and over the sunk canyon), thinning out toward the cliffs; per vertex the mist's thickness
+## where a fall's sheet reaches its pool (its middle, as the sheet's curve has it there)
+func _fall_hit(f: Dictionary) -> Vector2:
+	var drop: float = float(f.top) - float(f.bottom)
+	var T := sqrt(2.0 * maxf(drop, 1.0) / G)
+	return (f.lip as Vector2) + (f.nrm as Vector2) * (float(cfg.wall_face_offset) + 0.5 + float(f.v0) * T * 0.75)
+
+
+## the spray at a fall's foot: billowing clouds of mist - big soft puffs low on the water rolling outward from it, and a plume
+## rising up the fall's lower part - every corner of a quad at its centre; uv the corner, uv2 how far it drifts (m, x / z),
+## colour r = phase, g = size / 100 m, b = rise / 100 m, a = its pace
+func _spray_mesh(fi: int) -> Dictionary:
+	var f: Dictionary = falls[fi]
+	var m := _surface("spray")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = r.seed_value + 9500 + fi
+	var nrm: Vector2 = f.nrm
+	var tng := Vector2(-nrm.y, nrm.x)
+	var drop: float = float(f.top) - float(f.bottom)
+	var hit := _fall_hit(f)
+	var wb: float = float(f.width) * (1.0 + float(f.spread))
+	var r0 := 14.0 + drop * 0.12
+	var bottom: float = f.bottom
+	var cc := Vector2(r.center.x, r.center.y)
+	var vs := PackedVector3Array()
+	var uv := PackedVector2Array()
+	var uv2 := PackedVector2Array()
+	var cs := PackedColorArray()
+	var idx := PackedInt32Array()
+	var nb := 12 + int(wb / 8.0)
+	var np := 6 + int(drop / 40.0)
+	for q in nb + np:
+		var base := q < nb
+		var x := rng.randf_range(-0.5, 0.5) * wb
+		var fwd := rng.randf_range(0.0, 0.45) * r0 if base else rng.randf_range(-3.0, 8.0)
+		var c2 := hit + tng * x + nrm * fwd
+		var size: float
+		var y: float
+		var rise: float
+		var drift := Vector2.ZERO
+		if base:
+			size = rng.randf_range(0.35, 0.65) * (r0 + wb * 0.35)
+			y = bottom + size * 0.3
+			rise = rng.randf_range(0.02, 0.06) * drop + 4.0
+			var outd := (tng * x / maxf(wb * 0.5, 1.0) + nrm * rng.randf_range(0.6, 1.0)).normalized()
+			drift = outd * rng.randf_range(0.5, 1.1) * r0
+		else:
+			size = rng.randf_range(0.5, 0.85) * (wb * 0.45 + 10.0 + drop * 0.05)
+			y = bottom + rng.randf_range(0.05, 0.22) * drop
+			rise = rng.randf_range(0.12, 0.28) * drop
+			drift = nrm * rng.randf_range(4.0, 14.0)
+		var ph := rng.randf()
+		var pace := rng.randf_range(0.7, 1.3)
+		var o := vs.size()
+		for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+			vs.append(Vector3(c2.x - cc.x, y, c2.y - cc.y))
+			uv.append(cr)
+			uv2.append(drift)
+			cs.append(Color(ph, size / 100.0, rise / 100.0, pace))
+		idx.append_array(PackedInt32Array([o, o + 1, o + 2, o, o + 2, o + 3]))
+	m.verts = vs
+	m.uv = uv
+	m.uv2 = uv2
+	m.colors = cs
+	m.indices = idx
+	var ns := PackedVector3Array()
+	ns.resize(vs.size())
+	ns.fill(Vector3.UP)
+	m.normals = ns
+	return m
+
+
+## fine spray at a fall's foot: many small drops thrown out of the impact in arcs and falling back (each a tiny billboard: its
+## launch point; uv the corner, uv2 its horizontal speed (m/s, x / z), colour r = phase, g = size / 10 m, b = upward speed / 50
+## m/s, a = its pace)
+func _drops_mesh(fi: int) -> Dictionary:
+	var f: Dictionary = falls[fi]
+	var m := _surface("drops")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = r.seed_value + 9900 + fi
+	var nrm: Vector2 = f.nrm
+	var tng := Vector2(-nrm.y, nrm.x)
+	var drop: float = float(f.top) - float(f.bottom)
+	var hit := _fall_hit(f)
+	var wb: float = float(f.width) * (1.0 + float(f.spread))
+	var cc := Vector2(r.center.x, r.center.y)
+	var vs := PackedVector3Array()
+	var uv := PackedVector2Array()
+	var uv2 := PackedVector2Array()
+	var cs := PackedColorArray()
+	var idx := PackedInt32Array()
+	var nd := mini(50 + int(wb * 1.5), 140)
+	for q in nd:
+		var x := rng.randf_range(-0.5, 0.5) * wb
+		var c2 := hit + tng * x + nrm * rng.randf_range(-2.0, 4.0)
+		var dir := (nrm * rng.randf_range(0.3, 1.0) + tng * rng.randf_range(-0.8, 0.8)).normalized()
+		var vh := rng.randf_range(3.0, 9.0) + drop * 0.03
+		var vv := rng.randf_range(6.0, 13.0) + drop * 0.035
+		var size := rng.randf_range(0.5, 1.5) + drop * 0.004
+		var ph := rng.randf()
+		var pace := rng.randf_range(0.8, 1.3)
+		var o := vs.size()
+		for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+			vs.append(Vector3(c2.x - cc.x, float(f.bottom) + 0.5, c2.y - cc.y))
+			uv.append(cr)
+			uv2.append(dir * vh)
+			cs.append(Color(ph, size / 10.0, vv / 50.0, pace))
+		idx.append_array(PackedInt32Array([o, o + 1, o + 2, o, o + 2, o + 3]))
+	m.verts = vs
+	m.uv = uv
+	m.uv2 = uv2
+	m.colors = cs
+	m.indices = idx
+	var ns := PackedVector3Array()
+	ns.resize(vs.size())
+	ns.fill(Vector3.UP)
+	m.normals = ns
+	return m
+
+
+## mist lying in the deep canyon below the plateaus' tops: soft clouds over the sunk canyon - thick in its middle, thinning out
+## toward its walls, their tops uneven, swaying slowly; the pillars and walls stand up through them
 func _mist_meshes() -> Array:
 	var out := []
 	var gc: float = 16.0
 	var half: float = r.half
 	var nn := int(2.0 * half / gc)
 	var c0 := Vector2(r.center.x - half, r.center.y - half)
-	var low := PackedByteArray()
-	low.resize(nn * nn)
 	var hgt := PackedFloat32Array()
 	hgt.resize(nn * nn)
 	var floor_h: float = r.floor_h
@@ -1131,35 +1389,12 @@ func _mist_meshes() -> Array:
 			var p := c0 + Vector2(i + 0.5, j + 0.5) * gc
 			var h: float = r.height_at(p)
 			hgt[j * nn + i] = h
-			low[j * nn + i] = 1 if h < floor_h + 25.0 else 0
-	# canyon: low ground with higher ground within reach on both sides (along one of four directions)
-	var reach := int(float(cfg.mist_canyon_width) * 0.5 / gc)
+	# the deep canyon: all of the sunk canyon's floor (in the valleys a low deck lay like snow at the walls' feet)
 	var mask := PackedFloat32Array()
 	mask.resize(nn * nn)
-	var dirs := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1)]
 	for j in nn:
 		for i in nn:
-			if low[j * nn + i] == 0:
-				continue
-			var hit := false
-			for dv in dirs:
-				var dd: Vector2i = dv
-				var a := false
-				var b := false
-				for s in range(1, reach + 1):
-					var ia := i + dd.x * s
-					var ja := j + dd.y * s
-					if not a and ia >= 0 and ja >= 0 and ia < nn and ja < nn and hgt[ja * nn + ia] > floor_h + 80.0:
-						a = true
-					var ib := i - dd.x * s
-					var jb := j - dd.y * s
-					if not b and ib >= 0 and jb >= 0 and ib < nn and jb < nn and hgt[jb * nn + ib] > floor_h + 80.0:
-						b = true
-				if a and b:
-					hit = true
-					break
-			# (and the sunk canyon, all of it)
-			if hit or hgt[j * nn + i] < floor_h - 40.0:
+			if hgt[j * nn + i] < floor_h - 40.0:
 				mask[j * nn + i] = 1.0
 	# thickness: blurred so it thins out toward the mask's edge
 	for it in 4:
@@ -1172,39 +1407,63 @@ func _mist_meshes() -> Array:
 						s += mask[(j + dj) * nn + i + di]
 				bl[j * nn + i] = minf(s / 9.0, mask[j * nn + i] * 1.0 + 0.0) if it < 2 else s / 9.0
 		mask = bl
+	# the clouds: big soft puffs on a jittered 34 m grid over the mask - one where it is thin, two where it is thick, higher
+	# and bigger and denser toward the canyon's middle (so the deck's top is uneven), none inside a pillar or a wall; each
+	# swaying slowly along the canyon (every corner of a quad at its centre; uv the corner, uv2 how far it sways (m, x / z),
+	# colour r = phase, g = size / 100 m, b = its opacity, a = its pace)
+	var deck: PackedFloat32Array = cfg.mist_deck
+	var m := _surface("cloud")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = r.seed_value + 7300
 	var cc := Vector2(r.center.x, r.center.y)
-	var layers: PackedFloat32Array = cfg.mist_layers
-	for li in layers.size():
-		var m := _surface("mist")
-		var vid := PackedInt32Array()
-		vid.resize(nn * nn)
-		vid.fill(-1)
-		var vs: PackedVector3Array = m.verts
-		var cs: PackedColorArray = m.colors
-		var uv: PackedVector2Array = m.uv
-		for j in nn:
-			for i in nn:
-				var th := mask[j * nn + i]
-				if th < 0.03:
+	var vs := PackedVector3Array()
+	var uv := PackedVector2Array()
+	var uv2 := PackedVector2Array()
+	var cs := PackedColorArray()
+	var idx := PackedInt32Array()
+	var sp := 34.0
+	var ns := int(2.0 * half / sp)
+	var wind := Vector2(1.0, 0.3).normalized()
+	for j in ns:
+		for i in ns:
+			var p := c0 + (Vector2(i, j) + Vector2(rng.randf(), rng.randf())) * sp
+			var fx := clampf((p.x - c0.x) / gc - 0.5, 0.0, nn - 1.001)
+			var fz := clampf((p.y - c0.y) / gc - 0.5, 0.0, nn - 1.001)
+			var i0 := int(fx)
+			var j0 := int(fz)
+			var ux := fx - i0
+			var uz := fz - j0
+			var th := lerpf(lerpf(mask[j0 * nn + i0], mask[j0 * nn + i0 + 1], ux), lerpf(mask[(j0 + 1) * nn + i0], mask[(j0 + 1) * nn + i0 + 1], ux), uz)
+			if th < 0.08:
+				continue
+			var cnt := 2 if th > 0.55 and rng.randf() < 0.7 else 1
+			for c in cnt:
+				var q := p + Vector2(rng.randf_range(-10.0, 10.0), rng.randf_range(-10.0, 10.0))
+				var y := floor_h - 86.0 + deck[0] + th * rng.randf_range(0.15, 1.0) * deck[1]
+				var gh: float = r.height_at(q)
+				if gh > y - 6.0:
 					continue
-				var p := c0 + Vector2(i + 0.5, j + 0.5) * gc
-				var base_h := floor_h if hgt[j * nn + i] > floor_h - 40.0 else floor_h - 86.0
-				var y := base_h + layers[li]
-				# (never above the ground's own top there: no mist sheet through a plateau)
-				if hgt[j * nn + i] > y - 8.0:
-					continue
-				vid[j * nn + i] = vs.size()
-				vs.append(Vector3(p.x - cc.x, y, p.y - cc.y))
-				cs.append(Color(smoothstep(0.0, 0.8, th), float(li), 0.0, 1.0))
-				uv.append(Vector2(p.x, p.y))
-		m.verts = vs
-		m.colors = cs
-		m.uv = uv
-		var uv2 := PackedVector2Array()
-		uv2.resize(vs.size())
-		m.uv2 = uv2
-		_grid_tris(m, vid, nn, nn)
-		out.append(m)
+				var size := (0.55 + 0.55 * th) * rng.randf_range(30.0, 52.0)
+				var drift := wind.rotated(rng.randf_range(-0.4, 0.4)) * rng.randf_range(12.0, 30.0)
+				var ph := rng.randf()
+				var pace := rng.randf_range(0.7, 1.3)
+				var o := vs.size()
+				for cr in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					vs.append(Vector3(q.x - cc.x, y, q.y - cc.y))
+					uv.append(cr)
+					uv2.append(drift)
+					cs.append(Color(ph, size / 100.0, 0.3 + 0.55 * th, pace))
+				idx.append_array(PackedInt32Array([o, o + 1, o + 2, o, o + 2, o + 3]))
+	m.verts = vs
+	m.uv = uv
+	m.uv2 = uv2
+	m.colors = cs
+	m.indices = idx
+	var nrm := PackedVector3Array()
+	nrm.resize(vs.size())
+	nrm.fill(Vector3.UP)
+	m.normals = nrm
+	out.append(m)
 	return out
 
 

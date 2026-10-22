@@ -35,7 +35,7 @@ extends RefCounted
 
 const BaseGen := preload("res://scripts/world/base_terrain_gen.gd")
 const Water := preload("res://scripts/world/tepui_water.gd")
-const VERSION := 8
+const VERSION := 9
 ## which way the game's sun (main.gd) shines across the ground
 const SUN_TRAVEL := Vector2(0.573, -0.820)
 ## two levels' edges closer than this are one wall (from the lower level's foot up into the upper level)

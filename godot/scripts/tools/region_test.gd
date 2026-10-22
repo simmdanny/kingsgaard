@@ -67,10 +67,11 @@ func _initialize() -> void:
 				var lv: Vector3 = fe.views[vk][1]
 				vw[vk] = [pv.x, pv.z, pv.y - region.height_at(Vector2(pv.x, pv.z)), lv.x, lv.z, lv.y - region.height_at(Vector2(lv.x, lv.z))]
 			avs.append({"name": fe.name, "type": fe.type, "views": vw, "wo": fe.get("wo", 0.0), "ho": fe.get("ho", 0.0), "bake_s": fe.bake_s, "bake_lod_s": fe.get("bake_lod_s", 0.0), "tris_lod": fe.get("tris_lod", []),
-				"tris": fe.tris, "top": fe.top, "ground": fe.ground, "c": [(fe.c as Vector2).x, (fe.c as Vector2).y]})
+				"tris": fe.tris, "top": fe.top, "ground": fe.ground, "c": [(fe.c as Vector2).x, (fe.c as Vector2).y],
+				"A": fe.A, "B": fe.B, "axis": [(fe.axis as Vector2).x, (fe.axis as Vector2).y]})
 		var data := {"features": avs, "feature_lines": region.report.get("features", []), "table": region.objects, "lines": lines, "center": [region.center.x, region.center.y], "half": region.half,
 			"floor": region.floor_h, "levels": Array(rcfg.level_heights), "bookmarks": bms, "axis": [region.axis_u.x, region.axis_u.y]}
-		# the water: every fall (its lip, outward normal, top, bottom, width), lake and river (its course every 16 m)
+		# the water: every fall (its lip, outward normal, top, bottom, width), lake and river (its course and half width every 16 m)
 		if region.water != null:
 			var wf := []
 			for f in region.water.falls:
@@ -84,10 +85,13 @@ func _initialize() -> void:
 			var wr := []
 			for rv in region.water.rivers:
 				var pts := []
+				var hws := []
 				var rp: PackedVector2Array = rv.pts
+				var rh: PackedFloat32Array = rv.hw
 				for q in range(0, rp.size(), 4):
 					pts.append([rp[q].x, rp[q].y])
-				wr.append({"name": rv.name, "level": rv.level, "pts": pts})
+					hws.append(rh[q])
+				wr.append({"name": rv.name, "level": rv.level, "pts": pts, "hw": hws})
 			var ws := []
 			for sk in region.water.sinks:
 				var sc: Vector2 = sk.fe.c

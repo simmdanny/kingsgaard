@@ -2,6 +2,17 @@
 
 Known issues kept for later, not fixed yet. Newest first.
 
+## Tepui region water (noted 2026-10-22, the phase 3 revision)
+
+- **The terrain's 4 m step shows beside river6's falls.** Where the valley lake meets the sunk canyon's step, the rim dips
+  below the lake's water, so the lake now stops 18 m short of the edge and fades out; from high views the heightmap's
+  staircase along the rim shows between the lake and river6's lips. Now: `_off_floor_edge` / the fade in `_lake_mesh`
+  (`tepui_water.gd`); a fix would raise a sill under the lake there or let river6's surface cover the strip.
+- **The cascade in ref1 is small in the frame.** ref1's own falls (river10, off the west plateau's top terrace) sit 1.65 km
+  away above the near headland's skyline: visible, about 12 px wide each at 585 x 1040. Anything lower on that wall is
+  hidden by the SW plateau's north-east headland (same height, 930 m from the camera).
+- **Spray and canyon clouds are not sorted per billboard** (one mesh each): now and then a far puff draws over a near one.
+
 ## Tepui region (noted 2026-10-20, after phase 2 was approved)
 
 - **Overhang drips look like round wax blobs.** They should read as lumpy rock, slightly tapered.
