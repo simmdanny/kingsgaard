@@ -92,12 +92,13 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
   `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`, `--camfile=cams.txt` (many `--cam` shots in one run, one
   "out.png x,z,h,tx,tz,th" per line). (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
-## Tepui region (phases 1, 2 done; phase 3: water, revised)
+## Tepui region (phases 1 - 3 done; phase 4A: materials and atmosphere)
 
 The first region, built on the base terrain: a land of tables - a flat floor, six big flat-topped plateaus standing on it
 (two of them stacked in terraces), sheer walls, narrow canyons and a wide valley (`scripts/world/tepui_region.gd`, every key
-value in `region_settings.gd` - a `RegionSettings` resource; seeded, same seed + settings = same region). Greybox for now:
-flat colours (the ground a little lighter the higher it is), pale grey walls, no grass, no paths or buildings.
+value in `region_settings.gd` - a `RegionSettings` resource; seeded, same seed + settings = same region). Its look (phase 4A,
+below): pale limestone, lush grass, a hazy blue distance and big soft clouds; no grass blades, trees, paths or buildings yet
+(`greybox` in the settings brings back the flat colours the landforms were judged in).
 - **Where:** a 4 x 4 km square centred on map (4000, -1496) (picked automatically once, now pinned in the settings so a
   change to the base terrain cannot move it): highland / high-plateau ground (56% / 43%) with mountains in view. The floor is flat at the island's middle height there (408 m, gentle swells of +-3 m) and blends
   back into the island's ground across a 280 m border band, so the region sits in the island without a seam. No 4 km
@@ -199,51 +200,64 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   between its legs; a river into a lake keeps no distance from what stands in that lake). 25 - 60 m wide (`river_width_min` /
   `max`, each river a mean width): a little narrower near the source, uneven along it (noise over ~170 m and ~45 m), up to
   22% wider on its long calm treads, a third narrower over its rapids, eased over 40 m, and never wider than its level leaves
-  room for its banks. Their water is stairs, never a ramp: the lowest ground across the bed and banks along the course
-  (sampled as wide as a calm tread gets), its running minimum, then flat treads and short risers - rapids, the water sloped
-  over 8 - 28 m, fast and foaming - wherever it steps down more than 0.8 m; only the edge itself gets a waterfall. Beds 2.5 m
-  deep (0.8 - 1.5 times that, the wider the deeper) with banks easing into the ground over 12 m. A river into a lake steps
-  down to the lake's level where it reaches the water, and a lake never stands above the river feeding it (lake 3 lies 0.7 m
-  lower for it). One merged surface per river system; far off the water is drawn a little nearer the camera along the line of
-  sight (as much as covers up to 6 m of height error at that viewing angle), so Terrain3D's coarse far rings, their vertices
-  on a river's banks, no longer cut it into dashes. Eleven rivers: river1 1.9 km across P2 into the canyon lake; river2 (0.9
-  km, P2) now its own river, falling in two strands into the canyon lake in front of ref3; river3 and river4 the stairs of
-  P1; river5 across P3 into its three falls, whose pool feeds river8 (1.2 km on the floor, north past arch1's leg into lake
-  3); river6 from the valley lake over the sunk canyon's step; river7 (0.75 km) across the west plateau, falling in three
-  strands toward ref4, its pool feeding river9 (0.5 km) into lake 3; river10 (0.44 km) across the west plateau's top terrace,
-  falling in two strands onto the terrace below in ref1's view, its pool feeding river11, which joins river7.
+  room for its banks. No sharp corner anywhere: every bend at least twice the river's mean width in radius (`_smooth_turns`:
+  a point turning more sharply is pulled toward its neighbours, sweep after sweep, until none does; the meander flat at both
+  ends), the run-in to a fall a curve meeting the edge square 40 m before it, a side channel long enough to swing its
+  sideways offset at that radius (river8 had a canal's right angle past arch1). Their water is stairs, never a ramp: the
+  lowest ground across the bed and banks along the course (sampled as wide as a calm tread gets), its running minimum, then
+  flat treads and short risers - rapids, the water sloped over 8 - 28 m, fast and foaming - wherever it steps down more than
+  0.8 m; only the edge itself gets a waterfall. Beds 2.5 m deep (0.8 - 1.5 times that, the wider the deeper) with banks
+  easing into the ground over 12 m. A river into a lake steps down to the lake's level where it reaches the water, and a lake
+  never stands above the river feeding it (lake 3 lies 0.7 m lower for it). One merged surface per river system; far off the
+  water is drawn a little nearer the camera along the line of sight (as much as covers up to 6 m of height error at that
+  viewing angle), so Terrain3D's coarse far rings, their vertices on a river's banks, no longer cut it into dashes. Eleven
+  rivers: river1 1.9 km across P2 into the canyon lake; river2 (0.9 km, P2) now its own river, falling in two strands into
+  the canyon lake in front of ref3; river3 and river4 the stairs of P1; river5 across P3 into its three falls, whose pool
+  feeds river8 (1.2 km on the floor, north past arch1's leg into lake 3); river6 from the valley lake over the sunk canyon's
+  step; river7 (0.75 km) across the west plateau, falling in three strands toward ref4, its pool feeding river9 (0.5 km) into
+  lake 3; river10 (0.44 km) across the west plateau's top terrace, falling in two strands onto the terrace below in ref1's
+  view, its pool feeding river11, which joins river7.
   **Waterfalls** where a river leaves its level, 15 - 60 m wide (`fall_width_min` / `max`): one about as wide as its river,
   or several side by side - together 1.35 - 1.75 times the river's width, each its own share of it, ribs of rock 7 - 22 m
-  wide between them; one is the river's own, the others fed by side channels splitting off 60 - 100 m before the edge, their
-  lips 0.8 - 4.5 m lower (or level), so no two are the same. A sheet spreads 30 - 50% as it falls; a pair less than 16 m
-  apart fans out further and merges partway down (35 - 65% of the drop). The wall's top comes down under the water at each
-  lip and its face stays plain for 25 m either side. The sheet leaves the lip level and bends down (a projectile's curve
-  slowed by the air), clear of the face, curved across, 3 m into the water below; glossy and clear at the lip, a streak every
-  few metres racing down, white by a fifth of the way down, a wide sheet parting into curtains lower down, soft torn edges.
-  At its foot (`shaders/region_foam.gdshader`, `region_mist.gdshader`): white foam on the water, solid at the foot, breaking
-  up into lace and rings drifting outward; billowing mist - big soft puffs rolling outward over the water and a plume rising
-  up the fall, soft all the way out and faded where they meet the water or the rock (the depth texture, which the sea reads
-  anyway) - and fine drops thrown out in arcs. Each is checked with horizontal rays down its middle every metre
-  (`check_falls`, in the region test's report): all 15 (86 - 273 m) pass, no ray through a gap, every sheet's foot 3 m under
-  the water. river1 one fall 46 m wide (208 m); river2 43 + 24 m (215 / 217 m, merging 60% of the way down); river3 33 m (117
-  m); river4 39 m (130 m); river5 three of 32, 28 and 40 m (263 - 266 m, lips at 669 / 672 / 670 m); river6 24 + 49 m (86 m,
-  merging); river7 three of 36, 17 and 40 m (270 - 273 m, two merging at 43%); river10 31 + 34 m (127 / 131 m).
+  wide between them; one is the river's own, the others fed by side channels splitting off 60 - 260 m before the edge, their
+  lips on the nearest real edge within 60 m (snapping onto the edge could leap to another edge: river6's second fall once
+  landed 420 m away at another plateau's foot), their lips 0.8 - 4.5 m lower (or level), so no two are the same. A sheet
+  spreads 30 - 50% as it falls; a pair less than 16 m apart fans out further and merges partway down (35 - 65% of the drop).
+  The wall's top comes down under the water at each lip and its face stays plain for 25 m either side. The sheet leaves the
+  lip level and bends down (a projectile's curve slowed by the air), clear of the face, curved across, 3 m into the water
+  below; glossy and clear at the lip, a streak every few metres racing down, white by a fifth of the way down, a wide sheet
+  parting into curtains lower down, soft torn edges. At its foot (`shaders/region_foam.gdshader`, `region_mist.gdshader`):
+  white foam on the water, solid at the foot, breaking up into lace and rings drifting outward; billowing mist - big soft
+  puffs rolling outward over the water and a plume rising up the fall, soft all the way out and faded where they meet the
+  water or the rock (the depth texture, which the sea reads anyway) - and fine drops thrown out in arcs. Each is checked with
+  horizontal rays down its middle every metre (`check_falls`, in the region test's report): all 15 (84 - 273 m) pass, no ray
+  through a gap, every sheet's foot 3 m under the water, every sheet reaching 22 - 35 m out from its lip and at most 7 m past
+  its own width (the long red fans in the debug views from above were perspective - 270 m sheets seen from a camera a few
+  hundred metres over them; the debug views now look straight down, orthographic, `shot.gd --overview=x,z,size`). river1 one
+  fall 46 m wide (210 m); river2 43 + 24 m (215 / 217 m, merging 60% of the way down); river3 33 m (113 m); river4 39 m (130
+  m); river5 three of 22, 28 and 40 m (263 - 266 m, lips at 671 / 672 / 669 m, two merging at 45%); river6 34 + 36 m (84 / 86
+  m, merging at 40%) off the sunk canyon's west end, where its step faces the valley lake; river7 three of 47, 19 and 35 m
+  (271 - 273 m, two merging at 55%); river10 38 + 24 m (135 / 136 m).
   **Lakes** (`lakes`) at the cliffs' feet on the low ground and **plunge pools**: no oval anywhere - each outline an ellipse
   seen through a domain warp (two octaves of smooth noise in units of its smaller radius, `lake_warp`; a long lake gets more
   bays along its length) and its radius rippled by a finer one: bays and points. A lake's bowl only where the ground is low
   (never into a plateau), 9 - 10 m deep in the middle, the ground round it eased down to its rim over 10 m; its surface only
-  over its own bowl (the valley lake's outline reaching out over the sunk canyon drew a sheet of water in the air there). A
-  plunge pool, where the falls do not land in a lake, is one for all of a river's falls: 30 m + 0.42 x the drop across,
-  within 60 - 150 m (`plunge_pool_min` / `max`), wide enough for all of them, its outline warped more gently, 8 m + 2% of the
-  drop deep, and the next river starts in it. The canyon lake round pillar1 (water at 320.5 m; 260 x 840 m before the warp)
-  fills the sunk canyon's floor from river6's step to past river2's falls; the valley lake round pillar4 (406.7 m, 360 x 540
-  m) stops 18 m short of the sunk canyon's edge, where the rim dips below its water, and fades out there; lake 3 round
-  pillar2 (406.0 m, 330 x 450 m) takes river4's fall, river8 and river9. Plunge pools: 63 x 79 m (river3's 117 m fall), 113 x
-  198 m (the triple falls, 263 - 266 m), 115 x 180 m (river7, 270 - 273 m), 68 x 117 m (river10, 127 - 131 m). Every sinkhole
-  has a pool 6 m over its floor and 10 m deeper in the middle, filling the floor - turquoise over the floor, dark only over
-  the bowl. The surfaces (`shaders/region_water.gdshader`) take everything from their vertices and read no depth texture:
-  clear turquoise in the shallows to teal in the deep, foam along the shores, streaming over the rapids and in a ring round
-  each pillar, ripples moving with the flow.
+  over its own bowl (the valley lake's outline reaching out over the sunk canyon drew a sheet of water in the air there), its
+  shoreline a contour, not the grid: a field over the grid - negative in the water: the ground below the level, inside the
+  outline, over the bowl, clear of the sunk canyon's edge - cut along its zero by marching squares, each crossing placed
+  where the field crosses on its cell's edge, the surface fading out over the last stretch to the shore (the grid's staircase
+  showed from above round the valley lake and river9's pools; sinkhole pools the same). A plunge pool, where the falls do not
+  land in a lake, is one for all of a river's falls: 30 m + 0.42 x the drop across, within 60 - 150 m (`plunge_pool_min` /
+  `max`), wide enough for all of them, its outline warped more gently, 8 m + 2% of the drop deep, and the next river starts
+  in it. The canyon lake round pillar1 (water at 320.5 m; 260 x 840 m before the warp) fills the sunk canyon's floor from
+  river6's step to past river2's falls; the valley lake round pillar4 (406.7 m, 360 x 540 m) stops 18 m short of the sunk
+  canyon's edge, where the rim dips below its water, and fades out there; lake 3 round pillar2 (406.0 m, 330 x 450 m) takes
+  river4's fall, river8 and river9. Plunge pools: 61 x 77 m (river3's 113 m fall), 113 x 180 m (the triple falls, 263 - 266
+  m), 115 x 183 m (river7, 271 - 273 m), 69 x 114 m (river10, 135 - 136 m). Every sinkhole has a pool 6 m over its floor and
+  10 m deeper in the middle, filling the floor - turquoise over the floor, dark only over the bowl. The surfaces
+  (`shaders/region_water.gdshader`) take everything from their vertices and read no depth texture: clear turquoise in the
+  shallows to teal in the deep, foam along the shores, streaming over the rapids and in a ring round each pillar, ripples
+  moving with the flow.
   **Mist** in the deep canyon (`mist_deck`; the sunk canyon only - in the valleys it lay like snow at the walls' feet): big
   soft clouds on a jittered 34 m grid over the canyon's floor - one where the mist is thin, two where it is thick, higher
   (18 - 70 m over the floor), bigger and denser toward the canyon's middle, so its top is uneven - each swaying slowly to and
@@ -255,6 +269,32 @@ flat colours (the ground a little lighter the higher it is), pale grey walls, no
   spray and mist. Building it: the plan 2 - 3 s, the meshes ~25 s on a cool laptop; 310k triangles. Drawing it at 1920 x
   1080: 3.1 - 7.9 ms of GPU per frame (alternating pairs, `shot.gd --perfpairs`; before the revision 2.0 - 3.6 ms), most in
   ref4 (the triple falls' spray, river8) and ref3 (the canyon's clouds, the falls' spray).
+- **Look** (phase 4A; `region_settings.gd` `greybox` off; the grass blades and trees, `vegetation`, come in phase 4B): the
+  references' colours and mood, not their painting. **Rock** (`shaders/region_wall.gdshader`, one material for the walls,
+  arches, supports, overhangs, pillars and sinkholes): pale limestone - big soft patches between a cool pale grey and a warm
+  sandy grey, soft horizontal bands where the layers run, long vertical streaks of staining and darker runnels down the
+  faces, all mapped triplanar in map coordinates (no stretching on any face; the finest detail fading out with the metres per
+  pixel, no shimmer far off); undersides of overhangs and arches a little darker; darker, cooler, glossy and streaked beside
+  and below every waterfall (the falls' lips and feet kept in the region's cache, `water_falls`, and passed to the material).
+  The **talus** at the walls' feet is the same rock, darker and browner, the grass creeping up its flatter toe. **Grass**
+  (`shaders/region_ground.gdshaderinc`, shared by the terrain and the rock's grassed tops so the carpet runs on over a lip
+  without a seam): a lush saturated green in large soft patches - yellower sunlit meadows, deeper green hollows - over some
+  400, 130 and 30 m and a fine mottle near the camera, wrapping well over the cliffs' rounded lips with a ragged edge. The
+  warm and the cool come from the light: a warm sun lower and more to the side (31 degrees up, its azimuth kept: the layout
+  is turned to it), the blue sky filling the shade (no black shadows). **Atmosphere** (`main.gd` `_region_atmosphere`): a
+  strong blue haze (exponential fog, aerial perspective from the sky's colour, a little warm scatter toward the sun) that
+  fades the far plateaus and the mountains; the sky (`shaders/sky_clouds.gdshader`) a deep blue overhead paling to the
+  horizon, a soft sun in a warm glow, big soft stylized clouds - heaped, their tops lit from the sun's side, their bellies a
+  cool blue-grey, thinning into the haze toward the horizon; still (no time), so the sky's light for the ambient and the
+  reflections is worked out once. Frame time at 1920 x 1080 with the look (alternating pairs, shot.gd --perfpairs; this
+  laptop, its CPU kept busy by other apps part of the time, which slows its shared GPU): 57 - 72 ms per frame (14 - 18 fps),
+  17 - 22 ms more than the greybox of phase 3 (38 - 50 ms) - the walls 6.6 - 14 ms (2.6 - 6.9 in greybox: the limestone's
+  noise, looked up only on the projection planes a face uses), the carved rock 3.3 - 6.2, the water 3.7 - 10.4, the terrain
+  up to 11.5, MSAA 2x 14 - 18, the shadows 3.8 - 5.5, the sky and post-processing a fixed 10 - 11 (the clouds at half
+  resolution; per pixel at full resolution they cost 3 - 5 ms more). MSAA off, a 67% render scale (FSR), the sea off and
+  smaller shadow maps: 25 - 30 ms (33 - 40 fps). Before the grass and trees: MSAA (FXAA instead) and the render scale first,
+  then the rock's detail far away (its colour baked into the meshes, or a cheaper far shader) and the wet rock worked out
+  once into the meshes instead of per vertex every frame.
 - **Bookmarks:** 4 cameras after the reference pictures (`bookmark_views`, in layout coordinates; an 8th number puts the
   camera that far in from the nearest rim) - ref1 on a terrace's rim looking along its cliff line, the drop on the left,
   overhang1 jutting out ahead, the stacked terraces and the mountains beyond (placed with a planner over the exported

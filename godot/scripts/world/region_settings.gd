@@ -206,7 +206,7 @@ extends Resource
 	PackedFloat32Array([2.0, -333.0, 974.0, -382.0, 388.0, 34.0, 0.12, 1.0, -1.0, -1.0]),
 	PackedFloat32Array([1.0, 0.0, 0.0, -390.0, 252.0, 40.0, 0.05, 1.0, -1.0, 2.0]),
 	PackedFloat32Array([2.0, -1024.0, -1094.0, -1318.0, -36.0, 58.0, 0.12, 3.0, -1.0, -1.0]),
-	PackedFloat32Array([0.0, 150.0, 330.0, 158.0, 411.0, 40.0, 0.0, 2.0, -1.0, -1.0]),
+	PackedFloat32Array([0.0, 150.0, 330.0, 145.0, 386.0, 40.0, 0.0, 2.0, -1.0, -1.0]),
 	PackedFloat32Array([2.0, -205.0, -1273.0, -214.0, -596.0, 56.0, 0.10, 3.0, -1.0, -1.0]),
 	PackedFloat32Array([0.0, 0.0, 0.0, -542.0, 42.0, 36.0, 0.06, 0.0, -1.0, 4.0, 2.0]),
 	PackedFloat32Array([0.0, 0.0, 0.0, -338.0, -110.0, 32.0, 0.05, 0.0, -1.0, 6.0, 2.0]),
@@ -255,8 +255,14 @@ extends Resource
 }
 
 @export_group("Look")
-## greybox: flat colours only (terrain and walls), grass hidden - while the landforms are being judged
-@export var greybox := true
+## greybox: flat colours only (terrain and walls), grass hidden - while the landforms are being judged; off: the region's look
+## (phase 4A: limestone rock, lush grass, the sky with its clouds, the blue haze, the warm low sun)
+@export var greybox := false
+## the grass blades (phase 4B, later): off for now, whatever the game's grass setting
+@export var vegetation := false
+## the sun's shadows reach this far from the camera (m) with four cascades (the plateaus' own shadows across the valley); the
+## game's default (90 m, two cascades) when 0
+@export var shadow_reach := 0.0
 
 
 ## a key for the cache: changes whenever any setting (or the generator version) changes

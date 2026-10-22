@@ -112,6 +112,8 @@ func _ready() -> void:
 		rig.camera.far = 60000.0
 		_env.fog_density = 0.00008
 		ocean.size = 100000.0
+	if region_cfg != null and not region_cfg.greybox:
+		_region_atmosphere()
 	if Shot.orbit != Vector2.ZERO:
 		rig.dist = Shot.orbit.x
 		rig.pitch = deg_to_rad(-Shot.orbit.y)
@@ -151,8 +153,8 @@ func apply_settings() -> void:
 	get_viewport().scaling_3d_scale = sc
 	_sun.shadow_enabled = Settings.shadows > 0
 	RenderingServer.directional_shadow_atlas_set_size(1024 if Settings.shadows == 1 else 2048, true)
-	# (no grass while a region's landforms are greybox)
-	grass.set_density(0.0 if region_cfg != null and region_cfg.greybox else [0.0, 0.5, 1.0][Settings.grass])
+	# (no grass while a region is greybox or has its vegetation off)
+	grass.set_density(0.0 if region_cfg != null and (region_cfg.greybox or not region_cfg.vegetation) else [0.0, 0.5, 1.0][Settings.grass])
 	foliage.set_reach([0.6, 1.0][Settings.trees])
 	rig.sensitivity = Settings.sensitivity
 	_hud.visible = Settings.info
@@ -204,6 +206,27 @@ func _environment() -> void:
 	add_child(sun)
 	_sun = sun
 	_env = env
+
+
+## the region's atmosphere (phase 4A): the sky with big soft clouds, a deep blue fill in the shade, a strong blue haze that
+## fades the far plateaus and the mountains, the warm sun lower and more to the side
+func _region_atmosphere() -> void:
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = load("res://shaders/sky_clouds.gdshader")
+	_env.sky.sky_material = sky_mat
+	_env.ambient_light_energy = 0.62
+	_env.fog_light_color = Color(0.52, 0.67, 0.91)
+	_env.fog_density = 0.00034
+	_env.fog_aerial_perspective = 0.75
+	_env.fog_sun_scatter = 0.12
+	_env.fog_sky_affect = 0.0
+	_sun.rotation_degrees = Vector3(-31.0, -35.0, 0.0)
+	_sun.light_color = Color(1.0, 0.89, 0.74)
+	_sun.light_energy = 1.55
+	if region_cfg.shadow_reach > 0.0:
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		_sun.directional_shadow_max_distance = region_cfg.shadow_reach
+		_sun.shadow_blur = 2.0
 
 
 func _input_map() -> void:
@@ -437,6 +460,11 @@ func _spawn() -> void:
 		if Shot.overview_target == "region" and terrain.region != null:
 			over_c = Vector3(terrain.region.center.x, 0.0, terrain.region.center.y)
 			over_size = terrain.region.half * 2.0 + 200.0
+		elif Shot.overview_target.count(",") == 2:
+			# ("x,z,size": a square of the map that size round that point, still straight down - no perspective)
+			var ov := Shot.overview_target.split(",")
+			over_c = Vector3(float(ov[0]), 0.0, float(ov[1]))
+			over_size = float(ov[2])
 		origin.recenter(origin.to_local_pos(over_c))
 		var mid: Vector3 = origin.to_local_pos(over_c + Vector3(0.0, 6000.0, 0.0))
 		rig.pinned = true

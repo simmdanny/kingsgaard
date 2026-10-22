@@ -76,6 +76,10 @@ uniform vec3 greybox_col : source_color = vec3(0.47, 0.57, 0.38);
 // (and lighter with height above the region's floor, greybox_floor, up to greybox_span m above it: the levels read apart)
 uniform float greybox_floor = 0.0;
 uniform float greybox_span = 450.0;
+// the region's look (phase 4A): its lush grass (region_ground.gdshaderinc, shared with the rock's grassed tops) for the clean
+// base terrain's ground
+uniform bool region_look = false;
+#include "res://shaders/region_ground.gdshaderinc"
 // where the local origin is on the map (scripts/world/floating_origin.gd)
 global uniform vec2 world_offset;
 // the region's snap map: per 4 m sample, x / z (m) to the nearest sample at the edge of its own terrace (huge = none); the
@@ -355,6 +359,13 @@ void fragment() {
 		col = land ? mix(vec3(0.80, 0.82, 0.78) * (0.75 + 0.25 * w_normal.y), vec3(0.88, 0.10, 0.10), biomes ? 0.0 : cm.b) : vec3(0.12, 0.30, 0.60);
 	} else if (greybox) {
 		col = greybox_col * mix(0.36, 1.3, clamp((wh - greybox_floor) / greybox_span, 0.0, 1.0));
+		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
+	} else if (!biomes && region_look) {
+		// the region's lush grass: large soft patches, yellower meadows and deeper hollows (its finest mottle fading out far
+		// away); steeper ground - ramps, banks - a little deeper and warmer
+		float fine = 1.0 - smoothstep(0.25, 1.4, length(fwidth(v_vertex)));
+		col = region_lawn(wp, fine);
+		col = mix(col, col * vec3(0.84, 0.86, 0.66), smoothstep(10.0, 38.0, slope) * 0.5);
 		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
 	} else if (!biomes) {
 		// the clean base terrain: one grass, a little uneven, and shaded by slope (the steeper, the deeper and warmer its green)

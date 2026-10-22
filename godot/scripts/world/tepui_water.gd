@@ -259,7 +259,9 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 		var m0: Vector2 = r._from_uv(Vector2(rv[3], rv[4]))
 		mouth = _find_edge(dk, m0, k)
 		nrm = r._out_normal(dk, mouth)
-		target = mouth - nrm * 70.0
+		# (the course ends this far back from the edge: room for its last bend at the minimum radius - twice its width)
+		var l_end := minf(40.0 + 2.6 * float(rv[5]), maxf(src.distance_to(mouth) * 0.6, 50.0))
+		target = mouth - nrm * l_end
 	# the meander: a sum of sines across the straight line, zero at both ends, then kept clear of edges and features
 	var base := target - src
 	var L := base.length()
@@ -276,7 +278,7 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 	off.resize(nseg + 1)
 	for q in nseg + 1:
 		var t := float(q) / nseg
-		off[q] = amp * (0.75 * sin(TAU * f1 * t + p1) + 0.25 * sin(TAU * f2 * t + p2)) * pow(sin(PI * t), 0.6)
+		off[q] = amp * (0.75 * sin(TAU * f1 * t + p1) + 0.25 * sin(TAU * f2 * t + p2)) * pow(sin(PI * t), 1.5)
 	# (round an obstacle as a whole: every blocked stretch looks up to 300 m to both sides for where it clears, and goes the way
 	# that needs the smaller shift - pushed one small step at a time it got caught between a sinkhole and a ravine)
 	for it in 60:
@@ -330,20 +332,25 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 	var pts := PackedVector2Array()
 	for q in nseg + 1:
 		pts.append(src + dir * (L * float(q) / nseg) + side * off[q])
-	# smooth curves: Chaikin twice, then 4 m steps
-	for it in 2:
-		var ch := PackedVector2Array([pts[0]])
-		for q in pts.size() - 1:
-			ch.append(pts[q].lerp(pts[q + 1], 0.25))
-			ch.append(pts[q].lerp(pts[q + 1], 0.75))
-		ch.append(pts[pts.size() - 1])
-		pts = ch
 	if mouth != Vector2.INF:
-		# (then straight out to the edge and 10 m past it, over the wall's lip to its face's top)
-		var q0 := pts[pts.size() - 1]
-		var tail := int(q0.distance_to(mouth + nrm * 11.0) / 4.0)
-		for q in range(1, tail + 1):
-			pts.append(q0.lerp(mouth + nrm * 11.0, float(q) / tail))
+		# (then a cubic from the course's end, along its heading, to 40 m before the edge, square to it; then straight out to
+		# the edge and 10 m past it, over the wall's lip to its face's top)
+		var e_in := mouth - nrm * 40.0
+		var p_end := pts[pts.size() - 1]
+		var t_end := (p_end - pts[maxi(pts.size() - 2, 0)]).normalized()
+		var span_in := p_end.distance_to(e_in)
+		if span_in > 8.0:
+			var c1 := p_end + t_end * span_in * 0.45
+			var c2 := e_in - nrm * span_in * 0.45
+			for q in range(1, 17):
+				var t := float(q) / 16.0
+				var u := 1.0 - t
+				pts.append(p_end * u * u * u + c1 * 3.0 * u * u * t + c2 * 3.0 * u * t * t + e_in * t * t * t)
+		pts.append(mouth + nrm * 11.0)
+	# no sharp corner anywhere: every bend at least twice the river's width in radius (the last 40 m before an edge stay
+	# straight, square to it), then 4 m steps
+	pts = _resample(pts, 8.0)
+	pts = _smooth_turns(pts, 2.0 * float(rv[5]), 40.0 if mouth != Vector2.INF else 0.0)
 	pts = _resample(pts, 4.0)
 	var n := pts.size()
 	var sq_len := PackedFloat32Array()
@@ -486,6 +493,39 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 	return river
 
 
+## a course's bends opened up to a minimum radius: each point turning more sharply than that is pulled toward the middle of
+## its neighbours, sweep after sweep, until none does (so a corner spreads into an arc); the first point and the last
+## `keep_end` metres stay where they are
+static func _smooth_turns(pts: PackedVector2Array, radius: float, keep_end: float) -> PackedVector2Array:
+	var n := pts.size()
+	if n < 3:
+		return pts
+	var kmax := 1.0 / maxf(radius, 1.0)
+	var fixed_from := n - 1
+	var acc := 0.0
+	while fixed_from > 1 and acc < keep_end:
+		acc += pts[fixed_from].distance_to(pts[fixed_from - 1])
+		fixed_from -= 1
+	for it in 800:
+		var moved := false
+		for q in range(1, mini(fixed_from + 1, n - 1)):
+			var d1 := pts[q] - pts[q - 1]
+			var d2 := pts[q + 1] - pts[q]
+			var ds := (d1.length() + d2.length()) * 0.5
+			if ds < 1e-3:
+				continue
+			if absf(d1.angle_to(d2)) / ds > kmax * 1.02:
+				if q < fixed_from:
+					pts[q] = pts[q].lerp((pts[q - 1] + pts[q + 1]) * 0.5, 0.5)
+				else:
+					# (the first fixed point: the one before it eases onto the run-in's line)
+					pts[q - 1] = pts[q - 1].lerp(pts[q] * 2.0 - pts[q + 1], 0.5)
+				moved = true
+		if not moved:
+			break
+	return pts
+
+
 static func _resample(pts: PackedVector2Array, step: float) -> PackedVector2Array:
 	var out := PackedVector2Array([pts[0]])
 	var acc := 0.0
@@ -558,7 +598,11 @@ func _plan_falls(river: Dictionary, rng: RandomNumberGenerator) -> void:
 	var spreads := PackedFloat32Array()
 	var sways := PackedFloat32Array()
 	for fi in nf:
-		var lip: Vector2 = r._onto_edge(dk, mouth + tan_e * (pos[fi] - shift))
+		var want := mouth + tan_e * (pos[fi] - shift)
+		var lip: Vector2 = mouth if fi == k0 else _find_edge(dk, want, k)
+		if lip.distance_to(want) > 60.0:
+			# (no edge for it there: it falls with the river's own, beside it)
+			lip = r._onto_edge(dk, mouth + tan_e * signf(pos[fi] - shift) * (widths[k0] * 0.5 + 8.0))
 		lips.append(lip)
 		tops.append(w_end if fi == k0 else w_end - (0.0 if rng.randf() < 0.25 else rng.randf_range(0.8, 4.5)))
 		spreads.append(rng.randf_range(0.3, 0.5))
@@ -626,17 +670,24 @@ func _split_channel(river: Dictionary, lip: Vector2, ln: Vector2, width: float, 
 	var pts: PackedVector2Array = river.pts
 	var w: PackedFloat32Array = river.w
 	var n := pts.size()
-	var qs := maxi(n - 1 - rng.randi_range(15, 25), 0)
+	# (long enough to swing its sideways offset at a radius of twice its fall's width: an S-bend's sharpest turn is about six
+	# times the offset over its length squared)
+	var offset := absf((lip - (pts[n - 1] as Vector2)).dot(Vector2(-ln.y, ln.x)))
+	var need_len := clampf(sqrt(6.0 * offset * 2.0 * width), 60.0, 260.0) * rng.randf_range(1.0, 1.25)
+	var qs := maxi(n - 1 - int(need_len / 4.0), 0)
 	var a := pts[qs]
 	var b := lip - ln * 22.0
-	var ctl := a.lerp(b, 0.5) + (pts[mini(qs + 4, n - 1)] - a).normalized() * 18.0
+	var span := a.distance_to(b)
+	var c1 := a + (pts[mini(qs + 2, n - 1)] - pts[maxi(qs - 2, 0)]).normalized() * span * 0.4
+	var c2 := b - ln * span * 0.4
 	var raw := PackedVector2Array()
-	for q in 13:
-		var t := float(q) / 12.0
-		raw.append(a.lerp(ctl, t).lerp(ctl.lerp(b, t), t))
+	for q in 17:
+		var t := float(q) / 16.0
+		var u := 1.0 - t
+		raw.append(a * u * u * u + c1 * 3.0 * u * u * t + c2 * 3.0 * u * t * t + b * t * t * t)
 	for q in range(1, 9):
 		raw.append(b.lerp(lip + ln * 11.0, float(q) / 8.0))
-	var cp := _resample(raw, 4.0)
+	var cp := _resample(_smooth_turns(_resample(raw, 8.0), 2.0 * width, 30.0), 4.0)
 	var m := cp.size()
 	var cw := PackedFloat32Array()
 	var ch := PackedFloat32Array()
@@ -898,7 +949,8 @@ func _surface(kind: String) -> Dictionary:
 
 
 ## a river system's surface (the river and every tributary joining it): a 2 m grid over its course, every vertex at the water
-## level of the nearest river point, kept where the water is (and a little under the banks); kind and flow per vertex
+## level of the nearest river point, cut along the shore where the bank rises out of the water (_ms_surface: a contour, not
+## the grid); kind and flow per vertex
 func _river_mesh(ri: int) -> Dictionary:
 	var ids := [ri]
 	for rj in rivers.size():
@@ -912,15 +964,18 @@ func _river_mesh(ri: int) -> Dictionary:
 	var gs := 2.0
 	var na := int((hi.x - lo.x) / gs) + 2
 	var nb := int((hi.y - lo.y) / gs) + 2
-	var vid := PackedInt32Array()
-	vid.resize(na * nb)
-	vid.fill(-1)
 	var m := _surface("river")
-	var cc := Vector2(r.center.x, r.center.y)
-	var vs: PackedVector3Array = m.verts
-	var cs: PackedColorArray = m.colors
-	var uv: PackedVector2Array = m.uv
-	var uv2: PackedVector2Array = m.uv2
+	var f := PackedFloat32Array()
+	var ys := PackedFloat32Array()
+	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	f.resize(na * nb)
+	f.fill(9.0)
+	ys.resize(na * nb)
+	cols.resize(na * nb)
+	uvs.resize(na * nb)
+	uv2s.resize(na * nb)
 	for j in nb:
 		for i in na:
 			var p := lo + Vector2(i, j) * gs
@@ -937,30 +992,34 @@ func _river_mesh(ri: int) -> Dictionary:
 				if best.is_empty() or float(nr[0]) - float(nr[3]) < float(best[0]) - float(best[3]):
 					best = nr
 					bid = id
-			if best.is_empty() or float(best[0]) > float(best[3]) + 3.0:
+			if best.is_empty() or float(best[0]) > float(best[3]) + BANK:
 				continue
-			# (not where a lake or pool is: its own surface is there, at the same level)
-			if _in_lake_water(p):
-				continue
+			var k := j * na + i
 			var river: Dictionary = rivers[bid]
 			var pts: PackedVector2Array = river.pts
-			var q := int(best[1])
-			var tq := (pts[mini(q + 1, pts.size() - 1)] - pts[q]).normalized()
+			var n := pts.size()
+			var qf: float = best[1]
+			var q := mini(int(qf), n - 2)
+			var tq := (pts[q + 1] - pts[q]).normalized()
 			var kd: PackedByteArray = river.kind
-			var rapid := kd[q] == 1 or kd[mini(q + 1, kd.size() - 1)] == 1
+			# (the rapids blend along the course, not per cell)
+			var kq := lerpf(float(kd[q]), float(kd[q + 1]), clampf(qf - q, 0.0, 1.0))
 			var wl: float = best[2]
 			var ground: float = r.height_at(p)
-			vid[j * na + i] = vs.size()
-			vs.append(Vector3(p.x - cc.x, wl, p.y - cc.y))
-			# (kind: 0 flat, 0.5 rapids; speed; flow direction; depth and the distance in from the bank)
-			cs.append(Color(0.5 if rapid else 0.0, 2.6 if rapid else 0.5, 0.0, 1.0))
-			uv.append(tq)
-			uv2.append(Vector2(wl - ground, float(best[3]) - float(best[0])))
-	m.verts = vs
-	m.colors = cs
-	m.uv = uv
-	m.uv2 = uv2
-	_grid_tris(m, vid, na, nb)
+			# (the water ends where the bank rises out of it - a contour, not the grid's steps - never past the bank's foot, and
+			# square at the river's end: over a fall's lip it stops where the sheet begins, never out in the air)
+			var fk := maxf(ground - wl - 0.15, float(best[0]) - float(best[3]) - BANK)
+			fk = maxf(fk, (p - pts[n - 1]).dot((pts[n - 1] - pts[n - 2]).normalized()))
+			# (not where a lake or pool is: its own surface is there, at the same level)
+			if _in_lake_water(p):
+				fk = maxf(fk, 0.5)
+			f[k] = fk
+			ys[k] = wl
+			# (kind: 0 flat, 0.5 rapids; speed; alpha fading to the shore; flow direction; depth and the distance in from the bank)
+			cols[k] = Color(0.5 * kq, lerpf(0.5, 2.6, kq), 0.0, clampf(-fk / 0.6, 0.0, 1.0))
+			uvs[k] = tq
+			uv2s[k] = Vector2(wl - ground, float(best[3]) - float(best[0]))
+	_ms_surface(m, lo, gs, na, nb, f, ys, cols, uvs, uv2s)
 	return m
 
 
@@ -992,8 +1051,10 @@ func _grid_tris(m: Dictionary, vid: PackedInt32Array, na: int, nb: int) -> void:
 	m.normals = ns
 
 
-## a lake's (or plunge pool's) surface: a grid over it, kept where its bowl is under the water (and a little past the shore);
-## the depth per vertex, and the distance to the rock of a pillar standing in it
+## a lake's (or plunge pool's) surface, its shoreline a contour and not the grid: a field over a grid - negative in the water:
+## the ground below the water's level, inside the warped outline, over its own bowl, clear of the sunk canyon's edge - cut
+## along its zero (_ms_surface), fading out over the last stretch to the shore. Per vertex the depth and the distance to the
+## rock of a pillar standing in it
 func _lake_mesh(li: int) -> Dictionary:
 	var lk: Dictionary = lakes[li]
 	var level: float = lk.level
@@ -1002,45 +1063,117 @@ func _lake_mesh(li: int) -> Dictionary:
 	var gs := 4.0 if not bool(lk.pool) else 2.0
 	var lo := c - Vector2.ONE * ext
 	var na := int(ext * 2.0 / gs) + 2
-	var vid := PackedInt32Array()
-	vid.resize(na * na)
-	vid.fill(-1)
+	var rm := minf(float(lk.ra), float(lk.rb))
+	var floor_lake := level > float(r.floor_h) - 40.0
 	var m := _surface("pool" if bool(lk.pool) else "lake")
-	var cc := Vector2(r.center.x, r.center.y)
 	var rings := _pillar_rings(level, c, ext)
-	var vs: PackedVector3Array = m.verts
-	var cs: PackedColorArray = m.colors
-	var uv: PackedVector2Array = m.uv
-	var uv2: PackedVector2Array = m.uv2
+	var f := PackedFloat32Array()
+	var ys := PackedFloat32Array()
+	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	f.resize(na * na)
+	ys.resize(na * na)
+	cols.resize(na * na)
+	uvs.resize(na * na)
+	uv2s.resize(na * na)
+	ys.fill(level)
 	for j in na:
 		for i in na:
+			var k := j * na + i
 			var p := lo + Vector2(i, j) * gs
-			if _lake_rho(p, lk) > 1.08:
+			if p.distance_squared_to(c) > ext * ext:
+				f[k] = 9.0
 				continue
 			var ground: float = r.height_at(p)
-			if ground > level + 1.5 or ground < level - float(lk.depth) - 3.0:
+			var fk := maxf(ground - level - 0.15, (_lake_rho(p, lk) - 1.06) * rm)
+			fk = maxf(fk, level - float(lk.depth) - 3.0 - ground)
+			var fade := 1.0
+			if floor_lake:
+				var ed: float = r._gbil(r._sink_neg(), p)
+				fk = maxf(fk, 18.0 - ed)
+				fade = smoothstep(18.0, 30.0, ed)
+			f[k] = fk
+			if fk > 1.0:
 				continue
-			if _off_floor_edge(p, lk):
-				continue
-			vid[j * na + i] = vs.size()
-			vs.append(Vector3(p.x - cc.x, level, p.y - cc.y))
 			var ring := 99.0
 			for sg in range(0, rings.size(), 2):
 				ring = minf(ring, _pt_seg(p, rings[sg], rings[sg + 1]))
-			# (alpha: fading out over the last 12 m before it stops short of the sunk canyon's edge - the rim dips below the
-			# water there, so no shore hides where the surface ends)
-			var fade := 1.0
-			if level > float(r.floor_h) - 40.0:
-				fade = smoothstep(18.0, 30.0, r._gbil(r._sink_neg(), p))
-			cs.append(Color(0.0, 0.25, 1.0, fade))
-			uv.append(Vector2.ZERO)
-			uv2.append(Vector2(level - ground, ring))
+			cols[k] = Color(0.0, 0.25, 1.0, fade * clampf(-fk / 0.8, 0.0, 1.0))
+			uv2s[k] = Vector2(level - ground, ring)
+	_ms_surface(m, lo, gs, na, na, f, ys, cols, uvs, uv2s)
+	return m
+
+
+## a surface over a grid cut along a field's zero (marching squares): the parts of the cells where the field is negative,
+## with a vertex on each cell edge where the field crosses zero, placed where it crosses - so its edge follows the contour,
+## not the grid's steps. The vertices carry the grid's values (a crossing interpolates them, its alpha 0: the surface fades
+## out to its edge); triangles facing up, normals from them
+func _ms_surface(m: Dictionary, lo: Vector2, gs: float, na: int, nb: int, f: PackedFloat32Array, ys: PackedFloat32Array,
+		cols: PackedColorArray, uvs: PackedVector2Array, uv2s: PackedVector2Array) -> void:
+	var cc := Vector2(r.center.x, r.center.y)
+	var vs := PackedVector3Array()
+	var cs := PackedColorArray()
+	var uv := PackedVector2Array()
+	var uv2 := PackedVector2Array()
+	var vid := PackedInt32Array()
+	vid.resize(na * nb)
+	vid.fill(-1)
+	var eid := {}
+	var idx := PackedInt32Array()
+	for j in nb - 1:
+		for i in na - 1:
+			var k0 := j * na + i
+			# (the cell's corners in the order Godot's front faces wind seen from above)
+			var ks := PackedInt32Array([k0, k0 + 1, k0 + na + 1, k0 + na])
+			if f[ks[0]] >= 0.0 and f[ks[1]] >= 0.0 and f[ks[2]] >= 0.0 and f[ks[3]] >= 0.0:
+				continue
+			var poly := PackedInt32Array()
+			for e in 4:
+				var ka := ks[e]
+				var kb := ks[(e + 1) % 4]
+				if f[ka] < 0.0:
+					if vid[ka] < 0:
+						vid[ka] = vs.size()
+						var p := lo + Vector2(ka % na, ka / na) * gs
+						vs.append(Vector3(p.x - cc.x, ys[ka], p.y - cc.y))
+						cs.append(cols[ka])
+						uv.append(uvs[ka])
+						uv2.append(uv2s[ka])
+					poly.append(vid[ka])
+				if (f[ka] < 0.0) != (f[kb] < 0.0):
+					var key := Vector2i(mini(ka, kb), maxi(ka, kb))
+					if not eid.has(key):
+						var t := f[ka] / (f[ka] - f[kb])
+						var pa := lo + Vector2(ka % na, ka / na) * gs
+						var pb := lo + Vector2(kb % na, kb / na) * gs
+						var p := pa.lerp(pb, t)
+						eid[key] = vs.size()
+						vs.append(Vector3(p.x - cc.x, lerpf(ys[ka], ys[kb], t), p.y - cc.y))
+						var ce := cols[ka].lerp(cols[kb], t)
+						ce.a = 0.0
+						cs.append(ce)
+						uv.append(uvs[ka].lerp(uvs[kb], t))
+						uv2.append(uv2s[ka].lerp(uv2s[kb], t))
+					poly.append(int(eid[key]))
+			for t in range(1, poly.size() - 1):
+				idx.append_array(PackedInt32Array([poly[0], poly[t], poly[t + 1]]))
 	m.verts = vs
 	m.colors = cs
 	m.uv = uv
 	m.uv2 = uv2
-	_grid_tris(m, vid, na, na)
-	return m
+	m.indices = idx
+	var ns := PackedVector3Array()
+	ns.resize(vs.size())
+	for t in range(0, idx.size(), 3):
+		var fn := (vs[idx[t + 2]] - vs[idx[t]]).cross(vs[idx[t + 1]] - vs[idx[t]])
+		for k in 3:
+			ns[idx[t + k]] += fn
+	for i in ns.size():
+		ns[i] = ns[i].normalized() if ns[i].length_squared() > 1e-10 else Vector3.UP
+		if ns[i].y < 0.0:
+			ns[i] = -ns[i]
+	m.normals = ns
 
 
 static func _pt_seg(p: Vector2, a: Vector2, b: Vector2) -> float:
@@ -1094,7 +1227,8 @@ func _pillar_rings(level: float, c: Vector2, ext: float) -> PackedVector2Array:
 	return segs
 
 
-## a sinkhole's pool: its floor under water out to the hole's wall
+## a sinkhole's pool: its floor under water out to the hole's wall, its shoreline a contour (_ms_surface) where the floor and
+## the scree rise out of the water
 func _sink_mesh(sk: Dictionary) -> Dictionary:
 	var fe: Dictionary = sk.fe
 	var level: float = sk.level
@@ -1103,39 +1237,38 @@ func _sink_mesh(sk: Dictionary) -> Dictionary:
 	var gs := 2.0
 	var lo := c - Vector2.ONE * ext
 	var na := int(ext * 2.0 / gs) + 2
-	var vid := PackedInt32Array()
-	vid.resize(na * na)
-	vid.fill(-1)
 	var m := _surface("pool")
-	var cc := Vector2(r.center.x, r.center.y)
 	var rings := _pillar_rings(level, c, ext)
-	var vs: PackedVector3Array = m.verts
-	var cs: PackedColorArray = m.colors
-	var uv: PackedVector2Array = m.uv
-	var uv2: PackedVector2Array = m.uv2
+	var f := PackedFloat32Array()
+	var ys := PackedFloat32Array()
+	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	f.resize(na * na)
+	ys.resize(na * na)
+	cols.resize(na * na)
+	uvs.resize(na * na)
+	uv2s.resize(na * na)
+	ys.fill(level)
 	for j in na:
 		for i in na:
+			var k := j * na + i
 			var p := lo + Vector2(i, j) * gs
 			var rel := p - c
-			if rel.length() > r._sink_r(fe, atan2(rel.y, rel.x)) + 2.0:
-				continue
 			var ground: float = r.height_at(p)
-			vid[j * na + i] = vs.size()
-			vs.append(Vector3(p.x - cc.x, level, p.y - cc.y))
+			var fk := maxf(ground - level - 0.15, rel.length() - r._sink_r(fe, atan2(rel.y, rel.x)) - 2.0)
+			f[k] = fk
+			if fk > 1.0:
+				continue
 			var ring := 99.0
 			for sg in range(0, rings.size(), 2):
 				ring = minf(ring, _pt_seg(p, rings[sg], rings[sg + 1]))
-			cs.append(Color(0.0, 0.15, 1.0, 1.0))
-			uv.append(Vector2.ZERO)
+			cols[k] = Color(0.0, 0.15, 1.0, clampf(-fk / 0.8, 0.0, 1.0))
 			# (the depth the shader colours by: the true depth near the shore, then as shallow as that over the floor, deepening
 			# only over the bowl in the middle - turquoise round a dark heart)
 			var dw := level - ground
-			uv2.append(Vector2(dw if dw < 1.0 else 1.0 + maxf(dw - float(cfg.sinkhole_pool_level), 0.0) * 0.6, ring))
-	m.verts = vs
-	m.colors = cs
-	m.uv = uv
-	m.uv2 = uv2
-	_grid_tris(m, vid, na, na)
+			uv2s[k] = Vector2(dw if dw < 1.0 else 1.0 + maxf(dw - float(cfg.sinkhole_pool_level), 0.0) * 0.6, ring)
+	_ms_surface(m, lo, gs, na, na, f, ys, cols, uvs, uv2s)
 	return m
 
 
@@ -1519,9 +1652,18 @@ func check_falls() -> Array:
 					miss_at.append("%.0f m down" % (float(f.top) - y))
 			y -= 1.0
 		var under := float(f.bottom) - lowest
-		lines.append("%s: %.0f m tall, %d rays down its middle, %d through a gap%s; its foot %.1f m under the water%s" % [f.name,
-			float(f.top) - float(f.bottom), rays, miss, "" if miss_at.is_empty() else " (%s)" % ", ".join(miss_at), under,
-			"" if miss == 0 and under > 0.0 else "  FLAG"])
+		# (how far the sheet reaches: out from the lip, and to the side past half its width at the foot - a sheet poking into
+		# or out of the rock would show here)
+		var reach_out := 0.0
+		var reach_side := 0.0
+		for v in vs:
+			var rel := Vector2(v.x + cc.x, v.z + cc.y) - lip
+			reach_out = maxf(reach_out, rel.dot(nrm))
+			reach_side = maxf(reach_side, absf(rel.dot(tng)))
+		var half_foot := float(f.width) * (1.0 + float(f.spread)) * 0.5
+		lines.append("%s: %.0f m tall, %d rays down its middle, %d through a gap%s; its foot %.1f m under the water; it reaches %.0f m out from its lip, %.0f m to each side (%.0f at its foot)%s" % [f.name,
+			float(f.top) - float(f.bottom), rays, miss, "" if miss_at.is_empty() else " (%s)" % ", ".join(miss_at), under, reach_out,
+			reach_side, half_foot, "" if miss == 0 and under > 0.0 and reach_out < 60.0 and reach_side < half_foot + 15.0 else "  FLAG"])
 	return lines
 
 

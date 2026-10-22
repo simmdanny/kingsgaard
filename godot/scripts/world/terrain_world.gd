@@ -126,6 +126,7 @@ func _process(_dt: float) -> void:
 	m.set_shader_param("walk_angle", cfg.max_walk_angle)
 	m.set_shader_param("biomes", not base)
 	m.set_shader_param("greybox", region != null and region_cfg.greybox)
+	m.set_shader_param("region_look", region != null and not region_cfg.greybox)
 	# the region's steps stay steps far away: the shader moves far vertices onto the edges of their terraces
 	m.set_shader_param("snap_on", region != null)
 	if region != null:
@@ -180,6 +181,21 @@ func _build_walls() -> void:
 	mat.set_shader_parameter("debug_view", debug_view)
 	mat.set_shader_parameter("greybox", region_cfg.greybox)
 	mat.set_shader_parameter("greybox_floor", region.floor_h)
+	# (the waterfalls, for the rock's wet streaks beside and below them)
+	var fa: Array[Vector4] = []
+	var fb: Array[Vector4] = []
+	for f in region.water_falls:
+		if fa.size() >= 16:
+			break
+		fa.append(Vector4(f[0], f[1], f[2], f[3]))
+		fb.append(Vector4(f[4], f[5], f[6], 0.0))
+	while fa.size() < 16:
+		fa.append(Vector4.ZERO)
+		fb.append(Vector4.ZERO)
+	mat.set_shader_parameter("fall_a", fa)
+	mat.set_shader_parameter("fall_b", fb)
+	mat.set_shader_parameter("fall_n", mini(region.water_falls.size(), 16))
+	print("terrain: %d waterfalls wet the rock" % mini(region.water_falls.size(), 16))
 	for w in region.walls:
 		var mi := _wall_instance(w, mat)
 		walls.add_child(mi)

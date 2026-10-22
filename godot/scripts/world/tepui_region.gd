@@ -108,6 +108,9 @@ var features: Array = []
 ## the water (phase 3): its planner while generating, and the meshes it built (kept in the cache)
 var water
 var water_meshes: Array = []
+## per waterfall, for the rock's material (wet beside and below it): [lip x, z, outward normal x, z, half its width at its
+## foot, its top, its bottom] - kept in the cache (the game loads the region from it, without the water's planner)
+var water_falls: Array = []
 var arches: Array = []
 var _views := {}
 var _t0 := 0
@@ -2125,6 +2128,11 @@ func _water_plan() -> void:
 func _water_build() -> void:
 	water.build()
 	water_meshes = water.meshes
+	water_falls = []
+	for f in water.falls:
+		var lp: Vector2 = f.lip
+		var ln: Vector2 = f.nrm
+		water_falls.append([lp.x, lp.y, ln.x, ln.y, float(f.width) * (1.0 + float(f.spread)) * 0.5, float(f.top), float(f.bottom)])
 	report.water = water.report
 	report.water.checks = water.check_falls()
 
@@ -3503,7 +3511,7 @@ func save(path: String) -> void:
 		return
 	f.store_var({"version": VERSION, "center": center, "axis_u": axis_u, "fx0": fx0, "fz0": fz0, "fn": fn, "n": n,
 		"floor_h": floor_h, "notches": notches, "objects": objects, "bookmarks": bookmarks, "report": report, "walls": walls,
-		"features": features, "water": water_meshes})
+		"features": features, "water": water_meshes, "water_falls": water_falls})
 	f.store_buffer(fh.to_byte_array())
 	f.store_buffer(snap.to_byte_array())
 	f.store_buffer(level)
@@ -3531,6 +3539,7 @@ func load_cache(path: String) -> bool:
 	walls = meta.walls
 	features = meta.get("features", [])
 	water_meshes = meta.get("water", [])
+	water_falls = meta.get("water_falls", [])
 	arches = features.filter(func(x): return str(x.type) == "arch")
 	fh = f.get_buffer(fn * fn * 4).to_float32_array()
 	snap = f.get_buffer(fn * fn * 8).to_float32_array()

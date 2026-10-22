@@ -14,7 +14,7 @@ extends Node
 ## use a square --resolution); --poi=low|edge|mount puts the hero and camera at a place the terrain generator found (lowlands
 ## looking up at a high plateau, a plateau's rim looking down over the lowlands, a mountain top looking across the island;
 ## pass = a walkable pass, old continent only). --cam and --spawn take map coordinates. --overview=region looks straight down
-## on the region instead; --bookmark=ref1|ref2|ref3|ref4 shows one of the region's four bookmark views (after the reference
+## on the region instead (--overview=x,z,size: on a square of that size round a map point); --bookmark=ref1|ref2|ref3|ref4 shows one of the region's four bookmark views (after the reference
 ## pictures; use a portrait --resolution like 585x1040, as they are).
 ## --set=key:value,... applies settings for the run (keys as in scripts/ui/settings.gd, e.g. --set=render_scale:0,grass:0). --look=x,y,z (with --orbit) aims the camera at that
 ## point relative to the hero's feet instead of the head - for close-ups of the hands.
