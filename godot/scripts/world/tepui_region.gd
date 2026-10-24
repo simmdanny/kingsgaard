@@ -767,11 +767,22 @@ func _lvl(p: Vector2) -> int:
 
 # ---- 4. the ways up ------------------------------------------------------------------------------------------------------
 
+## the bookmarks' views as they were when the landforms were approved (phase 3; camera and look-at spot, layout u, v): the
+## ravines keep out of them and from under their cameras. Frozen, so reframing a bookmark (region_settings.gd bookmark_views)
+## moves no ravine
+const VIEW_SPOTS := {
+	"ref1": [-1167.0, 503.0, -280.0, -304.0],
+	"ref2": [1635.0, -95.0, 179.0, 699.0],
+	"ref3": [-60.0, 1200.0, -60.0, -500.0],
+	"ref4": [-1700.0, 600.0, -124.0, -631.0],
+}
+
+
 func _views_from_settings() -> void:
 	_views = {}
-	for name in cfg.bookmark_views:
-		var v: PackedFloat32Array = cfg.bookmark_views[name]
-		_views[name] = [_from_uv(Vector2(v[0], v[1])), _from_uv(Vector2(v[3], v[4]))]
+	for name in VIEW_SPOTS:
+		var v: Array = VIEW_SPOTS[name]
+		_views[name] = [_from_uv(Vector2(v[0], v[1])), _from_uv(Vector2(v[2], v[3]))]
 
 
 func _in_view_of(name: String, p: Vector2) -> bool:

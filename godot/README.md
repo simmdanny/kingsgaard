@@ -22,7 +22,7 @@ The game lives in the `godot/` folder of github.com/simmdanny/kingsgaard (apart 
 ## Play
 
 Double-click `Play Kingsgaard.bat` (it finds Godot 4.7.2 as above). The title screen has Play,
-Settings (window, vsync, render scale, shadows, grass, tree distance, mouse sensitivity, info overlay - saved in
+Settings (window, vsync, graphics preset Low / Medium / High, render scale, shadows, grass, tree distance, mouse sensitivity, info overlay - saved in
 `user://settings.cfg`), Controls, Credits and Quit; Esc in the game opens the pause menu. Play asks for the hero: Male is alicewithalex's Low Poly Male Character (see
 `assets/characters/male01/SOURCE.md`), Female is the same model made feminine in code (`scripts/player/feminize.gd`: her
 bust, waist, hips and thighs reshaped, and narrower, gently sloping shoulders - her arm joints moved in and down by
@@ -92,7 +92,7 @@ Terrain3D 1.0.2 (`addons/terrain_3d`, MIT, Windows binaries only) draws and coll
   `--view=height|tiers|slope|steep`, `--poi=low|edge|mount`, `--camfile=cams.txt` (many `--cam` shots in one run, one
   "out.png x,z,h,tx,tz,th" per line). (`terrain_test.gd` / `terrain_walk_test.gd`: the old continent.)
 
-## Tepui region (phases 1 - 3 done; phase 4A: materials and atmosphere)
+## Tepui region (phases 1 - 3 done; phase 4A: materials and atmosphere; a performance + polish pass)
 
 The first region, built on the base terrain: a land of tables - a flat floor, six big flat-topped plateaus standing on it
 (two of them stacked in terraces), sheer walls, narrow canyons and a wide valley (`scripts/world/tepui_region.gd`, every key
@@ -206,7 +206,12 @@ below): pale limestone, lush grass, a hazy blue distance and big soft clouds; no
   sideways offset at that radius (river8 had a canal's right angle past arch1). Their water is stairs, never a ramp: the
   lowest ground across the bed and banks along the course (sampled as wide as a calm tread gets), its running minimum, then
   flat treads and short risers - rapids, the water sloped over 8 - 28 m, fast and foaming - wherever it steps down more than
-  0.8 m; only the edge itself gets a waterfall. Beds 2.5 m deep (0.8 - 1.5 times that, the wider the deeper) with banks
+  0.8 m; only the edge itself gets a waterfall. Each riser is eased in and out: a smootherstep from the tread above to the
+  one below, starting 12 - 30 m upstream of where the ground drops and arriving flat on the tread below, never above the
+  plain riser (so the water never stands higher against its banks) - the calm water slides into the rapids instead of
+  creasing at a step; a side channel runs down to its lip the same way. How white the water runs comes from its surface's
+  slope (full at 7%, eased over some 8 m each way), so the foam comes in as the water tilts, not at a line; where channels
+  overlap their levels and foam blend by how near each one's water is. Beds 2.5 m deep (0.8 - 1.5 times that, the wider the deeper) with banks
   easing into the ground over 12 m. A river into a lake steps down to the lake's level where it reaches the water, and a lake
   never stands above the river feeding it (lake 3 lies 0.7 m lower for it). One merged surface per river system; far off the
   water is drawn a little nearer the camera along the line of sight (as much as covers up to 6 m of height error at that
@@ -256,8 +261,11 @@ below): pale limestone, lush grass, a hazy blue distance and big soft clouds; no
   m), 115 x 183 m (river7, 271 - 273 m), 69 x 114 m (river10, 135 - 136 m). Every sinkhole has a pool 6 m over its floor and
   10 m deeper in the middle, filling the floor - turquoise over the floor, dark only over the bowl. The surfaces
   (`shaders/region_water.gdshader`) take everything from their vertices and read no depth texture: clear turquoise in the
-  shallows to teal in the deep, foam along the shores, streaming over the rapids and in a ring round each pillar, ripples
-  moving with the flow.
+  shallows to teal in the deep, foam along the shores, long streaks of foam down the rapids along the flow and a ring round
+  each pillar, ripples moving with the flow. All of it smooth gradient noise in the flow's own coordinates - every river
+  vertex carries its metres along the course and across it (`CUSTOM0`) - carried downstream in two phases cross-faded (a
+  pattern simply pushed along shears apart where the water runs faster); the value noise before, its cells, read as a tiled
+  pattern of small squares.
   **Mist** in the deep canyon (`mist_deck`; the sunk canyon only - in the valleys it lay like snow at the walls' feet): big
   soft clouds on a jittered 34 m grid over the canyon's floor - one where the mist is thin, two where it is thick, higher
   (18 - 70 m over the floor), bigger and denser toward the canyon's middle, so its top is uneven - each swaying slowly to and
@@ -278,12 +286,28 @@ below): pale limestone, lush grass, a hazy blue distance and big soft clouds; no
   and below every waterfall (the falls' lips and feet kept in the region's cache, `water_falls`, and passed to the material).
   The **talus** at the walls' feet is the same rock, darker and browner, the grass creeping up its flatter toe. **Grass**
   (`shaders/region_ground.gdshaderinc`, shared by the terrain and the rock's grassed tops so the carpet runs on over a lip
-  without a seam): a lush saturated green in large soft patches - yellower sunlit meadows, deeper green hollows - over some
-  400, 130 and 30 m and a fine mottle near the camera, wrapping well over the cliffs' rounded lips with a ragged edge. The
+  without a seam): one lush green, tinted only softly and over large distances - slightly yellower on the plateaus' tops
+  and on slopes turned to the sun, slightly deeper green on the valley floors, on slopes turned away and near water, and a
+  slow drift over some 1.6 km - within about +-6% of its brightness, from smooth inputs only (height, the ground's normal, a
+  blurred map of the water made at load - `terrain_world.gd` `_wet_map`, 256 x 256 over the region, blurred over 60 - 80 m -
+  and gradient noise), so nothing has a shape or an edge (the 4A value noise at 400, 130 and 30 m read as camouflage blotches
+  and blocky squares; the first fix, noise alone, as flat felt); a faint grain near the camera; it wraps well over the
+  cliffs' rounded lips with a ragged edge. **Detail on the faces** (`rk_face` in the rock shader, Medium and High), stylized
+  and procedural - no texture, so nothing tiles: vertical grooves as the main pattern (7 m cells, each with its own middle,
+  width and depth, wandering a little and starting and stopping down the face; the floor in shade, the walls turned into it,
+  a chipped paler rim along each edge), a few wavy horizontal strata lines some 24 m apart with a lit ledge over each, and on
+  High a stain running down from a ledge, here and there a crack (the edges of cells 16 x 32 m, only some of them) with
+  chipped rims, and up close only a soft +-3% variation over 2 m. Crisp means sharp edges on those large features - about a
+  pixel wide at any distance - not more small noise (a first try with cellular noise textures read as stucco); readable from
+  20 - 50 m, faded out by some 200 - 500 m, where it no longer shows, so the far walls - most of the rock on screen - skip
+  it. Low keeps the big patches and streaks only. **Contrast:** lit faces warmer (sandy), faces turned from the sun
+  cooler and bluer (the shade is the sky's light with a clear blue mixed in, `ambient_light_color`), darker vertical
+  streaks - never black. The
   warm and the cool come from the light: a warm sun lower and more to the side (31 degrees up, its azimuth kept: the layout
   is turned to it), the blue sky filling the shade (no black shadows). **Atmosphere** (`main.gd` `_region_atmosphere`): a
-  strong blue haze (exponential fog, aerial perspective from the sky's colour, a little warm scatter toward the sun) that
-  fades the far plateaus and the mountains; the sky (`shaders/sky_clouds.gdshader`) a deep blue overhead paling to the
+  clear soft blue haze (exponential depth fog in its own blue, 0.40 / 0.58 / 0.90, little aerial perspective - the sky's
+  colour behind, white clouds near the horizon, greyed it - and almost no warm scatter toward the sun) that fades the far
+  plateaus and the mountains to blue, not grey-white; the sky (`shaders/sky_clouds.gdshader`) a deep blue overhead paling to the
   horizon, a soft sun in a warm glow, big soft stylized clouds - heaped, their tops lit from the sun's side, their bellies a
   cool blue-grey, thinning into the haze toward the horizon; still (no time), so the sky's light for the ambient and the
   reflections is worked out once. Frame time at 1920 x 1080 with the look (alternating pairs, shot.gd --perfpairs; this
@@ -295,10 +319,48 @@ below): pale limestone, lush grass, a hazy blue distance and big soft clouds; no
   smaller shadow maps: 25 - 30 ms (33 - 40 fps). Before the grass and trees: MSAA (FXAA instead) and the render scale first,
   then the rock's detail far away (its colour baked into the meshes, or a cheaper far shader) and the wet rock worked out
   once into the meshes instead of per vertex every frame.
+- **Graphics presets** (the performance + polish pass; Settings > Graphics, `settings.gd` `PRESETS`, applied in `main.gd`
+  `apply_settings`; picking one sets the render scale and shadows rows too, which can still be changed one by one):
+
+  | | Low | Medium | High |
+  | --- | --- | --- | --- |
+  | render scale (FSR 1 below 100%) | 50% | 75% | 100% |
+  | anti-aliasing (no MSAA: 14 - 18 ms at 1080p) | FXAA | SMAA | SMAA |
+  | mesh LOD error (`mesh_lod_threshold`, px) | 4 | 2 | 1 |
+  | sun shadows | 1 cascade, 60 m, 1024 map | 2 cascades, 100 m, 2048 | 4 cascades, 200 m, 2048 |
+  | rock | patches + streaks, no wet rock | + runnels, grooves, strata, wet rock | + cracks, ledge stains, micro-variation |
+  | water | 1 ripple layer, plain streaks, sea without the depth read | full | full |
+  | spray / drops / canyon clouds | 50% size, 35% of drops, hard-edged | 62%, 70%, soft against the ground | 62%, all, soft |
+  | sky clouds (layers of lumps, at half resolution on all) | 3 | 4 | 5 |
+
+  **Meshes far away:** every wall piece carries Godot's own chain of coarser meshes (`ImporterMesh.generate_lods`, picked by
+  size on screen and the preset's LOD error); past 1800 m the pieces of each 600 m square of the map give way to one merged
+  stand-in simplified to some 18% of their triangles (HLOD: `_build_hlod`, `visibility_range_begin` + `visibility_parent`,
+  36 squares, ~1.6 - 3 s at load); the carved features keep their baked LODs; the waterfalls' sheets have LODs too, the water's
+  surfaces not (simplified, a river's soft-edged contour sank under its banks and a pool shrank to a blurred square).
+  **Sky and post-processing** (an empty frame, each effect against it in alternating pairs, `shot.gd --perfbase`, 1080p, on
+  battery): Low 3.6 ms (sky 0.85, FXAA 0.8, fog 0.3, tone mapping 0.2, the rest clearing, upscaling and the 2D overlay), High
+  ~10 ms (sky 2.0, SMAA 3.6, fog under the noise, tone mapping 0.3, clearing and output 3.9). The Mobile renderer has no SSAO,
+  SSIL, SSR, SDFGI, volumetric fog, TAA or FSR 2, and glow is off: the haze is plain depth fog on every preset.
+  **Frame time per preset** (GPU ms at 1920 x 1080, the median of three alternating runs, `shot.gd --perfpresets`; this
+  laptop's Intel HD 520 ON BATTERY at 12 - 15%, throttled - between two runs of the same build Medium went from 71 to 92 ms at
+  ref1, so the presets compare with each other but not with mains power, which is several tens of percent faster):
+
+  | GPU ms (fps) | ref1 | ref2 | ref3 | ref4 |
+  | --- | --- | --- | --- | --- |
+  | Low | 44.3 (23) | 26.2 (38) | 29.7 (34) | 34.3 (29) |
+  | Medium | 92.4 (11) | 54.8 (18) | 62.9 (16) | 66.2 (15) |
+  | High | 154.5 (6) | 87.0 (11) | 110.9 (9) | 107.7 (9) |
+
+  An earlier, less throttled run (Low still at 67%): Low 49.3 / 29.7 / 30.7 / 36.0, Medium 71.0 / 41.8 / 46.9 / 53.9, High
+  112.8 / 65.3 / 79.7 / 81.3 ms; scaled to that run, Low at 50% is about 34 / 20 / 22 / 28 ms. What Low spends at ref1
+  (alternating pairs, Low at 67%): the terrain 16 - 19 ms, the carved rock 16 - 20, the walls 5 - 10, the water 5 - 8, the
+  shadows ~4, FXAA ~1. The 30 fps target for Low at all four bookmarks still has to be confirmed on mains power.
 - **Bookmarks:** 4 cameras after the reference pictures (`bookmark_views`, in layout coordinates; an 8th number puts the
-  camera that far in from the nearest rim) - ref1 on a terrace's rim looking along its cliff line, the drop on the left,
-  overhang1 jutting out ahead, the stacked terraces and the mountains beyond (placed with a planner over the exported
-  heightmap),
+  camera that far in from the nearest rim) - ref1 out in the air off the top terrace's edge, looking along its cliff line
+  and down the drop to the canyon river, the two-tier falls beyond (picked from sweeps of cameras over the exported
+  heightmap; the ravines keep clear of the views as they were when the landforms were approved, `VIEW_SPOTS` in
+  `tepui_region.gd`, so reframing a bookmark moves no landform),
   ref2 high over the island plateau looking across the valley at the stacked plateau, ref3 on a rim looking down the canyon,
   ref4 from the air down the valley past arch1 and a sinkhole. F6-F9 in the game, F10-F12 the arches, Page Up / Down every
   carved feature; `shot.gd --bookmark=ref1`. An 8th number puts
@@ -338,8 +400,8 @@ below): pale limestone, lush grass, a hazy blue distance and big soft clouds; no
   running game), `surround_probe.gd` (the base terrain round the region, per direction), `deck_probe.gd` (an arch's walkable
   top along its axis against the terrain), `region_probe.gd` (level, height and nearest edge at layout points - for placing
   cameras), `region_scan.gd` (single-tier 4 km windows); `shot.gd --overview=region`.
-- **Next phase:** 4 materials,
-  vegetation, sky, performance.
+- **Next phase:** 4B - grass blades, trees and forests, ledge moss and ivy, ground clutter (after the polish pass is
+  approved).
 
 ## Layout
 

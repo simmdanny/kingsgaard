@@ -361,10 +361,10 @@ void fragment() {
 		col = greybox_col * mix(0.36, 1.3, clamp((wh - greybox_floor) / greybox_span, 0.0, 1.0));
 		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
 	} else if (!biomes && region_look) {
-		// the region's lush grass: large soft patches, yellower meadows and deeper hollows (its finest mottle fading out far
-		// away); steeper ground - ramps, banks - a little deeper and warmer
+		// the region's lush grass: soft large-scale tint by height, sun and water (its faint grain fading out far away);
+		// steeper ground - ramps, banks - a little deeper and warmer
 		float fine = 1.0 - smoothstep(0.25, 1.4, length(fwidth(v_vertex)));
-		col = region_lawn(wp, fine);
+		col = region_lawn(wp, wh, w_normal, fine);
 		col = mix(col, col * vec3(0.84, 0.86, 0.66), smoothstep(10.0, 38.0, slope) * 0.5);
 		col = mix(col, col * vec3(0.55, 0.62, 0.58), 1.0 - smoothstep(-3.0, 0.3, wh));
 	} else if (!biomes) {

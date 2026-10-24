@@ -14,6 +14,8 @@ uniform vec3 cloud_shade : source_color = vec3(0.66, 0.73, 0.85);
 // how much of the sky the clouds cover (0..1), and how big they are (larger = smaller clouds)
 uniform float coverage = 0.4;
 uniform float cloud_scale = 0.75;
+// (the graphics preset: how many layers of lumps the clouds have - 3 low, 4 medium, 5 high)
+uniform int cloud_octaves = 5;
 
 float sk_hash(vec2 p) {
 	uvec2 q = uvec2(ivec2(floor(p)) + ivec2(1 << 20));
@@ -34,7 +36,7 @@ float sk_heap(vec2 p) {
 	float v = 0.0;
 	float a = 0.55;
 	mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
-	for (int i = 0; i < 5; i++) {
+	for (int i = 0; i < cloud_octaves; i++) {
 		v += a * sk_noise(p);
 		p = rot * p * 2.03 + vec2(1.7, 9.2);
 		a *= 0.5;

@@ -241,14 +241,16 @@ extends Resource
 @export var mist_deck := PackedFloat32Array([18.0, 52.0])
 
 @export_group("Bookmarks")
-## the four camera views after the reference pictures (ref1 high on a plateau's edge looking along its cliff line, ref2 high
+## the four camera views after the reference pictures (ref1 out in the air off a plateau's edge, looking along its cliff line
+## and down the drop to the canyon floor, ref2 high
 ## over a plateau's edge down to the valley floor, ref3 on a canyon's rim looking down it, ref4 the aerial view): name -> [u,
 ## v, height above the ground, look-at u, v, its height above the ground, vertical field of view] in layout coordinates (u
 ## along the main valley, v across it, from the region's centre), framed by hand for this layout; an 8th number puts the
 ## camera at the visible rim nearest the spot (that far in from it), a 9th makes it look along the rim, turned that many
-## degrees in (negative: out over the drop) - see tepui_region.gd _bookmarks
+## degrees in (negative: out over the drop) - see tepui_region.gd _bookmarks. They only place the camera: the ravines keep
+## clear of the views as they were when the landforms were approved (tepui_region.gd VIEW_SPOTS)
 @export var bookmark_views := {
-	"ref1": PackedFloat32Array([-1167.0, 503.0, 14.0, -280.0, -304.0, 225.0, 75.0]),
+	"ref1": PackedFloat32Array([-1088.0, 349.5, 163.0, -209.6, -468.1, -123.0, 65.0]),
 	"ref2": PackedFloat32Array([1635.0, -95.0, 380.0, 179.0, 699.0, 60.0, 75.0]),
 	"ref3": PackedFloat32Array([-60.0, 1200.0, 40.0, -60.0, -500.0, -300.0, 75.0, 4.0, -22.0]),
 	"ref4": PackedFloat32Array([-1700.0, 600.0, 700.0, -124.0, -631.0, 0.0, 75.0]),
@@ -260,9 +262,6 @@ extends Resource
 @export var greybox := false
 ## the grass blades (phase 4B, later): off for now, whatever the game's grass setting
 @export var vegetation := false
-## the sun's shadows reach this far from the camera (m) with four cascades (the plateaus' own shadows across the valley); the
-## game's default (90 m, two cascades) when 0
-@export var shadow_reach := 0.0
 
 
 ## a key for the cache: changes whenever any setting (or the generator version) changes

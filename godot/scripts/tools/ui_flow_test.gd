@@ -1,7 +1,8 @@
 extends SceneTree
 ## MENU FLOW TEST (scripts/tools/ui_flow_test.gd): runs the real game and walks the menus by pressing their buttons - title,
-## Play, a hero, into the game, Esc to pause, Settings (grass off and back on), Back, Resume - checking each step. Leaves the
-## settings as it found them.  Godot_console.exe --path <project> --resolution 1280x720 --script res://scripts/tools/ui_flow_test.gd
+## Play, a hero, into the game, Esc to pause, Settings (grass off and back on, the render scale, the graphics presets), Back,
+## Resume - checking each step. Leaves the settings as it found them.
+##   Godot_console.exe --path <project> --resolution 1280x720 --script res://scripts/tools/ui_flow_test.gd
 
 var main
 var menu
@@ -78,6 +79,17 @@ func _process(dt: float) -> bool:
 				_check(main.grass.visible == (saved.grass > 0 and not grey), "Grass back on" + (" (stays off: the region's vegetation is off)" if grey else ""))
 				S.set_option("render_scale", 0)
 				_check(is_equal_approx(main.get_viewport().scaling_3d_scale, 0.5), "Render scale 50 %")
+				S.set_option("render_scale", saved.render_scale)
+				# (the graphics presets: Low = FXAA, no MSAA, 50 % render scale; High = SMAA, 100 %; then back as it was)
+				var vp: Viewport = main.get_viewport()
+				S.apply_preset(0)
+				_check(vp.screen_space_aa == Viewport.SCREEN_SPACE_AA_FXAA and vp.msaa_3d == Viewport.MSAA_DISABLED
+					and is_equal_approx(vp.scaling_3d_scale, 0.5), "Graphics Low: FXAA, no MSAA, 50 % render scale")
+				S.apply_preset(2)
+				_check(vp.screen_space_aa == Viewport.SCREEN_SPACE_AA_SMAA and is_equal_approx(vp.scaling_3d_scale, 1.0),
+					"Graphics High: SMAA, 100 % render scale")
+				S.graphics = saved.graphics
+				S.shadows = saved.shadows
 				S.set_option("render_scale", saved.render_scale)
 				_press("settings", "Back")
 				_check(menu._current == "pause", "Back from Settings returns to the pause menu")

@@ -25,6 +25,11 @@ const CACHE_DIR := "user://terrain"
 ## found both neighbours hidden - no rock at all, the terrain's step showing in its place.)
 const LOD_BANDS := [0.0, 450.0, 1400.0]
 const LOD_MARGIN := 0.0
+## the walls' far stand-ins (HLOD): the wall pieces gathered per HLOD_CELL m square of the map into one mesh simplified to
+## about HLOD_SHARE of its triangles, drawn instead of its pieces from HLOD_FROM m (to the square's middle) on
+const HLOD_CELL := 600.0
+const HLOD_FROM := 1800.0
+const HLOD_SHARE := 0.18
 
 var cfg
 var gen
@@ -41,6 +46,26 @@ var base := true
 
 var _thread: Thread
 var _imported := false
+## toward the sun (world; main.gd sets it): the rock's lit faces warmer, its shaded ones cooler
+var sun_dir := Vector3(0.45, 0.52, 0.72):
+	set(v):
+		sun_dir = v
+		if _wall_mat != null:
+			_wall_mat.set_shader_parameter("sun_dir", v.normalized())
+			_wall_mat.set_shader_parameter("lawn_light", v.normalized())
+		if terrain != null and terrain.material != null:
+			terrain.material.set_shader_param("lawn_light", v.normalized())
+## the graphics preset's detail (settings.gd PRESETS), applied to the materials once they exist
+var _quality := {}
+var _wall_mat: ShaderMaterial
+var _water_mats := {}
+## the falls the rock knows (it darkens and wets the rock round them - not on the low preset: a loop over all of them per
+## vertex, and the carved rock's meshes are dense)
+var _fall_n := 0
+## near water over the region (for the grass's tint): the texture, its map corner and size
+var _wet_tex: ImageTexture
+var _wet_org := Vector2.ZERO
+var _wet_size := 1.0
 
 
 func _ready() -> void:
@@ -134,6 +159,7 @@ func _process(_dt: float) -> void:
 		m.set_shader_param("snap_origin", region.snap_origin())
 		m.set_shader_param("snap_texels", float(region.fn))
 		m.set_shader_param("greybox_floor", region.floor_h)
+		_lawn_params(func(k, v): m.set_shader_param(k, v))
 	if not base:
 		m.set_shader_param("cliff_angle", cfg.cliff_threshold)
 	m.set_shader_param("debug_view", debug_view)
@@ -181,6 +207,8 @@ func _build_walls() -> void:
 	mat.set_shader_parameter("debug_view", debug_view)
 	mat.set_shader_parameter("greybox", region_cfg.greybox)
 	mat.set_shader_parameter("greybox_floor", region.floor_h)
+	mat.set_shader_parameter("sun_dir", sun_dir.normalized())
+	_wall_mat = mat
 	# (the waterfalls, for the rock's wet streaks beside and below them)
 	var fa: Array[Vector4] = []
 	var fb: Array[Vector4] = []
@@ -194,11 +222,20 @@ func _build_walls() -> void:
 		fb.append(Vector4.ZERO)
 	mat.set_shader_parameter("fall_a", fa)
 	mat.set_shader_parameter("fall_b", fb)
-	mat.set_shader_parameter("fall_n", mini(region.water_falls.size(), 16))
+	_fall_n = mini(region.water_falls.size(), 16)
+	mat.set_shader_parameter("fall_n", _fall_n if _quality.is_empty() or int(_quality.rock) >= 1 else 0)
 	print("terrain: %d waterfalls wet the rock" % mini(region.water_falls.size(), 16))
+	var hl_cells := {}
 	for w in region.walls:
-		var mi := _wall_instance(w, mat)
+		# (a wall piece carries its own chain of coarser meshes, picked by the size on screen; a carved feature has its baked LODs)
+		var mi := _wall_instance(w, mat, not w.get("arch", false))
 		walls.add_child(mi)
+		if not w.get("arch", false) and not (w.verts as PackedVector3Array).is_empty():
+			var c: Vector3 = (w.verts as PackedVector3Array)[0]
+			var key := Vector2i(int(floor((c.x + region.center.x) / HLOD_CELL)), int(floor((c.z + region.center.y) / HLOD_CELL)))
+			if not hl_cells.has(key):
+				hl_cells[key] = []
+			hl_cells[key].append([w, mi])
 		# (a carved feature's mesh comes with two coarser ones, baked from the same volume at twice and four times the voxel:
 		# each drawn only in its own band of distance from the camera - to the mesh's centre; the collision stays the full one)
 		if w.get("arch", false):
@@ -226,8 +263,15 @@ func _build_walls() -> void:
 		body.add_child(cs)
 		walls.add_child(body)
 	walls.set_meta("material", mat)
-	print("terrain: %d wall pieces in %.1f s" % [region.walls.size(), (Time.get_ticks_msec() - t) / 1000.0])
+	var th := Time.get_ticks_msec()
+	var hl := _build_hlod(hl_cells, mat)
+	print("terrain: %d wall pieces in %.1f s (%d far stand-ins in %.1f s)" % [region.walls.size(), (Time.get_ticks_msec() - t) / 1000.0, hl,
+		(Time.get_ticks_msec() - th) / 1000.0])
 	_build_water()
+	_wet_map()
+	_lawn_params(func(k, v): mat.set_shader_parameter(k, v))
+	if not _quality.is_empty():
+		set_quality(_quality)
 
 
 ## the region's water (phase 3): rivers, lakes and pools, waterfalls, their splash and spray, the canyons' mist - each kind with
@@ -266,10 +310,20 @@ func _build_water() -> void:
 		arrays[Mesh.ARRAY_COLOR] = m.colors
 		arrays[Mesh.ARRAY_TEX_UV] = m.uv
 		arrays[Mesh.ARRAY_TEX_UV2] = m.uv2
-		var mesh := ArrayMesh.new()
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		# (a river's own coordinates per vertex - metres along its course, metres across it - for streaks that follow the flow)
+		var flags := 0
+		if m.has("flow"):
+			var fl := PackedFloat32Array()
+			for v in (m.flow as PackedVector2Array):
+				fl.append(v.x)
+				fl.append(v.y)
+			arrays[Mesh.ARRAY_CUSTOM0] = fl
+			flags = Mesh.ARRAY_CUSTOM_RG_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
+		# (the falls' sheets carry coarser levels of detail for far away; not the surfaces - simplified, a river's soft-edged
+		# contour sank under its banks and a pool shrank to a blurred square - nor the billboards, whose four corners sit on
+		# one point)
 		var mi := MeshInstance3D.new()
-		mi.mesh = mesh
+		mi.mesh = _mesh_with_lods(arrays) if str(m.kind) == "fall" else _plain_mesh(arrays, flags)
 		mi.material_override = mats[str(m.kind)]
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.set_meta("water", str(m.kind))
@@ -280,11 +334,12 @@ func _build_water() -> void:
 		walls.add_child(mi)
 		count += 1
 	walls.set_meta("water_materials", mats.values())
+	_water_mats = mats
 	print("terrain: %d water meshes" % count)
 
 
 ## one wall piece's (or carved feature's) mesh
-func _wall_instance(w: Dictionary, mat: Material) -> MeshInstance3D:
+func _wall_instance(w: Dictionary, mat: Material, lods := false) -> MeshInstance3D:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = w.verts
@@ -293,12 +348,165 @@ func _wall_instance(w: Dictionary, mat: Material) -> MeshInstance3D:
 	# (r: where the grass grows - the rock's tops; the faces and the rubble stay rock)
 	if w.has("colors"):
 		arrays[Mesh.ARRAY_COLOR] = w.colors
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
+	mi.mesh = _mesh_with_lods(arrays) if lods else _plain_mesh(arrays)
 	mi.material_override = mat
 	return mi
+
+
+## near water (0..1) over the region, for the grass's tint (deeper green by the rivers and lakes): their surfaces' vertices
+## marked in a 256 x 256 grid over the region (some 17 m a cell), widened by a cell and blurred out over some 60 - 80 m
+func _wet_map() -> void:
+	var nn := 256
+	_wet_size = region.half * 2.0 + 400.0
+	var cc := Vector2(region.center.x, region.center.y)
+	_wet_org = cc - Vector2.ONE * _wet_size * 0.5
+	var g := PackedFloat32Array()
+	g.resize(nn * nn)
+	for m in region.water_meshes:
+		if not (str(m.kind) in ["river", "lake", "pool"]):
+			continue
+		var vs: PackedVector3Array = m.verts
+		var cs: PackedColorArray = m.colors
+		for i in vs.size():
+			if cs[i].a < 0.3:
+				continue
+			var x := int((vs[i].x + cc.x - _wet_org.x) / _wet_size * nn)
+			var z := int((vs[i].z + cc.y - _wet_org.y) / _wet_size * nn)
+			if x > 0 and z > 0 and x < nn - 1 and z < nn - 1:
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						g[(z + dz) * nn + x + dx] = 1.0
+	for it in 2:
+		g = _box_blur(g, nn, 3)
+	for i in g.size():
+		g[i] = minf(g[i] * 1.8, 1.0)
+	_wet_tex = ImageTexture.create_from_image(Image.create_from_data(nn, nn, false, Image.FORMAT_RF, g.to_byte_array()))
+
+
+## a square grid blurred by a box (2 r + 1 cells wide) along each axis in turn
+static func _box_blur(g: PackedFloat32Array, nn: int, r: int) -> PackedFloat32Array:
+	var tmp := PackedFloat32Array()
+	tmp.resize(nn * nn)
+	var out := PackedFloat32Array()
+	out.resize(nn * nn)
+	var inv := 1.0 / (2 * r + 1)
+	for z in nn:
+		var acc := 0.0
+		for x in range(-r, r + 1):
+			acc += g[z * nn + clampi(x, 0, nn - 1)]
+		for x in nn:
+			tmp[z * nn + x] = acc * inv
+			acc += g[z * nn + mini(x + r + 1, nn - 1)] - g[z * nn + maxi(x - r, 0)]
+	for x in nn:
+		var acc := 0.0
+		for z in range(-r, r + 1):
+			acc += tmp[clampi(z, 0, nn - 1) * nn + x]
+		for z in nn:
+			out[z * nn + x] = acc * inv
+			acc += tmp[mini(z + r + 1, nn - 1) * nn + x] - tmp[maxi(z - r, 0) * nn + x]
+	return out
+
+
+## the grass's tint inputs onto a material (the terrain's or the rock's): the floor, the sun, the water map
+func _lawn_params(set_p: Callable) -> void:
+	set_p.call("lawn_floor", region.floor_h)
+	set_p.call("lawn_light", sun_dir.normalized())
+	if _wet_tex != null:
+		set_p.call("lawn_wet", _wet_tex)
+		set_p.call("lawn_wet_origin", _wet_org)
+		set_p.call("lawn_wet_size", _wet_size)
+		set_p.call("lawn_wet_on", true)
+
+
+static func _plain_mesh(arrays: Array, flags := 0) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
+	return mesh
+
+
+## a mesh with its chain of coarser levels of detail (simplified by Godot's importer; the renderer picks one by its size on
+## screen and the viewport's mesh_lod_threshold - the graphics preset)
+static func _mesh_with_lods(arrays: Array) -> ArrayMesh:
+	var im := ImporterMesh.new()
+	im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	im.generate_lods(25.0, 60.0, [])
+	return im.get_mesh()
+
+
+## the walls' far stand-ins: per square of the map, its wall pieces merged into one mesh and simplified to about HLOD_SHARE of
+## their triangles (the coarsest of Godot's own LODs at or under that), shown from HLOD_FROM m away instead of the pieces - each
+## piece's visibility parent is its square's stand-in, so they switch together. Returns how many
+func _build_hlod(cells: Dictionary, mat: Material) -> int:
+	var n := 0
+	for key in cells:
+		var group: Array = cells[key]
+		var vs := PackedVector3Array()
+		var ns := PackedVector3Array()
+		var cs := PackedColorArray()
+		var ids := PackedInt32Array()
+		for e in group:
+			var w: Dictionary = e[0]
+			var o := vs.size()
+			vs.append_array(w.verts)
+			ns.append_array(w.normals)
+			if w.has("colors"):
+				cs.append_array(w.colors)
+			else:
+				var pad := PackedColorArray()
+				pad.resize((w.verts as PackedVector3Array).size())
+				cs.append_array(pad)
+			for i in (w.indices as PackedInt32Array):
+				ids.append(o + i)
+		if ids.is_empty():
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = vs
+		arrays[Mesh.ARRAY_NORMAL] = ns
+		arrays[Mesh.ARRAY_COLOR] = cs
+		arrays[Mesh.ARRAY_INDEX] = ids
+		var im := ImporterMesh.new()
+		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		im.generate_lods(25.0, 60.0, [])
+		var best := ids
+		for li in im.get_surface_lod_count(0):
+			var lid: PackedInt32Array = im.get_surface_lod_indices(0, li)
+			if lid.size() >= 3 and lid.size() <= int(ids.size() * HLOD_SHARE):
+				best = lid
+				break
+			best = lid
+		arrays[Mesh.ARRAY_INDEX] = best
+		var far := MeshInstance3D.new()
+		far.mesh = _plain_mesh(arrays)
+		far.material_override = mat
+		far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		far.visibility_range_begin = HLOD_FROM
+		far.set_meta("wall_hlod", true)
+		walls.add_child(far)
+		for e in group:
+			var mi: MeshInstance3D = e[1]
+			mi.visibility_parent = mi.get_path_to(far)
+		n += 1
+	return n
+
+
+## the graphics preset's detail onto the region's materials (main.gd apply_settings; kept for when they are built)
+func set_quality(pr: Dictionary) -> void:
+	_quality = pr
+	if _wall_mat != null:
+		_wall_mat.set_shader_parameter("rock_quality", int(pr.rock))
+		_wall_mat.set_shader_parameter("fall_n", _fall_n if int(pr.rock) >= 1 else 0)
+	if _water_mats.is_empty():
+		return
+	(_water_mats["river"] as ShaderMaterial).set_shader_parameter("water_quality", int(pr.water))
+	var mist_shader: Shader = load("res://shaders/region_mist.gdshader" if pr.soft else "res://shaders/region_mist_fast.gdshader")
+	for k in ["spray", "drops", "cloud"]:
+		var m: ShaderMaterial = _water_mats[k]
+		m.shader = mist_shader
+		m.set_shader_parameter("mode", {"spray": 1, "drops": 2, "cloud": 3}[k])
+		m.set_shader_parameter("size_scale", float(pr.spray))
+		m.set_shader_parameter("drop_share", float(pr.drops))
 
 
 ## the floating origin: every region re-filed dk regions over (a whole-region shift of the world). Only Terrain3D's region map

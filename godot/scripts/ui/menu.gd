@@ -397,8 +397,16 @@ func _settings() -> VBoxContainer:
 	box.add_theme_constant_override("separation", 6)
 	_option(box, "Window", ["Windowed", "Fullscreen"], "window")
 	_check(box, "VSync", "vsync")
-	_option(box, "Render scale", ["50 %", "75 %", "100 %"], "render_scale")
-	_option(box, "Shadows", ["Off", "Low", "High"], "shadows")
+	# (a preset sets the render scale and the shadows too: their rows follow it)
+	var g := _option(box, "Graphics", ["Low", "Medium", "High"], "graphics")
+	var rs := _option(box, "Render scale", ["50 %", "67 %", "75 %", "100 %"], "render_scale")
+	var sh := _option(box, "Shadows", ["Off", "Low", "High"], "shadows")
+	for c in g.item_selected.get_connections():
+		g.item_selected.disconnect(c.callable)
+	g.item_selected.connect(func(i):
+		Settings.apply_preset(i)
+		rs.selected = Settings.render_scale
+		sh.selected = Settings.shadows)
 	_option(box, "Grass", ["Off", "Low", "High"], "grass")
 	_option(box, "Tree distance", ["Near", "Far"], "trees")
 	var s := HSlider.new()
@@ -411,7 +419,9 @@ func _settings() -> VBoxContainer:
 	s.value_changed.connect(func(v): Settings.set_option("sensitivity", v))
 	box.add_child(_card("Mouse sensitivity", s))
 	_check(box, "Show info (F1)", "info")
-	var hint := _text("Lower the render scale, shadows and grass for a faster game.", _cormorant, 500, 15, 1, Color(SILVER, 0.7))
+	var hint := _text("Lower Graphics for a faster game: it sets the render scale, shadows, anti-aliasing and the detail of rock, water and sky.", _cormorant, 500, 15, 1, Color(SILVER, 0.7))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size = Vector2(480.0, 0.0)
 	box.add_child(hint)
 	return box
 
@@ -430,7 +440,7 @@ func _card(name: String, control: Control) -> PanelContainer:
 	return card
 
 
-func _option(box: VBoxContainer, name: String, items: Array, key: String) -> void:
+func _option(box: VBoxContainer, name: String, items: Array, key: String) -> OptionButton:
 	var o := OptionButton.new()
 	for it in items:
 		o.add_item(it)
@@ -438,6 +448,7 @@ func _option(box: VBoxContainer, name: String, items: Array, key: String) -> voi
 	o.custom_minimum_size = Vector2(170.0, 30.0)
 	o.item_selected.connect(func(i): Settings.set_option(key, i))
 	box.add_child(_card(name, o))
+	return o
 
 
 func _check(box: VBoxContainer, name: String, key: String) -> void:

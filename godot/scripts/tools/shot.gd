@@ -19,7 +19,9 @@ extends Node
 ## --set=key:value,... applies settings for the run (keys as in scripts/ui/settings.gd, e.g. --set=render_scale:0,grass:0). --look=x,y,z (with --orbit) aims the camera at that
 ## point relative to the hero's feet instead of the head - for close-ups of the hands.
 ## --camfile=C:/cams.txt takes many --cam shots in one run: one per line, "C:/out.png x,z,h,tx,tz,th" (the hero and the floating
-## origin moved under each camera, the world streamed in round it before each frame is saved).
+## origin moved under each camera, the world streamed in round it before each frame is saved). A line may name a bookmark
+## instead ("C:/out.png bm:ref1") and end with a graphics preset for that shot ("@0" Low, "@1" Medium, "@2" High), so the four
+## bookmarks on every preset are one run.
 ## --perf=N (after each shot) times N frames of the GPU's work (the viewport's measured render time) with everything drawn, then
 ## with the carved features hidden, the region's walls hidden, the terrain hidden, and all three hidden: the differences are each
 ## group's share; then the sea hidden, and a few cheaper set-ups (MSAA off, render scale 75 / 67% with FSR, the sea off, smaller
@@ -58,6 +60,11 @@ var hide := PackedStringArray()
 var water_debug := false
 ## --perfwater: the water's cost alone, measured on / off / on / off ... (four pairs, so the laptop's drifting clocks average out)
 var perf_water := false
+## --perfpresets: the whole frame on each graphics preset in turn, Low / Medium / High three times over (the drifting clocks
+## average out); --perfbase: what the frame costs with nothing of the world drawn, and each effect of it on its own (the
+## sky, the anti-aliasing, the fog, the tone mapping, the 2D overlay) against that, in alternating pairs
+var perf_presets := false
+var perf_base := false
 ## --perfpairs: each part's cost measured against the whole drawn just before and just after it (all, no water, all, no
 ## terrain, all, ...), so the laptop's drifting clocks cancel out; then the cheapest settings
 var perf_pairs := false
@@ -132,6 +139,10 @@ func _ready() -> void:
 				water_debug = true
 			"perfwater":
 				perf_water = true
+			"perfpresets":
+				perf_presets = true
+			"perfbase":
+				perf_base = true
 			"perfpairs":
 				perf_pairs = true
 			"look":
@@ -142,11 +153,18 @@ func _ready() -> void:
 ", false):
 					var parts := line.strip_edges().split(" ", false)
 					if parts.size() >= 2:
-						queue.append([parts[0], PackedFloat32Array(Array(parts[1].split(",")).map(func(s): return float(s)))])
+						# [path, camera, bookmark, graphics preset (-1: as it is)]
+						var bm := str(parts[1]).substr(3) if str(parts[1]).begins_with("bm:") else ""
+						var cc := PackedFloat32Array() if bm != "" else PackedFloat32Array(Array(parts[1].split(",")).map(func(s): return float(s)))
+						var pre := int(str(parts[2]).substr(1)) if parts.size() >= 3 and str(parts[2]).begins_with("@") else -1
+						queue.append([parts[0], cc, bm, pre])
 				if not queue.is_empty():
 					var first: Array = queue.pop_front()
 					path = first[0]
 					cam = first[1]
+					bookmark = first[2]
+					if int(first[3]) >= 0:
+						settings["graphics"] = int(first[3])
 	active = path != ""
 	if active:
 		# (a screenshot run stays out of the way: no focus taken from what the user is doing - the scripts start it off-screen
@@ -226,7 +244,12 @@ func _capture(main: Node) -> void:
 		var nx: Array = queue.pop_front()
 		path = nx[0]
 		cam = nx[1]
-		main.shot_cam(cam)
+		if int(nx[3]) >= 0:
+			Settings.apply_preset(int(nx[3]))
+		if str(nx[2]) != "":
+			main.go_bookmark(str(nx[2]), false)
+		else:
+			main.shot_cam(cam)
 		_state = 0
 		_t = 0.0
 		_idle = 0
@@ -244,7 +267,7 @@ func _perf(main: Node) -> void:
 	for ch in tw.walls.get_children():
 		if ch.has_meta("carved"):
 			carved.append(ch)
-		elif ch.has_meta("wall"):
+		elif ch.has_meta("wall") or ch.has_meta("wall_hlod"):
 			walls.append(ch)
 	var water := []
 	for ch in tw.walls.get_children():
@@ -260,11 +283,22 @@ func _perf(main: Node) -> void:
 	if perf_pairs:
 		configs = [["all", []]]
 		for x in [["no_water", ["water"]], ["no_terrain", ["terrain"]], ["no_walls", ["walls"]], ["no_carved", ["carved"]],
-				["all_no_msaa", ["-msaa"]], ["all_no_shadows", ["-shadows"]], ["all_no_sea", ["-sea"]],
+				["all_no_aa", ["-aa"]], ["all_no_shadows", ["-shadows"]], ["all_no_sea", ["-sea"]],
 				["none_no_sea", ["carved", "walls", "terrain", "water", "-sea"]]]:
 			configs.append(x)
 			configs.append(["all", []])
-		configs.append(["cut_msaa_scale67_sea_shlow", ["-msaa", "-scale67", "-sea", "-shadowlow"]])
+	if perf_presets:
+		configs = []
+		for k in 3:
+			for p in 3:
+				configs.append(["preset_" + ["Low", "Medium", "High"][p], ["@%d" % p]])
+	if perf_base:
+		var none := ["carved", "walls", "terrain", "water", "-sea"]
+		configs = [["empty", none]]
+		for x in [["-sky", "no_sky"], ["-aa", "no_aa"], ["-fog", "no_fog"], ["-tonemap", "no_tonemap"], ["-hud", "no_hud"]]:
+			configs.append(["empty_" + x[1], none + [x[0]]])
+			configs.append(["empty", none])
+		configs.append(["empty_bare", none + ["-sky", "-aa", "-fog", "-tonemap", "-hud"]])
 	if perf_water:
 		configs = []
 		for k in 4:
@@ -272,6 +306,14 @@ func _perf(main: Node) -> void:
 			configs.append(["water_off", ["water"]])
 	var env: Environment = main._env
 	var msaa := get_viewport().msaa_3d
+	var ssaa := get_viewport().screen_space_aa
+	var preset0: int = Settings.graphics
+	var fog_on := env.fog_enabled
+	var tone := env.tonemap_mode
+	var layers: Array = get_tree().root.find_children("*", "CanvasLayer", true, false)
+	var layers_on := {}
+	for l in layers:
+		layers_on[l] = (l as CanvasLayer).visible
 	var shadows: bool = main._sun.shadow_enabled
 	var bg := env.background_mode
 	var sea_on: bool = main.ocean.visible
@@ -284,20 +326,30 @@ func _perf(main: Node) -> void:
 			keep[nd] = nd.visible
 	for cf in configs:
 		var off: Array = cf[1]
-		for g in groups:
-			for nd in groups[g]:
-				nd.visible = keep[nd] and not off.has(g)
-		get_viewport().msaa_3d = Viewport.MSAA_DISABLED if off.has("-msaa") else msaa
-		main._sun.shadow_enabled = shadows and not off.has("-shadows")
-		env.background_mode = Environment.BG_COLOR if off.has("-sky") else bg
-		main.ocean.visible = sea_on and not off.has("-sea")
-		if off.has("-scale75") or off.has("-scale67"):
-			get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
-			get_viewport().scaling_3d_scale = 0.75 if off.has("-scale75") else 0.667
+		if not off.is_empty() and str(off[0]).begins_with("@"):
+			# (a whole graphics preset, applied as the game does)
+			Settings.apply_preset(int(str(off[0]).substr(1)))
+			for k in 40:
+				await get_tree().process_frame
 		else:
-			get_viewport().scaling_3d_mode = sc_mode
-			get_viewport().scaling_3d_scale = sc_scale
-		RenderingServer.directional_shadow_atlas_set_size(1024 if off.has("-shadowlow") else 2048, true)
+			for g in groups:
+				for nd in groups[g]:
+					nd.visible = keep[nd] and not off.has(g)
+			get_viewport().msaa_3d = Viewport.MSAA_DISABLED if off.has("-msaa") else msaa
+			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED if off.has("-aa") else ssaa
+			main._sun.shadow_enabled = shadows and not off.has("-shadows")
+			env.background_mode = Environment.BG_COLOR if off.has("-sky") else bg
+			env.fog_enabled = fog_on and not off.has("-fog")
+			env.tonemap_mode = Environment.TONE_MAPPER_LINEAR if off.has("-tonemap") else tone
+			for l in layers:
+				(l as CanvasLayer).visible = layers_on[l] and not off.has("-hud")
+			main.ocean.visible = sea_on and not off.has("-sea")
+			if off.has("-scale75") or off.has("-scale67"):
+				get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
+				get_viewport().scaling_3d_scale = 0.75 if off.has("-scale75") else 0.667
+			else:
+				get_viewport().scaling_3d_mode = sc_mode
+				get_viewport().scaling_3d_scale = sc_scale
 		for k in 20:
 			await get_tree().process_frame
 		var gpu := 0.0
@@ -312,9 +364,19 @@ func _perf(main: Node) -> void:
 		print("PERF %s %s gpu=%.2f cpu=%.2f frame=%.2f prims=%d draws=%d size=%dx%d" % [path.get_file(), cf[0], gpu / perf, cpu / perf, frame,
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME), vsz.x, vsz.y])
+	if perf_presets:
+		# (back to the shot's own preset before the rest is put back as it was)
+		Settings.apply_preset(preset0)
+		for k in 20:
+			await get_tree().process_frame
 	for nd in keep:
 		nd.visible = keep[nd]
 	get_viewport().msaa_3d = msaa
+	get_viewport().screen_space_aa = ssaa
+	env.fog_enabled = fog_on
+	env.tonemap_mode = tone
+	for l in layers:
+		(l as CanvasLayer).visible = layers_on[l]
 	main._sun.shadow_enabled = shadows
 	env.background_mode = bg
 	main.ocean.visible = sea_on

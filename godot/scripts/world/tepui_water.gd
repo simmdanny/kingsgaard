@@ -417,6 +417,7 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 	kind.resize(n)
 	var cur := e[0]
 	var q := 0
+	var risers := []
 	while q < n:
 		if e[q] < cur - 0.8:
 			# a riser: rapids over a few tens of metres down to the next tread (the lowest the envelope gets over them)
@@ -427,12 +428,22 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 				var t := float(qq - q) / maxf(q1 - q, 1)
 				w[qq] = lerpf(cur, nl, smoothstep(0.0, 1.0, t))
 				kind[qq] = 1
+			risers.append([q, q1, cur, nl])
 			cur = nl
 			q = q1 + 1
 			continue
 		w[q] = cur
 		kind[q] = 0
 		q += 1
+	# (each riser eased in and out over several metres: a smootherstep from the tread above to the one below, starting some
+	# 12 - 30 m upstream of where the ground drops and arriving flat on the tread below - never above the plain riser, so the
+	# water never stands higher against its banks; the calm water slides into the rapids instead of creasing at a step)
+	for rs in risers:
+		var qa := maxi(int(rs[0]) - maxi(3, (int(rs[1]) - int(rs[0])) / 2 + 2), 1)
+		var qb: int = rs[1]
+		for qq in range(qa, qb + 1):
+			var t := float(qq - qa) / maxf(qb - qa, 1)
+			w[qq] = minf(w[qq], lerpf(float(rs[2]), float(rs[3]), t * t * t * (t * (t * 6.0 - 15.0) + 10.0)))
 	# wider on the long calm treads, narrower over the rapids (eased over some 40 m)
 	var fk := PackedFloat32Array()
 	fk.resize(n)
@@ -490,7 +501,30 @@ func _plan_river(idx: int, rv: PackedFloat32Array, rng: RandomNumberGenerator) -
 		for qq in n:
 			w[qq] = maxf(w[qq], lj)
 		river.w = w
+	river.kf = _slope_foam(pts, w)
 	return river
+
+
+## how white the water runs along a course (0 calm .. 1 rapids): from its surface's slope (full at 7%), eased over some 8 m
+## each way - so the foam comes in as the water starts to tilt, not at a line
+static func _slope_foam(pts: PackedVector2Array, w: PackedFloat32Array) -> PackedFloat32Array:
+	var n := pts.size()
+	var kf := PackedFloat32Array()
+	kf.resize(n)
+	for q in n:
+		var qa := maxi(q - 1, 0)
+		var qb := mini(q + 1, n - 1)
+		kf[q] = clampf(absf(w[qa] - w[qb]) / maxf(pts[qa].distance_to(pts[qb]), 0.1) / 0.07, 0.0, 1.0)
+	var sm := kf.duplicate()
+	for q in n:
+		var acc := 0.0
+		var ws := 0.0
+		for d in range(-2, 3):
+			var wd := 3.0 - absf(d)
+			acc += kf[clampi(q + d, 0, n - 1)] * wd
+			ws += wd
+		sm[q] = acc / ws
+	return sm
 
 
 ## a course's bends opened up to a minimum radius: each point turning more sharply than that is pulled toward the middle of
@@ -697,7 +731,7 @@ func _split_channel(river: Dictionary, lip: Vector2, ln: Vector2, width: float, 
 	ck.resize(m)
 	for q in m:
 		var t := float(q) / (m - 1)
-		cw[q] = lerpf(w[qs], top, smoothstep(0.0, 1.0, t))
+		cw[q] = lerpf(w[qs], top, t * t * t * (t * (t * 6.0 - 15.0) + 10.0))
 		ch[q] = lerpf((river.hw as PackedFloat32Array)[qs] * 0.6, width * 0.55, t)
 		ck[q] = 1 if w[qs] - top > 0.8 else 0
 	var lo := Vector2(INF, INF)
@@ -707,7 +741,8 @@ func _split_channel(river: Dictionary, lip: Vector2, ln: Vector2, width: float, 
 		hi = hi.max(p)
 	rivers.append({"name": "%s side %d" % [river.name, rivers.size()], "level": river.level, "pts": cp, "w": cw, "hw": ch, "kind": ck,
 		"join": rivers.find(river), "from": -1, "mouth": Vector2.INF, "nrm": ln, "nfalls": 0, "into": -1, "length": float(m) * 4.0,
-		"depth": river.depth, "split": true, "lo": lo - Vector2.ONE * (width + BANK + 8.0), "hi": hi + Vector2.ONE * (width + BANK + 8.0)})
+		"depth": river.depth, "split": true, "lo": lo - Vector2.ONE * (width + BANK + 8.0), "hi": hi + Vector2.ONE * (width + BANK + 8.0),
+		"kf": _slope_foam(cp, cw)})
 
 
 ## the ground just past a wall's foot (the level below this one, or the floor)
@@ -970,17 +1005,29 @@ func _river_mesh(ri: int) -> Dictionary:
 	var cols := PackedColorArray()
 	var uvs := PackedVector2Array()
 	var uv2s := PackedVector2Array()
+	var cus := PackedVector2Array()
 	f.resize(na * nb)
 	f.fill(9.0)
 	ys.resize(na * nb)
 	cols.resize(na * nb)
 	uvs.resize(na * nb)
 	uv2s.resize(na * nb)
+	cus.resize(na * nb)
+	# (each course's length up to each of its points: the flow's own coordinates for the water's streaks)
+	for id in ids:
+		if not rivers[id].has("sl"):
+			var cp: PackedVector2Array = rivers[id].pts
+			var sl := PackedFloat32Array()
+			sl.resize(cp.size())
+			for qq in range(1, cp.size()):
+				sl[qq] = sl[qq - 1] + cp[qq].distance_to(cp[qq - 1])
+			rivers[id].sl = sl
 	for j in nb:
 		for i in na:
 			var p := lo + Vector2(i, j) * gs
 			var best: Array = []
 			var bid := -1
+			var near_all := []
 			for id in ids:
 				var lo2: Vector2 = rivers[id].lo
 				var hi2: Vector2 = rivers[id].hi
@@ -989,6 +1036,7 @@ func _river_mesh(ri: int) -> Dictionary:
 				var nr := _near(id, p)
 				if nr.is_empty():
 					continue
+				near_all.append([id, nr])
 				if best.is_empty() or float(nr[0]) - float(nr[3]) < float(best[0]) - float(best[3]):
 					best = nr
 					bid = id
@@ -1001,10 +1049,28 @@ func _river_mesh(ri: int) -> Dictionary:
 			var qf: float = best[1]
 			var q := mini(int(qf), n - 2)
 			var tq := (pts[q + 1] - pts[q]).normalized()
-			var kd: PackedByteArray = river.kind
+			var kd: PackedFloat32Array = river.kf
 			# (the rapids blend along the course, not per cell)
-			var kq := lerpf(float(kd[q]), float(kd[q + 1]), clampf(qf - q, 0.0, 1.0))
+			var kq := lerpf(kd[q], kd[q + 1], clampf(qf - q, 0.0, 1.0))
 			var wl: float = best[2]
+			if near_all.size() > 1:
+				# (where channels overlap - a side channel leaving its river, a tributary joining - their levels and rapids
+				# blend by how near each one's water is, so the surface runs on as one slope instead of stacked flat tiles)
+				var m_best := float(best[0]) - float(best[3])
+				var sw := 0.0
+				var swl := 0.0
+				var skq := 0.0
+				for e in near_all:
+					var nr2: Array = e[1]
+					var wgt := exp(-maxf(float(nr2[0]) - float(nr2[3]) - m_best, 0.0) / 6.0)
+					var rv2: Dictionary = rivers[int(e[0])]
+					var kd2: PackedFloat32Array = rv2.kf
+					var q2 := mini(int(float(nr2[1])), kd2.size() - 2)
+					sw += wgt
+					swl += wgt * float(nr2[2])
+					skq += wgt * lerpf(kd2[q2], kd2[q2 + 1], clampf(float(nr2[1]) - q2, 0.0, 1.0))
+				wl = swl / sw
+				kq = skq / sw
 			var ground: float = r.height_at(p)
 			# (the water ends where the bank rises out of it - a contour, not the grid's steps - never past the bank's foot, and
 			# square at the river's end: over a fall's lip it stops where the sheet begins, never out in the air)
@@ -1019,7 +1085,12 @@ func _river_mesh(ri: int) -> Dictionary:
 			cols[k] = Color(0.5 * kq, lerpf(0.5, 2.6, kq), 0.0, clampf(-fk / 0.6, 0.0, 1.0))
 			uvs[k] = tq
 			uv2s[k] = Vector2(wl - ground, float(best[3]) - float(best[0]))
-	_ms_surface(m, lo, gs, na, nb, f, ys, cols, uvs, uv2s)
+			# (along: metres down the course from its start; across: metres from its middle line, to the left of the flow)
+			var tf := clampf(qf - q, 0.0, 1.0)
+			var on := pts[q].lerp(pts[q + 1], tf)
+			var sl: PackedFloat32Array = river.sl
+			cus[k] = Vector2(lerpf(sl[q], sl[q + 1], tf), signf(tq.cross(p - on)) * float(best[0]))
+	_ms_surface(m, lo, gs, na, nb, f, ys, cols, uvs, uv2s, cus)
 	return m
 
 
@@ -1110,12 +1181,14 @@ func _lake_mesh(li: int) -> Dictionary:
 ## not the grid's steps. The vertices carry the grid's values (a crossing interpolates them, its alpha 0: the surface fades
 ## out to its edge); triangles facing up, normals from them
 func _ms_surface(m: Dictionary, lo: Vector2, gs: float, na: int, nb: int, f: PackedFloat32Array, ys: PackedFloat32Array,
-		cols: PackedColorArray, uvs: PackedVector2Array, uv2s: PackedVector2Array) -> void:
+		cols: PackedColorArray, uvs: PackedVector2Array, uv2s: PackedVector2Array, cus := PackedVector2Array()) -> void:
 	var cc := Vector2(r.center.x, r.center.y)
 	var vs := PackedVector3Array()
 	var cs := PackedColorArray()
 	var uv := PackedVector2Array()
 	var uv2 := PackedVector2Array()
+	var cu := PackedVector2Array()
+	var flow := not cus.is_empty()
 	var vid := PackedInt32Array()
 	vid.resize(na * nb)
 	vid.fill(-1)
@@ -1140,6 +1213,8 @@ func _ms_surface(m: Dictionary, lo: Vector2, gs: float, na: int, nb: int, f: Pac
 						cs.append(cols[ka])
 						uv.append(uvs[ka])
 						uv2.append(uv2s[ka])
+						if flow:
+							cu.append(cus[ka])
 					poly.append(vid[ka])
 				if (f[ka] < 0.0) != (f[kb] < 0.0):
 					var key := Vector2i(mini(ka, kb), maxi(ka, kb))
@@ -1155,6 +1230,8 @@ func _ms_surface(m: Dictionary, lo: Vector2, gs: float, na: int, nb: int, f: Pac
 						cs.append(ce)
 						uv.append(uvs[ka].lerp(uvs[kb], t))
 						uv2.append(uv2s[ka].lerp(uv2s[kb], t))
+						if flow:
+							cu.append(cus[ka].lerp(cus[kb], t))
 					poly.append(int(eid[key]))
 			for t in range(1, poly.size() - 1):
 				idx.append_array(PackedInt32Array([poly[0], poly[t], poly[t + 1]]))
@@ -1162,6 +1239,8 @@ func _ms_surface(m: Dictionary, lo: Vector2, gs: float, na: int, nb: int, f: Pac
 	m.colors = cs
 	m.uv = uv
 	m.uv2 = uv2
+	if flow:
+		m.flow = cu
 	m.indices = idx
 	var ns := PackedVector3Array()
 	ns.resize(vs.size())

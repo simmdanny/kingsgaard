@@ -49,6 +49,11 @@ var _hud: Label
 var _help: Label
 var _sun: DirectionalLight3D
 var _env: Environment
+## the region's sky material (its clouds' detail follows the graphics preset), the sea's two looks (the low preset's skips the
+## depth buffer)
+var _sky_mat: ShaderMaterial
+var _sea_full: Material
+var _sea_fast: ShaderMaterial
 var _spawned := false
 
 
@@ -136,8 +141,12 @@ func _ready() -> void:
 			menu.visible = true
 			menu.show_screen(Shot.ui)
 	Settings.changed.connect(apply_settings)
+	# (a graphics preset first - it sets the render scale and the shadows - then any other setting given, which may override them)
+	if Shot.settings.has("graphics"):
+		Settings.apply_preset(int(Shot.settings.graphics), false)
 	for k in Shot.settings:
-		Settings.set(k, Shot.settings[k])
+		if k != "graphics":
+			Settings.set(k, Shot.settings[k])
 	apply_settings()
 
 
@@ -151,8 +160,36 @@ func apply_settings() -> void:
 	var sc: float = Settings.SCALES[Settings.render_scale]
 	get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if sc < 1.0 else Viewport.SCALING_3D_MODE_BILINEAR
 	get_viewport().scaling_3d_scale = sc
+	var pr: Dictionary = Settings.PRESETS[Settings.graphics]
+	var vp := get_viewport()
+	# anti-aliasing: no MSAA (14 - 18 ms a frame at 1080p on the Intel HD 520), a screen-space pass instead - FXAA on Low, SMAA
+	# on Medium and High; the meshes' coarser levels of detail sooner on the lower presets
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_SMAA if int(pr.aa) == 2 else Viewport.SCREEN_SPACE_AA_FXAA
+	vp.mesh_lod_threshold = float(pr.lod)
+	# the sun's shadows: low = one cascade to 60 m on a 1024 map, high = two cascades to 100 m on a 2048 one (four to 200 m on
+	# the High preset)
 	_sun.shadow_enabled = Settings.shadows > 0
 	RenderingServer.directional_shadow_atlas_set_size(1024 if Settings.shadows == 1 else 2048, true)
+	if Settings.shadows == 1:
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		_sun.directional_shadow_max_distance = 60.0
+	else:
+		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if pr.far_shadows else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		_sun.directional_shadow_max_distance = 200.0 if pr.far_shadows else 100.0
+	# the region's detail (rock, water, spray), the sea and the sky's clouds
+	if terrain != null:
+		terrain.set_quality(pr)
+	if _sea_full == null:
+		_sea_full = ocean.material_override
+	if pr.soft:
+		ocean.material_override = _sea_full
+	else:
+		if _sea_fast == null:
+			_sea_fast = _shader("res://shaders/water_fast.gdshader", {})
+		ocean.material_override = _sea_fast
+	if _sky_mat != null:
+		_sky_mat.set_shader_parameter("cloud_octaves", int(pr.clouds))
 	# (no grass while a region is greybox or has its vegetation off)
 	grass.set_density(0.0 if region_cfg != null and (region_cfg.greybox or not region_cfg.vegetation) else [0.0, 0.5, 1.0][Settings.grass])
 	foliage.set_reach([0.6, 1.0][Settings.trees])
@@ -214,19 +251,24 @@ func _region_atmosphere() -> void:
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/sky_clouds.gdshader")
 	_env.sky.sky_material = sky_mat
-	_env.ambient_light_energy = 0.62
-	_env.fog_light_color = Color(0.52, 0.67, 0.91)
-	_env.fog_density = 0.00034
-	_env.fog_aerial_perspective = 0.75
-	_env.fog_sun_scatter = 0.12
+	_sky_mat = sky_mat
+	# (the shade: the sky's light with a clear blue mixed in - cooler shadows, never black)
+	_env.ambient_light_energy = 0.66
+	_env.ambient_light_color = Color(0.42, 0.58, 0.95)
+	_env.ambient_light_sky_contribution = 0.7
+	# (the haze: its own clear blue rather than the sky's colour behind - the white clouds near the horizon greyed it - and
+	# no warm glow toward the sun to bleach it)
+	_env.fog_light_color = Color(0.40, 0.58, 0.90)
+	_env.fog_density = 0.00031
+	_env.fog_aerial_perspective = 0.3
+	_env.fog_sun_scatter = 0.03
 	_env.fog_sky_affect = 0.0
 	_sun.rotation_degrees = Vector3(-31.0, -35.0, 0.0)
+	# (toward the sun, for the rock's warm lit faces and cool shaded ones: a directional light shines along its -Z)
+	terrain.sun_dir = _sun.transform.basis.z
 	_sun.light_color = Color(1.0, 0.89, 0.74)
 	_sun.light_energy = 1.55
-	if region_cfg.shadow_reach > 0.0:
-		_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-		_sun.directional_shadow_max_distance = region_cfg.shadow_reach
-		_sun.shadow_blur = 2.0
+	_sun.shadow_blur = 2.0
 
 
 func _input_map() -> void:
